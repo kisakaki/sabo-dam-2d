@@ -1,0 +1,9 @@
+node_modules/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+python/result*/
+python/*.png
+python/bed_after.csv
+python/sabo2d_run.ipynb
+test/*.png

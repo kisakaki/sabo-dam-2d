@@ -1,0 +1,393 @@
+<title>連続堰堤 河床変動シミュレータ</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* layout: 左に条件入力の帳面、右に観測窓（鳥瞰・平面・縦断・時系列）を積む作業台 */
+:root{
+  --bg:#f3f4f1; --panel:#fbfbf9; --ink:#1c2422; --ink2:#55605c; --ink3:#87908c;
+  --line:#d9dcd6; --accent:#0f6e6a; --accent-ink:#ffffff; --field:#ffffff;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --sref:#8a8f8c; --sed:#b89a6a; --ero:#3b79c9; --dep:#d2553f;
+  --good:#0ca30c; --warn:#b97a00;
+  --sans:"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic UI","Meiryo",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#141817; --panel:#1b201f; --ink:#e9eeeb; --ink2:#aab4b0; --ink3:#7c8783;
+  --line:#2f3735; --accent:#3fb7ae; --accent-ink:#06211f; --field:#121615;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --sref:#8c938f; --sed:#a88c60; --ero:#5b95de; --dep:#e0705c;
+  --good:#0ca30c; --warn:#e0a021; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#141817; --panel:#1b201f; --ink:#e9eeeb; --ink2:#aab4b0; --ink3:#7c8783;
+  --line:#2f3735; --accent:#3fb7ae; --accent-ink:#06211f; --field:#121615;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --sref:#8c938f; --sed:#a88c60; --ero:#5b95de; --dep:#e0705c;
+  --good:#0ca30c; --warn:#e0a021; color-scheme:dark }
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+#damtab.simple .adv{display:none}
+#damtab:not(.simple) input{min-width:4.2em}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:14px 40px}
+h1{font-size:20px;font-weight:700;margin:0;letter-spacing:.02em;text-wrap:balance}
+h2{font-size:13px;font-weight:700;margin:0;letter-spacing:.06em;color:var(--ink2)}
+.top{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px;margin-bottom:12px}
+.top p{margin:0;color:var(--ink2);font-size:13px}
+.app{display:grid;grid-template-columns:330px minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:900px){.app{grid-template-columns:minmax(0,1fr)}}
+.side{background:var(--panel);border:1px solid var(--line);border-radius:6px;min-width:0}
+.side details{border-bottom:1px solid var(--line);padding:0 12px}
+.side details:last-of-type{border-bottom:0}
+.side summary{cursor:pointer;padding:10px 0;font-weight:700;font-size:13px;letter-spacing:.04em}
+.side .body{display:grid;gap:8px;padding:0 0 12px}
+.row{display:grid;grid-template-columns:minmax(0,1fr) 108px;gap:8px;align-items:center}
+.row label{color:var(--ink2);font-size:13px}
+.row .u{color:var(--ink3);font-size:11px;font-family:var(--mono);margin-left:4px}
+input[type=number],input[type=text],select,textarea{width:100%;background:var(--field);color:var(--ink);border:1px solid var(--line);
+  border-radius:4px;padding:5px 7px;font:13px var(--mono);font-variant-numeric:tabular-nums;min-width:0}
+textarea{min-height:92px;resize:vertical}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible,canvas:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+table.ed{width:100%;border-collapse:collapse}
+table.ed th{font-size:11px;font-weight:500;color:var(--ink3);text-align:left;padding:0 3px 3px}
+table.ed td{padding:2px 2px}
+table.ed td:last-child{width:26px}
+button{font:500 13px var(--sans);border:1px solid var(--line);background:var(--field);color:var(--ink);border-radius:4px;padding:6px 11px;cursor:pointer}
+button:hover{border-color:var(--ink3)}
+button.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700}
+button.sm{padding:3px 8px;font-size:12px}
+button.x{padding:2px 6px;color:var(--ink3)}
+.btns{display:flex;flex-wrap:wrap;gap:6px}
+.note{font-size:12px;color:var(--ink3);margin:0}
+.apply{position:sticky;bottom:0;background:var(--panel);padding:10px 12px;border-top:1px solid var(--line);border-radius:0 0 6px 6px;display:grid;gap:6px}
+.main{display:grid;gap:12px;min-width:0}
+.bar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 12px}
+.bar .grow{flex:1 1 160px;min-width:0}
+.prog{height:6px;background:var(--line);border-radius:3px;overflow:hidden}
+.prog i{display:block;height:100%;width:0;background:var(--accent)}
+.status{font:12px var(--mono);color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 12px;min-width:0}
+.card .hd{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;justify-content:space-between;margin-bottom:8px}
+.card .hd .opts{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:12px;color:var(--ink2)}
+.card .hd select{width:auto;font-family:var(--sans)}
+.card .hd label{display:inline-flex;gap:4px;align-items:center}
+canvas{display:block;max-width:100%}
+.chartwrap canvas{width:100%}
+#c3d{width:100%;border-radius:4px;touch-action:none;cursor:grab;background:#b9cfdd}
+#plan{width:100%;border-radius:3px;background:#777}
+.legend{display:flex;gap:8px;align-items:center;font:11px var(--mono);color:var(--ink2);margin-top:6px;flex-wrap:wrap}
+.legend canvas{width:180px;height:10px;border-radius:2px}
+.key{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--ink2);margin-top:6px}
+.key i{display:inline-block;width:18px;height:0;border-top:2px solid;vertical-align:middle;margin-right:5px}
+.key i.d{border-top-style:dashed}
+.key i.b{height:9px;border:0;border-radius:2px}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (max-width:1150px){.two{grid-template-columns:minmax(0,1fr)}}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.tile{background:var(--panel);padding:9px 12px}
+.tile .k{font-size:11px;color:var(--ink3);letter-spacing:.04em}
+.tile .v{font:500 19px var(--mono);font-variant-numeric:tabular-nums}
+.tile .v small{font-size:11px;color:var(--ink3);margin-left:3px}
+.chartwrap{position:relative}
+.tip{position:absolute;pointer-events:none;background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:4px 7px;font:11px var(--mono);color:var(--ink);white-space:nowrap;z-index:3;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+table.res{border-collapse:collapse;font:12px var(--mono);font-variant-numeric:tabular-nums;width:100%}
+table.res th,table.res td{padding:3px 8px;border-bottom:1px solid var(--line);text-align:right}
+table.res th{font-family:var(--sans);font-weight:500;color:var(--ink3)}
+table.res th:first-child,table.res td:first-child{text-align:left}
+table.res th,table.res td{white-space:nowrap}
+.scroll{overflow-x:auto}
+.doc{font-size:13px;color:var(--ink2);max-width:78ch}
+.doc h3{font-size:13px;color:var(--ink);margin:14px 0 4px}
+.doc p,.doc ul{margin:4px 0}
+.doc code{font-family:var(--mono);font-size:12px}
+.doc li{margin:2px 0}
+</style>
+
+<div class="top">
+  <h1>連続堰堤 河床変動シミュレータ</h1>
+  <p>平面2次元浅水流 × 混合粒径の掃流砂。条件を変えて「適用して最初から」を押すと再計算します。</p>
+</div>
+
+<div class="app">
+  <aside class="side" id="side">
+    <details open><summary>ハイドロ（水と土砂の供給）</summary><div class="body">
+      <div class="row"><label for="h_mode">波形</label><select id="h_mode"><option value="tri">三角形</option><option value="const">一定</option><option value="table">表で入力</option></select></div>
+      <div id="h_par" class="body" style="padding:0">
+        <div class="row"><label for="h_qb">基底流量<span class="u">m³/s</span></label><input type="number" id="h_qb" step="1" min="0"></div>
+        <div class="row"><label for="h_qp">ピーク流量<span class="u">m³/s</span></label><input type="number" id="h_qp" step="1" min="0"></div>
+        <div class="row"><label for="h_tp">ピーク時刻<span class="u">分</span></label><input type="number" id="h_tp" step="5" min="1"></div>
+        <div class="row"><label for="h_td">継続時間<span class="u">分</span></label><input type="number" id="h_td" step="10" min="5"></div>
+        <div class="row"><label for="h_cs">供給土砂濃度 Qs/Q<span class="u">%</span></label><input type="number" id="h_cs" step="0.1" min="0"></div>
+      </div>
+      <div id="h_tab" hidden>
+        <p class="note">1行に「時刻[分], 流量[m³/s], 土砂量[m³/s]」。土砂量は実質体積。3列目を省くと濃度から計算します。</p>
+        <textarea id="h_table" spellcheck="false"></textarea>
+        <div class="row" style="margin-top:8px"><label for="h_cs2">供給土砂濃度（3列目なしの場合）<span class="u">%</span></label><input type="number" id="h_cs2" step="0.1" min="0"></div>
+      </div>
+    </div></details>
+
+    <details open><summary>河道地形</summary><div class="body">
+      <div class="row"><label for="g_src">地形の作り方</label><select id="g_src"><option value="param">数値で指定</option><option value="survey">横断・縦断の測量値</option><option value="csv">格子の CSV を読み込む</option></select></div>
+      <p class="note" style="margin:0">モデル渓流（写真の河道を参考にした架空の地形。押すと「数値で指定」に切り替わり、地形と堰堤の配置が入れ替わります）</p>
+      <div class="btns" style="margin-top:4px"><button class="sm" id="pre_A">床固工群の渓流</button><button class="sm" id="pre_B">狭窄部と広い堆砂域</button><button class="sm" id="pre_S">単純な直線水路</button></div>
+      <ol class="note" style="margin:6px 0 0;padding-left:1.3em">
+        <li>「地形の作り方」を選ぶ（モデル渓流のボタンなら ②③ は不要）</li>
+        <li>ファイルを選ぶ。横断 CSV は「横断のファイル」、縦断 CSV は「縦断のファイル」、格子 CSV は「格子の CSV を読み込む」の「ファイル」。欄を間違えても、中身から見分けて正しい欄に入れます</li>
+        <li>「堰堤の諸元」に堰堤を入れる（位置は地形の最上流を 0 とした距離）</li>
+        <li>いちばん下の「適用して最初から」を押す → 地形が切り替わる</li>
+        <li>上の「▶ 計算開始」を押す</li>
+      </ol>
+      <p class="note" style="margin:4px 0 0">「CSV 欄へ」「書き出す」「コピー」のボタンは、地形を保存したいときだけ使います。押さなくても計算できます。</p>
+      <p class="note" id="file_note" hidden style="color:var(--acc,#0b6e64);font-weight:600"></p>
+      <div id="g_param" class="body" style="padding:0">
+      <div class="row"><label for="g_L">区間長<span class="u">m</span></label><input type="number" id="g_L" step="20" min="60"></div>
+      <div class="row"><label for="g_B">川幅（谷底幅）<span class="u">m</span></label><input type="number" id="g_B" step="2" min="8"></div>
+      <details style="border:0;padding:0"><summary style="font-weight:500">川幅を途中で変える</summary><div class="body">
+        <table class="ed" id="wtab"><thead><tr><th>位置 x [m]</th><th>川幅 [m]</th><th></th></tr></thead><tbody></tbody></table>
+        <div class="btns"><button class="sm" id="w_add">＋ 変化点を追加</button><button class="sm" id="w_ex">例：狭窄→拡幅</button><button class="sm" id="w_clr">一様に戻す</button></div>
+        <p class="note">変化点の間は直線でつなぎます。行があるときは上の「川幅」より優先します。行がなければ一様です。</p>
+      </div></details>
+      <div class="row"><label for="g_I">縦断勾配 1/<span class="u">–</span></label><input type="number" id="g_I" step="1" min="3"></div>
+      <div class="row"><label for="g_S">横断勾配（中央へ）<span class="u">%</span></label><input type="number" id="g_S" step="0.5" min="0"></div>
+      <div class="row"><label for="b_mode">平面形</label><select id="b_mode"><option value="none">直線</option><option value="sine">正弦波の蛇行</option><option value="table">中心線と川幅を表で入力（湾曲・狭窄）</option></select></div>
+      <div id="b_sine" class="body" style="padding:0" hidden>
+        <div class="row"><label for="b_amp">振幅<span class="u">m</span></label><input type="number" id="b_amp" step="5" min="0"></div>
+        <div class="row"><label for="b_wl">波長<span class="u">m</span></label><input type="number" id="b_wl" step="10" min="20"></div>
+        <div class="row"><label for="b_x0">蛇行の始まり x<span class="u">m</span></label><input type="number" id="b_x0" step="10" min="0"></div>
+        <div class="row"><label for="b_x1">蛇行の終わり x<span class="u">m</span></label><input type="number" id="b_x1" step="10" min="0"></div>
+      </div>
+      <div id="b_tab" class="body" style="padding:0" hidden>
+        <table class="ed" id="btab"><thead><tr><th>位置 x [m]</th><th>中心線の横ずれ [m]</th><th>川幅 [m]</th><th></th></tr></thead><tbody></tbody></table>
+        <div class="btns"><button class="sm" id="b_add">＋ 点を追加</button><button class="sm" id="b_ex">例：S字の湾曲</button><button class="sm" id="b_ex2">例：湾曲＋狭窄</button></div>
+      </div>
+      <p class="note" id="b_note" hidden>横ずれは下流を向いて左が正です。横ずれは点の間を滑らかな曲線で、川幅は直線でつなぎます。表の「川幅」を入れると、湾曲と一緒に狭窄部や拡幅部を作れます（空欄の行は飛ばし、1つも入れなければ上の「川幅」と「川幅を途中で変える」を使います）。川幅は中心線に直角に測ります。片岸だけを張り出させるときは、横ずれも同時にずらします（例：左岸だけ 10 m 狭めるなら、川幅を 10 m 減らし、横ずれを −5 m）。曲がりの角度は 50° 程度までにしてください。</p>
+      <details style="border:0;padding:0"><summary style="font-weight:500">渓流の作り込み（澪筋・起伏・谷壁・支渓）</summary><div class="body">
+        <div class="row"><label for="v_chD">澪筋（低水路）の深さ<span class="u">m</span></label><input type="number" id="v_chD" step="0.1" min="0"></div>
+        <div class="row"><label for="v_chW">澪筋の幅<span class="u">m</span></label><input type="number" id="v_chW" step="1" min="0"></div>
+        <div class="row"><label for="v_chL">澪筋の蛇行波長<span class="u">m、0＝自動</span></label><input type="number" id="v_chL" step="10" min="0"></div>
+        <div class="row"><label for="v_rel">谷底の起伏（砂州・淵）<span class="u">m</span></label><input type="number" id="v_rel" step="0.05" min="0"></div>
+        <div class="row"><label for="v_wH">谷壁の高さ<span class="u">m</span></label><input type="number" id="v_wH" step="1" min="0"></div>
+        <div class="row"><label for="v_wG">谷壁の勾配（高さ÷水平）</label><input type="number" id="v_wG" step="0.1" min="0.2"></div>
+        <div class="row"><label for="v_wR">岸の出入り<span class="u">m</span></label><input type="number" id="v_wR" step="0.5" min="0"></div>
+        <p class="note">支渓の扇状地（崖錐）：岸に頂点を置いた円錐を谷底に重ねます。流れを反対の岸へ押しやります。</p>
+        <table class="ed" id="ftab"><thead><tr><th>位置 x [m]</th><th>岸</th><th>半径 [m]</th><th>高さ [m]</th><th></th></tr></thead><tbody></tbody></table>
+        <div class="btns"><button class="sm" id="f_add">＋ 扇状地を追加</button><button class="sm" id="f_clr">すべて消す</button></div>
+        <p class="note">澪筋は谷底の中を滑らかに蛇行する初期の低水路です。起伏は砂州と淵の大きさの凹凸です。どれも 0 にすると、平らな谷底（横断勾配だけ）に戻ります。谷壁の高さ 0 は、堰堤の高さから決めます。</p>
+      </div></details>
+      </div>
+      <div id="g_survey" class="body" style="padding:0" hidden>
+        <p class="note">横断の値（x, s, z）と縦断の値（x, z）から地形を作ります。x は流下方向の距離、s は左岸からの距離、z は標高 [m] です。縦断を与えると、各断面の最深部の高さをその縦断形に合わせます。横断を空にすると、断面は「数値で指定」の川幅・横断勾配の形になります。</p>
+        <div class="row"><label for="sv_xs_file">横断のファイル</label><input type="file" id="sv_xs_file" accept=".csv,.txt,.tsv,text/csv,text/plain" style="font-size:12px"></div>
+        <textarea id="sv_xs" spellcheck="false" placeholder="x, s, z（1行に1点。同じ x の点が1つの断面）"></textarea>
+        <div class="row"><label for="sv_long_file">縦断のファイル</label><input type="file" id="sv_long_file" accept=".csv,.txt,.tsv,text/csv,text/plain" style="font-size:12px"></div>
+        <textarea id="sv_long" spellcheck="false" placeholder="x, z（最深河床高。省略可）" style="min-height:64px"></textarea>
+        <div class="row"><label for="sv_align">断面のそろえ方</label><select id="sv_align"><option value="thalweg">最深部をそろえる</option><option value="left">左岸端をそろえる</option><option value="center">断面の中央をそろえる</option></select></div>
+        <div class="row"><label for="sv_wall">断面の外側の谷壁勾配</label><input type="number" id="sv_wall" step="0.1" min="0.1" value="1"></div>
+        <div class="row"><label for="sv_fh">谷底とみなす高さ<span class="u">m</span></label><input type="number" id="sv_fh" step="0.5" min="0.1" value="3"></div>
+        <div class="btns"><button class="sm" id="sv_test">テスト形状を入れる</button><button class="sm" id="sv_clr">欄を空にする</button><button class="sm" id="sv_grid" title="計算には不要。格子にした地形を保存したいときに使います">（任意）格子にした地形を CSV 欄へ写す</button></div>
+        <p class="note" id="sv_info"></p>
+        <p class="note">新しい横断だけを読み込むと、縦断の欄には前の値が残ります。別の場所の地形に替えるときは、先に「欄を空にする」を押してください。</p>
+        <p class="note">断面の間は、最深部の左右それぞれを幅で正規化して比例配分で補間します。最深部（澪筋）は断面の間でもつながります。</p>
+      </div>
+      <div id="g_csv" class="body" style="padding:0" hidden>
+        <div class="row"><label for="csv_file">ファイル</label><input type="file" id="csv_file" accept=".csv,.txt,.tsv,text/csv,text/plain" style="font-size:12px"></div>
+        <textarea id="csv_text" spellcheck="false" placeholder="ここに貼り付けることもできます"></textarea>
+        <div class="row"><label for="csv_cs">格子間隔（行列形式）<span class="u">m</span></label><input type="number" id="csv_cs" step="0.5" min="0.1" value="2"></div>
+        <div class="row"><label for="csv_I">縦断勾配を変える 1/<span class="u">空欄＝そのまま</span></label><input type="number" id="csv_I" step="1" min="3" placeholder="そのまま"></div>
+        <div class="row"><label for="csv_fh">谷底とみなす高さ<span class="u">m</span></label><input type="number" id="csv_fh" step="0.5" min="0.1" value="3"></div>
+        <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="csv_tr">行と列を入れ替える</label>
+        <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="csv_flip">流下方向を逆にする</label>
+        <p class="note" id="csv_info">形式は2通りです。①行列：1行目が左岸側、左の列が上流、値は標高 [m]。②x, y, z の3列：x は流下方向、y は左岸側が正。区切りはカンマ・タブ・空白のどれでも構いません。</p>
+        <p class="note">各横断の最低点から「谷底とみなす高さ」までを侵食できる河床とし、それより高い所は侵食しない斜面として扱います。</p>
+      </div>
+      <details style="border:0;padding:0"><summary style="font-weight:500">計算後の河床から続ける・保存する（任意）</summary><div class="body">
+      <p class="note">計算した後の河床を初期地形にして、もう一度出水を流すときのボタンです。堰堤は前と同じ位置・向き・天端標高で置き直します。</p>
+      <div class="btns"><button class="sm" id="csv_cont">この河床から続けて計算</button><button class="sm" id="csv_save">河床を CSV ファイルに保存</button></div>
+      <div class="btns"><button class="sm" id="csv_now">CSV 欄へ入れるだけ</button><button class="sm" id="csv_copy">CSV をコピー</button></div>
+      <p class="note">保存した CSV には堰堤の諸元もコメント行（# dam …）で書いてあります。あとでこのファイルを読み込むと、堰堤も同じ場所に戻ります。</p>
+      <p class="note" id="csv_msg" hidden></p>
+      </div></details>
+      <div class="row"><label for="g_P">初期河床の凹凸<span class="u">cm</span></label><input type="number" id="g_P" step="1" min="0"></div>
+      <div class="row"><label for="g_D">侵食可能深<span class="u">m</span></label><input type="number" id="g_D" step="0.5" min="0.2"></div>
+      <div class="row"><label for="g_seed">乱数の種<span class="u">–</span></label><input type="number" id="g_seed" step="1" min="1"></div>
+    </div></details>
+
+    <details open><summary>堰堤の諸元</summary><div class="body">
+      <div class="btns"><button class="sm" id="pre_low">低ダム群</button><button class="sm" id="pre_high">高ダム1基</button><button class="sm" id="pre_none">堰堤なし</button></div>
+      <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="d_adv">向き・中心・天端標高・堤長も指定する</label>
+      <div style="overflow-x:auto"><table class="ed simple" id="damtab"><thead><tr><th>位置 x [m]</th><th>堤高 [m]</th><th>水通し幅 [m]</th><th class="adv">回転角 [°]</th><th class="adv">中心 y [m]</th><th class="adv">天端標高 [m]</th><th class="adv">堤長 [m]</th><th></th></tr></thead><tbody></tbody></table></div>
+      <div class="btns"><button class="sm" id="dam_add">＋ 1基追加</button><button class="sm" id="dam_fix" title="自動で決まった向きなどを表に書き込みます">いまの堰堤を表に固定</button></div>
+      <p class="note" id="dam_adv_note" hidden>空欄は自動（向きは河道の中心線に直角、中心は谷の中心、天端標高は河床＋堤高、堤長は両岸の谷壁まで）。回転角は、x 軸に直角な向きから反時計回りに測った角度で、±80° まで。中心 y と天端標高は、平面図・横断図の座標と標高です。天端標高を入れると、堤高は袖の高さと水通しの深さの目安にだけ使います。</p>
+      <p class="note" id="dam_note" hidden style="color:var(--err,#b3261e)"></p>
+      <p class="note">位置は上流端からの距離（堰堤の中心）。堰堤は河道の中心線に直角、つまり両岸に直角に置きます。水通し幅 0 は全幅越流（水平な天端）。</p>
+      <div class="row"><label for="d_wing">袖部の高さ<span class="u">m</span></label><input type="number" id="d_wing" step="0.5" min="0"></div>
+      <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="d_fill">はじめから満砂にする（既設の堰堤）</label>
+      <div class="row" id="d_fill_row" hidden><label for="d_fill_r">満砂の勾配（元の勾配に対する比）</label><input type="number" id="d_fill_r" step="0.1" min="0.05" max="1" value="0.5"></div>
+      <p class="note" id="d_fill_note" hidden>各堰堤の上流を、天端から「元の勾配 × 比」の勾配で土砂を満たした状態から始めます。比 0.5 は計画堆砂勾配を元河床勾配の 1/2 とする慣用の値です。堆砂量の表と河床変動量は、この満砂の状態からの変化です。</p>
+      <details style="border:0;padding:0"><summary style="font-weight:500">等間隔でまとめて配置</summary><div class="body">
+        <div class="row"><label for="gen_n">基数</label><input type="number" id="gen_n" value="7" min="1" step="1"></div>
+        <div class="row"><label for="gen_x0">最上流の位置<span class="u">m</span></label><input type="number" id="gen_x0" value="60" step="5"></div>
+        <div class="row"><label for="gen_s">間隔<span class="u">m</span></label><input type="number" id="gen_s" value="45" step="5"></div>
+        <div class="row"><label for="gen_h">堤高<span class="u">m</span></label><input type="number" id="gen_h" value="1.2" step="0.1"></div>
+        <div class="row"><label for="gen_b">水通し幅<span class="u">m</span></label><input type="number" id="gen_b" value="0" step="1"></div>
+        <div class="btns"><button class="sm" id="gen_go">この配置にする</button></div>
+      </div></details>
+    </div></details>
+
+    <details><summary>粒径と河床材料</summary><div class="body">
+      <table class="ed" id="grtab"><thead><tr><th>粒径 [mm]</th><th>河床 [%]</th><th>供給 [%]</th><th></th></tr></thead><tbody></tbody></table>
+      <div class="btns"><button class="sm" id="gr_add">＋ 粒径階を追加</button></div>
+      <div class="row"><label for="s_n">Manning の粗度係数 n</label><input type="number" id="s_n" step="0.005" min="0.01"></div>
+      <div class="row"><label for="s_tcm">限界掃流力の式（平均粒径）</label><select id="s_tcm"><option value="atm">芦田・高橋・水山</option><option value="iwagaki">岩垣式</option><option value="const">一定値</option></select></div>
+      <div class="row" id="s_tc_row" hidden><label for="s_tc">τ*c（一定値）</label><input type="number" id="s_tc" step="0.005" min="0.01"></div>
+      <div class="row"><label for="s_hid">粒径別の限界掃流力</label><select id="s_hid"><option value="atm">芦田・高橋・水山</option><option value="egiazaroff">修正 Egiazaroff</option></select></div>
+      <p class="note" id="s_tc_note"></p>
+      <div class="row"><label for="s_por">空隙率 λ</label><input type="number" id="s_por" step="0.05" min="0.1" max="0.7"></div>
+      <div class="row"><label for="s_rep">安息角<span class="u">°</span></label><input type="number" id="s_rep" step="1" min="15" max="60"></div>
+    </div></details>
+
+    <details><summary>計算条件</summary><div class="body">
+      <div class="row"><label for="c_dx">格子幅<span class="u">m</span></label><select id="c_dx"><option>1.5</option><option>2</option><option>2.5</option><option>3</option><option>4</option></select></div>
+      <div class="row"><label for="c_mf">河床変動の加速係数</label><input type="number" id="c_mf" step="1" min="1" max="50"></div>
+      <div class="row"><label for="c_ord">空間精度</label><select id="c_ord"><option value="2">2次（推奨）</option><option value="1">1次</option></select></div>
+      <p class="note">加速係数を大きくすると速く終わりますが、出水の立ち上がりが区間の通過時間より短くなると流量の遅れが出ます。精度を優先するなら 1〜2。</p>
+    </div></details>
+    <div class="apply">
+      <button class="pri" id="apply">適用して最初から</button>
+      <p class="note" id="gridinfo"></p>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="bar">
+      <button class="pri" id="run">▶ 計算開始</button>
+      <button id="reset">最初に戻す</button>
+      <button id="saveref" title="いまの結果を保存し、次の計算に破線で重ねます">比較用に保存</button>
+      <div class="grow"><div class="prog"><i id="prog"></i></div><div class="status" id="status"></div></div>
+    </div>
+
+    <div class="tiles" id="tiles"></div>
+
+    <div class="card">
+      <div class="hd"><h2>鳥瞰</h2>
+        <div class="opts">
+          <label>表示 <select id="v_mode">
+            <option value="real">写実</option><option value="bed">河床位（標高）</option><option value="bedrel">河床位（初期勾配を除く）</option><option value="depth">水深</option><option value="vel">流速</option>
+            <option value="dz">河床変動量</option><option value="dm">表層の平均粒径</option><option value="tau">無次元掃流力 τ*</option><option value="tcr">限界掃流力 τ*c（平均粒径）</option><option value="fr">フルード数</option>
+          </select></label>
+          <label>高さ強調 <select id="v_vex"><option>1</option><option selected>2</option><option>3</option><option>5</option></select>倍</label>
+          <label><input type="checkbox" id="v_cont"> 等高線</label>
+          <label>礫の表示 <select id="v_rock"><option value="0">なし</option><option value="1">実寸</option><option value="3">3倍</option><option value="5" selected>5倍</option><option value="8">8倍</option></select></label>
+          <label><input type="checkbox" id="v_turb"> 濁水</label>
+          <label><input type="checkbox" id="v_tree" checked> 樹木</label>
+          <label>視点 <select id="v_view"><option value="home">斜めから</option><option value="top">真上から</option><option value="up">上流から</option><option value="down">下流から</option><option value="left">左岸から</option></select></label>
+          <button class="sm" id="v_zi" aria-label="拡大">＋</button><button class="sm" id="v_zo" aria-label="縮小">－</button><button class="sm" id="v_home">視点を戻す</button>
+        </div>
+      </div>
+      <canvas id="c3d" tabindex="0" aria-label="鳥瞰図。ドラッグで回転、Shift+ドラッグで移動"></canvas>
+      <p class="note" id="hint3d">左ドラッグ：回転　右ドラッグ（または Shift＋ドラッグ）：移動　ホイール：カーソルの位置へ拡大・縮小　ダブルクリック：その点を中心にする　2本指：拡大縮小と移動　キー（図をクリック後）：矢印で移動、Shift＋矢印で回転、＋−で拡大縮小。写実表示では、河床の質感が表層の粒径で変わります（粗い礫ほどごつごつ、細かいほどさらさら）。</p>
+    </div>
+
+    <div class="card">
+      <div class="hd"><h2>平面（真上から）　流れは左→右</h2><div class="opts"><label><input type="checkbox" id="p_core" checked> 流心線</label></div></div>
+      <div class="chartwrap"><canvas id="plan"></canvas><div class="tip" id="plan_tip" hidden></div></div>
+      <div class="legend" id="legend"></div>
+    </div>
+
+    <div class="card">
+      <div class="hd"><h2 id="xs_title">横断</h2>
+        <div class="opts"><label for="xs_x">位置</label><input type="range" id="xs_x" min="0" max="400" step="1" value="200" style="width:200px"><span id="xs_val" style="font-family:var(--mono)"></span></div>
+      </div>
+      <p class="note" style="margin:-4px 0 6px">平面図をクリックしても位置を変えられます。下流を向いて見た横断で、左が左岸です。</p>
+      <div class="chartwrap"><canvas id="xsec"></canvas><div class="tip" hidden></div></div>
+      <div class="key" id="xs_key"></div>
+    </div>
+
+    <div class="card">
+      <div class="hd"><h2>縦断</h2>
+        <div class="opts">
+          <button class="sm" id="pz_in" aria-label="縦断図を拡大">＋</button><button class="sm" id="pz_out" aria-label="縦断図を縮小">－</button><button class="sm" id="pz_all">全体</button>
+          <label><input type="checkbox" id="l_det"> 初期勾配を差し引く</label>
+          <label>河床 <select id="l_bed"><option value="mean">横断平均</option><option value="min">最深</option></select></label>
+        </div>
+      </div>
+      <p class="note" style="margin:-4px 0 6px">ホイールで拡大縮小、ドラッグで移動、ダブルクリックで全体に戻ります。下の縦断分布も同じ範囲で表示します。</p>
+      <div class="chartwrap"><canvas id="prof"></canvas><div class="tip" hidden></div></div>
+      <div class="key" id="prof_key"></div>
+      <div class="hd" style="margin-top:12px"><h2>縦断分布</h2>
+        <div class="opts"><label>項目 <select id="l_var"><option value="dm">表層の平均粒径 [mm]</option><option value="qs">流砂量 [m³/s]</option><option value="wet">水面幅 [m]</option><option value="dz">平均河床変動量 [m]</option></select></label></div>
+      </div>
+      <div class="chartwrap"><canvas id="strip"></canvas><div class="tip" hidden></div></div>
+    </div>
+
+    <div class="two">
+      <div class="card"><div class="hd"><h2>流量 [m³/s]</h2></div><div class="chartwrap"><canvas id="tsq"></canvas><div class="tip" hidden></div></div><div class="key" id="tsq_key"></div></div>
+      <div class="card"><div class="hd"><h2>流砂量 [m³/s]（実質体積）</h2></div><div class="chartwrap"><canvas id="tss"></canvas><div class="tip" hidden></div></div><div class="key" id="tss_key"></div></div>
+    </div>
+
+    <div class="card">
+      <div class="hd"><h2>堰堤ごとの堆砂量（空隙込み）</h2></div>
+      <div class="scroll"><table class="res" id="damres"></table></div>
+    </div>
+
+    <div class="card">
+      <details><summary style="cursor:pointer;font-weight:700">モデルの説明と参考文献</summary>
+      <div class="doc">
+        <h3>流れ</h3>
+        <p>平面2次元浅水流方程式（保存形）を、セル中心の有限体積法で解きます。数値流束は HLL 近似リーマン解法、河床勾配項は静水圧再構築（Audusse ら 2004、Chen・Noelle 2017 の形）で扱います。水深 h と水位 η を minmod 制限付きで区分線形に再構築するので、静水と等流の両方を厳密に保ちます。抵抗は Manning 則です。堰堤の越流、跳水、乾湿の境界をそのまま計算できます。</p>
+        <h3>流砂と河床変動</h3>
+        <ul>
+          <li>粒径階ごとの掃流砂量は芦田・道上式。有効摩擦速度は対数則から求めます。</li>
+          <li>平均粒径の限界掃流力は次の3通りから選べます。
+            <ul>
+              <li>芦田・高橋・水山（1978）の式(24)：τ*c = 0.04×10^(1.72 i)。i は各セルの流れの向きの河床勾配で、0〜0.2 に制限します。</li>
+              <li>岩垣式（1956）：粒径から u*c を求めます。原式は σ/ρ = 2.65 の値なので、(σ/ρ − 1)/1.65 を掛けて補正します。勾配の効果は入りません。</li>
+              <li>一定値</li>
+            </ul></li>
+          <li>粒径別の限界掃流力は次の2通りから選べます。
+            <ul>
+              <li>芦田・高橋・水山の実験結果：混合砂礫では、各粒径の限界掃流力（次元のある値）が平均粒径の値とほぼ等しくなります。つまり u*ci = u*cm です。この結果は d/dm ≥ 0.4 で得られたものです。d/dm &lt; 0.4 でも同じ値としています。同論文の実験では、この範囲の細粒はさらに動きにくくなっていますが、式が示されていないためです。</li>
+              <li>Egiazaroff 式の芦田・道上修正：d/dm &lt; 0.4 では τ*ci = 0.85 τ*cm·dm/di です。</li>
+            </ul></li>
+          <li>流砂の向きは流速の向きに、河床勾配による重力の効果を加えます。係数は長谷川の横断方向流砂量式の形 √(τ*c/(μs μk τ*)) を使い、勾配方向の拡散として等方的に与えています。</li>
+          <li>粒度は交換層（平野）と多層の堆積層で追跡します。粗粒化（アーマー化）と、堆積した土砂の再侵食時の粒度を表現できます。</li>
+          <li>安息角を超えた斜面は崩落させます。重力項と合わせて、側岸侵食と流路の移動を表します。</li>
+          <li>堰堤は1セル幅の固定床です。天端、水通し、袖部を標高で与えます。固定床への段上がりが水深の半分を超える間は、掃流砂を通しません。</li>
+        </ul>
+        <h3>モデル渓流（数値で指定する地形）</h3>
+        <p>谷底は、縦断勾配の面に、澪筋（初期の低水路）へ向かう横断勾配、澪筋の掘り込み、砂州と淵の大きさの起伏を重ねて作ります。左右の岸線は別々に不規則にずらします。谷壁は岸から「谷壁の勾配」で立ち上がる侵食しない斜面で、支渓の扇状地は岸に頂点を置いた円錐として重ねます。扇状地のうち谷底に乗った部分は侵食できます。用意した2つのモデル渓流は、早月川の床固工群と南股入の堰堤群の航空写真を参考にした架空の地形で、実際の川の測量値ではありません。樹木は表示だけのもので、計算には入りません。</p>
+        <h3>網状流路・砂州</h3>
+        <p>流路の分岐や砂州は式として与えていません。初期河床の小さな凹凸から、流れの集中、洗掘、側岸侵食、堆積の繰り返しで自然に生じます。この種の平面2次元モデルで網状流路を再現した例に里深・高橋（1998）があります。本プログラムは同じ種類のモデルですが、同論文の式や係数をそのまま再現したものではありません。</p>
+        <h3>適用範囲と注意</h3>
+        <ul>
+          <li>掃流砂が主体の領域が対象です（目安として勾配 1/10 より緩い区間）。土石流、掃流状集合流動、浮遊砂、ウォッシュロード、二次流は扱いません。</li>
+          <li>Manning 則でフルード数が 1.5 を大きく超えると転波列が出ます。急勾配では n を大きめにしてください。</li>
+          <li>堰堤直下に水叩きや副堰堤はありません。直下は侵食可能深まで洗掘されます。</li>
+          <li>河床変動の加速係数は流量の時間軸を縮めます。大きすぎると出水の伝播が遅れて見えます。</li>
+          <li>供給土砂が輸送能力を超えると、上流端に堆積します。</li>
+          <li>実験や現地との検証はしていません。定量的に使う前に検証が必要です。</li>
+        </ul>
+        <h3>確認した項目</h3>
+        <p>静水の保持（流速 10⁻¹⁴ 以下）、Manning の等流水深との一致（勾配 1/50〜1/10 で誤差 0.01% 未満）、水と土砂の体積収支（丸め誤差の範囲）。</p>
+        <h3>参考文献</h3>
+        <ul>
+          <li>里深好文・高橋保（1998）：網状流路のパターンおよび土砂輸送予測シミュレーション，水工学論文集，第42巻，pp.1111–1116．</li>
+          <li>芦田和男・高橋保・水山高久（1978）：山地河川の掃流砂量に関する研究，新砂防，第107号，pp.9–17．</li>
+          <li>岩垣雄一（1956）：限界掃流力に関する基礎的研究（I）限界掃流力の流体力学的研究，土木学会論文集，第41号，pp.1–21．</li>
+          <li>芦田和男・道上正規（1972）：移動床流れの抵抗と掃流砂量に関する基礎的研究，土木学会論文報告集，第206号，pp.59–69．</li>
+          <li>Egiazaroff, I. V. (1965): Calculation of nonuniform sediment concentrations, J. Hydraul. Div., ASCE, 91(HY4), pp.225–247.</li>
+          <li>平野宗夫（1971）：Armoring をともなう河床低下について，土木学会論文報告集，第195号，pp.55–65．</li>
+          <li>長谷川和義（1981）：非平衡性を考慮した側岸侵食量式に関する研究，土木学会論文報告集，第316号，pp.37–50．</li>
+          <li>Harten, A., Lax, P. D., van Leer, B. (1983): On upstream differencing and Godunov-type schemes for hyperbolic conservation laws, SIAM Review, 25(1), pp.35–61.</li>
+          <li>Audusse, E., Bouchut, F., Bristeau, M.-O., Klein, R., Perthame, B. (2004): A fast and stable well-balanced scheme with hydrostatic reconstruction for shallow water flows, SIAM J. Sci. Comput., 25(6), pp.2050–2065.</li>
+          <li>Chen, G., Noelle, S. (2017): A new hydrostatic reconstruction scheme based on subcell reconstructions, SIAM J. Numer. Anal., 55(2), pp.758–784.</li>
+        </ul>
+        <p>里深・高橋（1998）の書誌は土木学会水工学委員会の論文集目次で確認しました。それ以外は記憶に基づく書誌です。引用する際は原典で確認してください。</p>
+      </div></details>
+    </div>
+  </div>
+</div>
+<!--THREE-->
+<script>
+/*SOLVER*/
+</script>
+<script>
+/*UI*/
+</script>
