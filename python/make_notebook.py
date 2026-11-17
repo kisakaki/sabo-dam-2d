@@ -164,6 +164,40 @@ code("""fig, axs = plt.subplots(2, 1, figsize=(12, 5))
 for ax, (name, s) in zip(axs, sims.items()):
     plot_plan(s, ax=ax, var='dz', title=name)
 plt.tight_layout(); plt.show()""")
+md("""## 13. 湾曲部の2次流と長谷川の崩落モデル（長田ら 1996）
+
+蛇行した水路（幅 12 m、勾配 1/100、20 m³/s を 30 分）で、2次流を入れない場合と入れた場合を比べます。
+
+- `P['sec']['bed']`：河床付近の流れを曲率の内側へ向け、掃流砂の向きを変える（u_nb/u_sb = N* h/r、N* = 11.5）
+- `P['sec']['mom']`：2次流による運動量の分散項（Kalkwijk・de Vriend 1980）。流速の最大が外岸側へ寄る
+- `P['bank']['collapse'] = 'hasegawa'`：水際の側岸は根元の洗掘が溜まってから一度に崩れる（長谷川 1983）
+
+**適用条件**：長田らの検証は、勾配 1/100〜1/466 の砂（0.7〜1.4 mm）の水路実験で、掃流砂が主で変化がゆるやかな場合です。弱い曲率（h/r ≪ 1）を前提とするため、h/r を `hrMax`（既定 0.05）で頭打ちにしています。急勾配の渓流では定性的な目安として見てください。""")
+code("""def meander(sec, collapse='repose', erodH=0.0):
+    P = default_params()
+    P.update(L=360, B=12, slope=1 / 100, crossSlope=0, dx=1.0, sideCells=6, sideGrad=1.5, dams=[], morfac=4)
+    P['valley'] = {'chD': 0, 'chW': 0, 'chWl': 0, 'relief': 0.0, 'wallH': 3, 'wallRough': 0, 'fans': []}
+    P['bend'] = {'mode': 'sine', 'amp': 12, 'wl': 120, 'x0': 60, 'x1': 300}
+    P['grains'] = [{'d': 0.01, 'bed': 0.5, 'feed': 0.5}, {'d': 0.03, 'bed': 0.5, 'feed': 0.5}]
+    P['hydro'] = {'mode': 'const', 'Qbase': 20, 'Qpeak': 20, 'tPeak': 0, 'duration': 1800, 'Cs': 0.002, 'table': []}
+    P['sec'] = sec
+    P['bank'] = {'erodH': erodH, 'reposeWet': 30, 'reposeDry': 50, 'dryEro': 0.0, 'collapse': collapse}
+    return P
+
+cases = {'2次流なし': meander({'bed': False, 'mom': False}),
+         '2次流あり（流砂の向き＋分散項）': meander({'bed': True, 'mom': True}),
+         '2次流あり＋長谷川の崩落（側岸 2 m）': meander({'bed': True, 'mom': True}, 'hasegawa', 2.0)}
+msims = {}
+for name, P in cases.items():
+    s = Sim(P)
+    while s.phase != 'done':
+        s.step()
+    msims[name] = s
+    print(name, '：長谷川モデルの崩落', s.nHase, '回')""")
+code("""fig, axs = plt.subplots(3, 1, figsize=(12, 7.5))
+for ax, (name, s) in zip(axs, msims.items()):
+    plot_plan(s, ax=ax, var='dz', title=name)
+plt.tight_layout(); plt.show()""")
 nb.metadata['kernelspec'] = {'name': 'python3', 'display_name': 'Python 3', 'language': 'python'}
 nb.metadata['language_info'] = {'name': 'python'}
 nbf.write(nb, 'sabo2d.ipynb')

@@ -266,17 +266,24 @@ table.res th,table.res td{white-space:nowrap}
         <div class="row"><label for="ne_dd">堆積係数 δd</label><input type="number" id="ne_dd" step="0.1" min="0.01"></div>
         <div class="row"><label for="ne_he">水際とみなす水深<span class="u">m、0＝自動</span></label><input type="number" id="ne_he" step="0.01" min="0"></div>
         <div class="row"><label for="ne_fe">水際の倍率（侵食／堆積）</label><span style="display:flex;gap:4px"><input type="number" id="ne_fe" step="0.5" min="1" style="width:4.5em"><input type="number" id="ne_fd" step="1" min="1" style="width:4.5em"></span></div>
-        <p class="note">i_k = f_bk·δe(C∞−C)/C*·|u*−u*ck|（侵食）、f_0k·δd(C∞−C)/C*·|u*−u*ck|（堆積）。流れの中の土砂を運び、その場で平衡濃度 C∞ との差だけ侵食・堆積させます（非平衡）。高橋・里深（1999）は δe = δd = 0.6、水深 5 mm 以下で δe = 1.2・δd = 6.0（倍率 2 と 10）としています。水際とみなす水深の自動値は平均粒径の 2.5 倍です（同論文の 5 mm／2 mm の比）。</p>
+        <p class="note">i_k = f_bk·δe(C∞−C)/C*·|u*−u*ck|（侵食）、f_0k·δd(C∞−C)/C*·|u*−u*ck|（堆積）。流れの中の土砂を運び、その場で平衡濃度 C∞ との差だけ侵食・堆積させます（非平衡）。高橋・里深（1999）は δe = δd = 0.6、水深 5 mm 以下で δe = 1.2・δd = 6.0（倍率 2 と 10）としています。水際とみなす水深の自動値は平均粒径の 2.5 倍です（同論文の 5 mm／2 mm の比）。<b>適用条件</b>：δe、δd と水際の倍率は水路実験に合わせた値です。現地の規模へは、水際の水深を粒径との比で移しています（本プログラムの仮定）。掃流砂の式なので、浮遊砂・土石流の濃度では使えません。</p>
       </div>
       <div class="row"><label for="bk_h">側岸として侵食できる高さ<span class="u">m</span></label><input type="number" id="bk_h" step="0.5" min="0"></div>
       <div class="row"><label for="bk_w">水中の安息角<span class="u">°</span></label><input type="number" id="bk_w" step="1" min="15" max="60"></div>
       <div class="row"><label for="bk_d">陸上の安息角<span class="u">°</span></label><input type="number" id="bk_d" step="1" min="15" max="80"></div>
       <div class="row"><label for="bk_e">水際の侵食を側岸から削る割合</label><input type="number" id="bk_e" step="0.1" min="0" max="1"></div>
+      <div class="row"><label for="bk_cm">側岸の崩れ方</label><select id="bk_cm"><option value="repose">安息角を超えた分を少しずつ崩す</option><option value="hasegawa">長谷川の崩落モデル（長田ら 1996）</option></select></div>
       <p class="note">谷壁のうち、谷底から「侵食できる高さ」までを段丘・崖錐の土砂とし、削れるようにします（0 なら谷壁は固定床）。斜面は、水に浸かっていれば水中の安息角、乾いていれば陸上の安息角を超えた所で崩れます。水際の濡れたセルが削られると、その一部を隣の乾いた側岸から削ります（0 で使わない）。</p>
+      <p class="note">長谷川の崩落モデル（長谷川 1983、長田ら 1996 式17）：水際の乾いた側岸は、根元の洗掘が進むまで立ったままです。側岸の位置の水面から水中安息角で下る線を引き、線より下の洗掘量 B が線より上の土塊 A に達したとき、A が一度に崩れて B を埋め戻します。崩落限界幅 ΔBc は 1 セル（格子幅）です。<b>適用条件</b>：長田らの検証は、粘着力のない砂（粒径 0.7〜1.4 mm）、勾配 1/100〜1/466、側岸の高さ 4〜7 cm の水路実験で、掃流砂が主で変化がゆるやかな場合です。崩れる周期が計算時間より十分短く、崩落土砂が埋め戻す範囲の河床変動が正しく計算できることが前提です。蛇行頂部の下流のように水際で流砂の非平衡性が強い所では侵食量が過小になったと報告されています（非平衡の流砂と合わせると改善が見込まれます）。粘着性の土、植生の根、引張り亀裂による崩落は扱いません。</p>
+      <div class="row"><label for="sc_bed">2次流で流砂の向きを内岸へ曲げる</label><input type="checkbox" id="sc_bed"></div>
+      <div class="row"><label for="sc_mom">2次流による運動量の分散項</label><input type="checkbox" id="sc_mom"></div>
+      <div class="row"><label for="sc_N">係数 N*</label><input type="number" id="sc_N" step="0.5" min="0"></div>
+      <div class="row"><label for="sc_hr">h/r の上限</label><input type="number" id="sc_hr" step="0.01" min="0.005" max="0.2"></div>
+      <p class="note">湾曲部のらせん流（2次流）。流線の曲率 1/r を流速分布から求めます（3×3 で 2 回平滑化）。流砂の向き：河床付近の流速の横断成分 u_nb = N*·(h/r)·u_sb（長田ら 1996 式14、N* = 11.5）を長谷川式の横断方向流砂に加えます。分散項：Kalkwijk・de Vriend（1980）の流速分布の仮定から、主流の運動量を外岸へ運ぶ項（式19〜23）を運動方程式に加えます。流速の最大が外岸側へ寄ります。<b>適用条件</b>：曲率が弱い（h/r ≪ 1）こと、2次流が十分に発達していること（湾曲の入口での発達の遅れは扱いません）、流速分布が対数則に近いこと。そのため h/r を上限値で頭打ちにし、k_sn の近似式は √g/(κC) ≤ 0.4 の範囲で使います。長田らの検証は、勾配 1/400 の一様湾曲水路（砂、掃流砂が主）です。網状に分かれた流れや急勾配の渓流では、曲率は格子規模のばらつきを含むので、結果は定性的な目安です。</p>
       <div class="row"><label for="bo_L">巨礫の間隔<span class="u">m、0＝置かない</span></label><input type="number" id="bo_L" step="5" min="0"></div>
       <div class="row"><label for="bo_m">巨礫の並べ方</label><select id="bo_m"><option value="parallel">両岸でそろえる（つがい）</option><option value="zigzag">千鳥</option></select></div>
       <div class="row"><label for="bo_s">巨礫の大きさ<span class="u">セル</span></label><input type="number" id="bo_s" step="1" min="1" max="4"></div>
-      <p class="note">動かない巨礫を、水みち（初期の澪筋。なければ谷底）の両岸に間隔ごとに置きます。そのセルは侵食も堆積もしません。高橋・里深・奥村（1996）の水路実験では、間隔 L が水みち幅 B の 9/4 倍より狭いと水みちの拡幅・分裂が抑えられ、流路が固定されました。</p>
+      <p class="note">動かない巨礫を、水みち（初期の澪筋。なければ谷底）の両岸に間隔ごとに置きます。そのセルは侵食も堆積もしません。高橋・里深・奥村（1996）の水路実験では、間隔 L が水みち幅 B の 9/4 倍より狭いと水みちの拡幅・分裂が抑えられ、流路が固定されました。<b>適用条件</b>：水路実験から得た目安で、巨礫が流れで動かないことが前提です。巨礫の大きさは格子幅で決まり、実際の礫の大きさは表せません。</p>
     </div></details>
 
     <details><summary>計算条件</summary><div class="body">
@@ -385,7 +392,8 @@ table.res th,table.res td{white-space:nowrap}
           <li>流砂の向きは流速の向きに、河床勾配による重力の効果を加えます。係数は長谷川の横断方向流砂量式の形 √(τ*c/(μs μk τ*)) を使い、勾配方向の拡散として等方的に与えています。</li>
           <li>粒度は交換層（平野）と多層の堆積層で追跡します。粗粒化（アーマー化）と、堆積した土砂の再侵食時の粒度を表現できます。</li>
           <li>安息角を超えた斜面は崩落させます。水に浸かった斜面は水中の安息角（既定 30°、高橋・里深・奥村 1996）、乾いた斜面は陸上の安息角（既定 50°）で判定します。重力項と合わせて、側岸侵食と流路の移動を表します。</li>
-          <li>側岸侵食の拡張：谷壁の下部を侵食できる段丘・崖錐とする設定、水際の濡れたセルの侵食の一部を隣の乾いた側岸から削る設定（Delft3D の dry-cell erosion と同じ考え方）、動かない巨礫で流路を固定する設定（高橋・里深・奥村 1996）を選べます。</li>
+          <li>側岸侵食の拡張：谷壁の下部を侵食できる段丘・崖錐とする設定、水際の濡れたセルの侵食の一部を隣の乾いた側岸から削る設定（Delft3D の dry-cell erosion と同じ考え方）、動かない巨礫で流路を固定する設定（高橋・里深・奥村 1996）、長谷川の崩落モデル（側岸は根元の洗掘が溜まってから一度に崩れる。長田ら 1996）を選べます。</li>
+          <li>湾曲部の2次流（長田ら 1996）：流線の曲率から、河床付近の流れを内岸へ向ける効果（流砂の向き）と、主流の運動量を外岸へ運ぶ分散項（Kalkwijk・de Vriend 1980）を加えられます。どちらも弱い曲率を前提とする式です。</li>
           <li>流砂量は、平衡流砂量（芦田・道上式）のほかに、高橋・里深（1999）と高橋ら（1998）の侵食・堆積速度式（非平衡）でも計算できます。流れの中の粒径別土砂濃度を運び、平衡濃度との差で侵食・堆積させます。水際の浅い所では係数を割り増して、水際の掃流力の過小評価を補います。</li>
           <li>堰堤は1セル幅の固定床です。天端、水通し、袖部を標高で与えます。固定床への段上がりが水深の半分を超える間は、掃流砂を通しません。</li>
         </ul>
@@ -413,6 +421,9 @@ table.res th,table.res td{white-space:nowrap}
           <li>Egiazaroff, I. V. (1965): Calculation of nonuniform sediment concentrations, J. Hydraul. Div., ASCE, 91(HY4), pp.225–247.</li>
           <li>平野宗夫（1971）：Armoring をともなう河床低下について，土木学会論文報告集，第195号，pp.55–65．</li>
           <li>長谷川和義（1981）：非平衡性を考慮した側岸侵食量式に関する研究，土木学会論文報告集，第316号，pp.37–50．</li>
+          <li>長田信寿・細田尚・村本嘉雄・Md. M. Rahman（1996）：側岸侵食を伴う河道変動の数値解析，京都大学防災研究所年報，第39号B-2，pp.415–428．</li>
+          <li>長谷川和義（1983）：沖積蛇行の平面および河床形状と流れに関する水理学的研究，北海道大学学位論文．</li>
+          <li>Kalkwijk, J. P. Th., de Vriend, H. J. (1980): Computation of the flow in shallow river bends, J. Hydraulic Research, 18(4), pp.327–342.</li>
           <li>高橋保・里深好文・奥村（1996）：京都大学防災研究所年報，第39号B-2（巨礫による流路の固定、水中の安息角）．</li>
           <li>高橋保・中川一・里深好文・奥村・安本（1998）：京都大学防災研究所年報，第41号B-2（侵食・堆積速度式による河床変動）．</li>
           <li>高橋保・里深好文（1999）：京都大学防災研究所年報，第42号B-2（水際での侵食・堆積係数の割り増し）．</li>
@@ -423,7 +434,7 @@ table.res th,table.res td{white-space:nowrap}
           <li>Audusse, E., Bouchut, F., Bristeau, M.-O., Klein, R., Perthame, B. (2004): A fast and stable well-balanced scheme with hydrostatic reconstruction for shallow water flows, SIAM J. Sci. Comput., 25(6), pp.2050–2065.</li>
           <li>Chen, G., Noelle, S. (2017): A new hydrostatic reconstruction scheme based on subcell reconstructions, SIAM J. Numer. Anal., 55(2), pp.758–784.</li>
         </ul>
-        <p>高橋ら（1996・1998・1999）と橋本ら（2003）は、いただいた PDF をもとにしています（題名は原典を見てください）。長田ら（1996）の側岸侵食モデルは、PDF を入手できなかったため使っていません。里深・高橋（1998）の書誌は土木学会水工学委員会の論文集目次で確認しました。それ以外は記憶に基づく書誌です。引用する際は原典で確認してください。</p>
+        <p>高橋ら（1996・1998・1999）、橋本ら（2003）、長田ら（1996）は、いただいた PDF をもとにしています（題名は原典を見てください）。長田ら（1996）と、同論文が引く長谷川（1983）、Kalkwijk・de Vriend（1980）の書誌は、いただいた長田らの PDF の参考文献欄によります。里深・高橋（1998）の書誌は土木学会水工学委員会の論文集目次で確認しました。それ以外は記憶に基づく書誌です。引用する際は原典で確認してください。</p>
       </div></details>
     </div>
   </div>
@@ -517,7 +528,15 @@ table.res th,table.res td{white-space:nowrap}
         erodH: 0,        // 谷壁のうち、谷底から erodH [m] の高さまでを侵食できる側岸（段丘・崖錐）にする。0 で谷壁は固定床
         reposeWet: 30,   // 水中の安息角 [deg]（高橋・里深・奥村 1996 は 30°）
         reposeDry: 50,   // 陸上の安息角 [deg]（乾いた側岸が立っていられる角度。根や見かけの粘着力で急でも立つ）
-        dryEro: 0        // 水際の濡れたセルの侵食のうち、隣の乾いた側岸から削る割合（Delft3D の THETSD と同じ考え方）。0〜1
+        dryEro: 0,       // 水際の濡れたセルの侵食のうち、隣の乾いた側岸から削る割合（Delft3D の THETSD と同じ考え方）。0〜1
+        collapse: 'repose' // 'repose' 安息角を超えた分を少しずつ崩す | 'hasegawa' 長谷川の崩落モデル（長田ら 1996 式17）
+      },
+      // ---- 2次流（湾曲部のらせん流）。長田・細田・村本・Rahman（1996）
+      sec: {
+        bed: false,      // 河床付近の流れを曲率の内側へ向け、掃流砂の向きを変える（式11・14：u_nb/u_sb = N* h/r）
+        mom: false,      // 2次流による運動量の分散項（式19〜23、Kalkwijk・de Vriend）
+        Nstar: 11.5,     // 式14の係数 N*
+        hrMax: 0.05      // h/r の上限（弱い曲率を前提とする式のため。これを超える所は上限値で頭打ち）
       },
       // ---- 流砂の計算法
       transport: 'eq',   // 'eq' 平衡流砂量（芦田・道上式）| 'noneq' 侵食・堆積速度式（高橋・里深 1999、高橋ら 1998）
@@ -1013,6 +1032,9 @@ table.res th,table.res td{white-space:nowrap}
     this.SFx = new Float64Array(NFx * K); this.SFy = new Float64Array(NFy * K);
     this.scS = new Float64Array(N * K);
     this.dA = new Float64Array(K);
+    this.kap = new Float64Array(N); this.kapW = new Float64Array(N); this.secMask = new Uint8Array(N); this.uf = new Float64Array(N); this.vf = new Float64Array(N);   // 流線の曲率 1/r（左曲がりが正） [1/m]
+    this.Txx = new Float64Array(N); this.Txy = new Float64Array(N);    // 2次流による運動量の分散項（セル中心）
+    this.nHase = 0;                               // 長谷川モデルの崩落回数
     this.dzs = new Float64Array(N);               // 1 回の河床変動計算での河床変化（水際の側岸侵食に使う）
     this.Cc = new Float64Array(N * K);            // 侵食・堆積速度式：流れの中の粒径別土砂量 C_k h（実質体積の層厚） [m]
     this.Cn = new Float64Array(N * K);
@@ -1123,6 +1145,10 @@ table.res th,table.res td{white-space:nowrap}
       qin[j] = qj;
       uin[j] = qj > 0 ? qj / Math.pow(qj * nman / sqI, 0.6) : 0;
     }
+
+    // ---- 2次流：流線の曲率（前のステップの面の流束から求める）
+    var SEC = P.sec || {}, secOn = !!(SEC.bed || SEC.mom);
+    if (secOn) this.curvature();
 
     // ---- 原始変数と勾配
     for (c = 0; c < N; c++) {
@@ -1298,6 +1324,10 @@ table.res th,table.res td{white-space:nowrap}
       }
     }
 
+    // ---- 2次流による運動量の分散項（面の値は両側のセル中心の平均。どちらかが乾いていれば 0）
+    var secM = !!SEC.mom, Txx = this.Txx, Txy = this.Txy, kmk = this.secMask, tE, tW, tN, tS, sE, sW, sN, sS;
+    if (secM) this.secStress();
+
     // ---- 更新（勾配項・流入・摩擦）
     var n2 = this.n2, hn, qxn, qyn, Vv, fr, qoutSum = 0;
     for (j = 0; j < ny; j++) {
@@ -1312,6 +1342,15 @@ table.res th,table.res td{white-space:nowrap}
         if (second && hh > 0) {
           qxn -= cf * g * hh * (dex[c] - dhx[c]);
           qyn -= cf * g * hh * (dey[c] - dhy[c]);
+        }
+        if (secM && kmk[c] > 0) {
+          // x 運動量：∂Txx/∂x + ∂Txy/∂y、y 運動量：∂Txy/∂x + ∂Tyy/∂y（Tyy = −Txx）
+          tE = (i < nx - 1 && kmk[c + 1] > 0) ? 0.5 * (Txx[c] + Txx[c + 1]) : 0; sE = (i < nx - 1 && kmk[c + 1] > 0) ? 0.5 * (Txy[c] + Txy[c + 1]) : 0;
+          tW = (i > 0 && kmk[c - 1] > 0) ? 0.5 * (Txx[c] + Txx[c - 1]) : 0; sW = (i > 0 && kmk[c - 1] > 0) ? 0.5 * (Txy[c] + Txy[c - 1]) : 0;
+          tN = (j < ny - 1 && kmk[c + nx] > 0) ? 0.5 * (Txx[c] + Txx[c + nx]) : 0; sN = (j < ny - 1 && kmk[c + nx] > 0) ? 0.5 * (Txy[c] + Txy[c + nx]) : 0;
+          tS = (j > 0 && kmk[c - nx] > 0) ? 0.5 * (Txx[c] + Txx[c - nx]) : 0; sS = (j > 0 && kmk[c - nx] > 0) ? 0.5 * (Txy[c] + Txy[c - nx]) : 0;
+          qxn -= cf * ((tE - tW) + (sN - sS));
+          qyn -= cf * ((sE - sW) - (tN - tS));
         }
         if (i === 0 && qin[j] > 0) { hn += cf * qin[j]; qxn += cf * qin[j] * uin[j]; }
         if (hn < 0) hn = 0;
@@ -1357,6 +1396,7 @@ table.res th,table.res td{white-space:nowrap}
     this.dzs.fill(0);
     if (this.P.transport === 'noneq') this.morphNoneq(dtm); else this.morphEq(dtm);
     this.dryBankErosion();
+    this.hasegawaCollapse();
     this.collapse();
   };
 
@@ -1372,6 +1412,7 @@ table.res th,table.res td{white-space:nowrap}
     var cGrid = P.gridDamp == null ? 0.3 : P.gridDamp;
 
     var tcs = this.tcs, hideEg = P.hiding === 'egiazaroff';
+    var SEC = P.sec || {}, secBed = !!SEC.bed, kapA = this.kap, Nst = SEC.Nstar || 11.5, hrMx = SEC.hrMax || 0.05;
     // ---- 各セルの粒径別掃流砂量（芦田・道上式）
     for (c = 0; c < N; c++) {
       act[c] = 0;
@@ -1401,13 +1442,16 @@ table.res th,table.res td{white-space:nowrap}
       tcs[c] = uscm2 / (sg1 * g * dm);
       // 格子スケールの凹凸（2Δx の振動）を抑える下限。Δx→0 で物理的な係数に戻る
       var epsMin = cGrid * dx / hh; if (epsMin > 4) epsMin = 4;
+      // 2次流で河床付近の流れが曲率の内側へ向く（長田ら 1996 式14：u_nb/u_sb = N* h/r。n は流れの左向き）
+      var secD = 0;
+      if (secBed) { var hk0 = hh * kapA[c]; if (hk0 > hrMx) hk0 = hrMx; else if (hk0 < -hrMx) hk0 = -hrMx; secD = Nst * hk0; }
       for (k = 0; k < K; k++) {
         var rr = d[k] / dm, usc2 = uscm2;
         if (hideEg) { if (rr >= 0.4) { var lg = LN19 / Math.log(19 * rr); usc2 = uscm2 * lg * lg * rr; } else usc2 = 0.85 * uscm2; }
         if (us2 > usc2 && A[ck + k] > 0) {
           var usc = Math.sqrt(usc2);
           var qb = cap * A[ck + k] * (1 - usc2 / us2) * (1 - usc / uss);
-          qbx[ck + k] = qb * uu / V; qby[ck + k] = qb * vv / V;
+          qbx[ck + k] = qb * (uu - secD * vv) / V; qby[ck + k] = qb * (vv + secD * uu) / V;
           var epsg = (usc / uss) * invMu; if (epsg < epsMin) epsg = epsMin;
           gk[ck + k] = qb * epsg;
           anyq = true;
@@ -1538,7 +1582,7 @@ table.res th,table.res td{white-space:nowrap}
   Sim.prototype.collapse = function () {
     var nx = this.nx, ny = this.ny, K = this.K, dx = this.dx, A = this.A, z = this.z, h = this.h, fxC = this.fixedC, BK = this.P.bank || {};
     var limW = Math.tan((BK.reposeWet || this.P.reposeDeg) * Math.PI / 180) * dx, limD = Math.tan((BK.reposeDry || this.P.reposeDeg) * Math.PI / 180) * dx;
-    var HW = 0.01, i, j, c, k, row, lim, diff, hi, lo, av, mv, hk, lk, frc;
+    var HW = 0.01, i, j, c, k, row, lim, diff, hi, lo, av, mv, hk, lk, frc, hase = BK.collapse === 'hasegawa', kind = this.kind;
     for (var pass = 0; pass < 2; pass++) {
       var off = pass === 0 ? 1 : nx;
       var iEnd = pass === 0 ? nx - 1 : nx, jEnd = pass === 0 ? ny : ny - 1;
@@ -1550,6 +1594,8 @@ table.res th,table.res td{white-space:nowrap}
           lim = (h[c] > HW || h[c + off] > HW) ? limW : limD;
           diff = z[c] - z[c + off];
           if (diff > lim) { hi = c; lo = c + off; } else if (-diff > lim) { hi = c + off; lo = c; diff = -diff; } else continue;
+          // 長谷川モデルでは、水際の乾いた側岸（高い側が乾き、低い側が濡れている）は崩落モデルに任せる
+          if (hase && h[hi] <= HW && h[lo] > HW && kind[hi] === 0 && kind[lo] === 0) continue;
           hk = hi * K; lk = lo * K; av = 0;
           for (k = 0; k < K; k++) av += A[hk + k];
           if (av < 1e-6) continue;
@@ -1562,6 +1608,118 @@ table.res th,table.res td{white-space:nowrap}
         }
       }
     }
+  };
+
+  // ---- 2次流（長田・細田・村本・Rahman 1996）------------------------------------------
+  // 流線の曲率 κ = 1/r = (u(u v_x + v v_y) − v(u u_x + v u_y)) / V³（左に曲がるとき正）。
+  // 流速は前のステップの面の流束の平均。格子規模のばらつきを抑えるため、濡れたセルだけで 3×3 平均を 2 回とる。
+  // 弱い曲率を前提とする式なので、|h κ| を hrMax で頭打ちにする。
+  Sim.prototype.curvature = function () {
+    var nx = this.nx, ny = this.ny, N = this.N, dx = this.dx, h = this.h, FxM = this.FxM, GyM = this.GyM;
+    var kap = this.kap, tmp = this.kapW, uf = this.uf, vf = this.vf, HS = 0.05, i, j, c, f;
+    var hrMax = (this.P.sec && this.P.sec.hrMax) || 0.05;
+    for (c = 0; c < N; c++) {
+      var hh = h[c];
+      if (hh > HS) { i = c % nx; j = (c - i) / nx; f = j * (nx + 1) + i; uf[c] = 0.5 * (FxM[f] + FxM[f + 1]) / hh; vf[c] = 0.5 * (GyM[c] + GyM[c + nx]) / hh; }
+      else { uf[c] = 0; vf[c] = 0; }
+      tmp[c] = 0;
+    }
+    for (j = 1; j < ny - 1; j++) for (i = 1; i < nx - 1; i++) {
+      c = j * nx + i;
+      if (!(h[c] > HS && h[c - 1] > HS && h[c + 1] > HS && h[c - nx] > HS && h[c + nx] > HS)) continue;
+      var uu = uf[c], vv = vf[c], V2 = uu * uu + vv * vv;
+      if (V2 < 0.01) continue;
+      var ux = (uf[c + 1] - uf[c - 1]) / (2 * dx), uy = (uf[c + nx] - uf[c - nx]) / (2 * dx);
+      var vx = (vf[c + 1] - vf[c - 1]) / (2 * dx), vy = (vf[c + nx] - vf[c - nx]) / (2 * dx);
+      tmp[c] = (uu * (uu * vx + vv * vy) - vv * (uu * ux + vv * uy)) / (V2 * Math.sqrt(V2));
+    }
+    for (var pass = 0; pass < 2; pass++) {
+      var src = pass === 0 ? tmp : kap, dst = pass === 0 ? kap : tmp;
+      for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {
+        c = j * nx + i; dst[c] = 0;
+        if (!(h[c] > HS)) continue;
+        var sm = 0, nn = 0;
+        for (var dj = -1; dj <= 1; dj++) { var jj = j + dj; if (jj < 0 || jj >= ny) continue;
+          for (var di = -1; di <= 1; di++) { var ii = i + di; if (ii < 0 || ii >= nx) continue; var cc = jj * nx + ii; if (h[cc] > HS) { sm += src[cc]; nn++; } } }
+        dst[c] = sm / nn;
+      }
+    }
+    for (c = 0; c < N; c++) {
+      var lim = hrMax / Math.max(h[c], 1e-3), kk = tmp[c];
+      kap[c] = kk > lim ? lim : (kk < -lim ? -lim : kk);
+    }
+  };
+  // 2次流による運動量の分散項（Kalkwijk・de Vriend 1980、長田ら 1996 式19〜23）。
+  // s–n 座標の T_sn = h ū_s ū_n の水深積分 = −k_sn h² V² κ（外岸向きに主流の運動量を運ぶ）を x–y に回す：
+  //   Txx = −Tyy = 2 k_sn h² κ u v、Txy = −k_sn h² κ (u² − v²)
+  //   k_sn = 5a − 15.6a² + 37.5a³、a = √g/(κ_K C)、C = h^(1/6)/n。外挿を避けるため a ≤ 0.4
+  Sim.prototype.secStress = function () {
+    var N = this.N, h = this.h, uf = this.uf, vf = this.vf, kap = this.kap, Txx = this.Txx, Txy = this.Txy, msk = this.secMask;
+    var nman = this.P.manning, HS = 0.05, sg = Math.sqrt(G);
+    for (var c = 0; c < N; c++) {
+      Txx[c] = 0; Txy[c] = 0; msk[c] = 0;
+      var hh = h[c]; if (!(hh > HS)) continue;
+      msk[c] = 1;
+      var uu = uf[c], vv = vf[c], kk = kap[c];
+      if (kk === 0) continue;
+      var a = sg * nman / (0.4 * Math.pow(hh, 1 / 6)); if (a > 0.4) a = 0.4;
+      var ksn = 5 * a - 15.6 * a * a + 37.5 * a * a * a;
+      var w = ksn * hh * hh * kk;
+      Txx[c] = 2 * w * uu * vv; Txy[c] = -w * (uu * uu - vv * vv);
+    }
+  };
+
+  // ---- 長谷川の側岸崩落モデル（長谷川 1983、長田ら 1996 式17）-----------------------------
+  // 乾いた側岸セル b の隣が水に浸かっているとき、b の位置の水面から水中安息角 βk で下る線を引く。
+  // 線より上の土砂（崩落する土塊 A）と、線より下の洗掘の不足分 B を、横断方向（4 方向）に数える。
+  // B ≥ A になったら土塊 A が一度に崩れ、B の部分を埋め戻す（崩落限界幅 ΔBc は 1 セル）。
+  Sim.prototype.hasegawaCollapse = function () {
+    var BK = this.P.bank || {}; if (BK.collapse !== 'hasegawa') return;
+    var nx = this.nx, ny = this.ny, N = this.N, dx = this.dx, h = this.h, z = this.z, kind = this.kind, fxC = this.fixedC;
+    var tb = Math.tan((BK.reposeWet || this.P.reposeDeg) * Math.PI / 180) * dx;
+    var HW = 0.01, MAXM = 40, exC = this._exC || (this._exC = new Int32Array(MAXM + 1)), exV = this._exV || (this._exV = new Float64Array(MAXM + 1));
+    var dfC = this._dfC || (this._dfC = new Int32Array(MAXM + 1)), dfV = this._dfV || (this._dfV = new Float64Array(MAXM + 1));
+    var DI = [1, -1, 0, 0], DJ = [0, 0, 1, -1];
+    for (var c = 0; c < N; c++) {
+      if (h[c] >= HW || kind[c] !== 0 || fxC[c]) continue;
+      var i0 = c % nx, j0 = (c - i0) / nx;
+      for (var q = 0; q < 4; q++) {
+        var i1 = i0 + DI[q], j1 = j0 + DJ[q];
+        if (i1 < 0 || i1 >= nx || j1 < 0 || j1 >= ny) continue;
+        var w1 = j1 * nx + i1;
+        if (h[w1] < HW || kind[w1] !== 0 || fxC[w1]) continue;
+        var H = z[w1] + h[w1]; if (z[c] <= H) continue;
+        var nE = 1, nD = 0, Aex = z[c] - H, Bdf = 0, stage = 0;
+        exC[0] = c; exV[0] = Aex;
+        for (var m = 1; m <= MAXM; m++) {
+          var ii = i0 + m * DI[q], jj = j0 + m * DJ[q];
+          if (ii < 0 || ii >= nx || jj < 0 || jj >= ny) break;
+          var cc = jj * nx + ii;
+          if (h[cc] < HW || kind[cc] !== 0 || fxC[cc]) break;
+          var dzl = z[cc] - (H - m * tb);
+          if (dzl > 0) { if (stage === 0) { exC[nE] = cc; exV[nE] = dzl; nE++; Aex += dzl; } else break; }
+          else if (dzl < 0) { stage = 1; dfC[nD] = cc; dfV[nD] = -dzl; nD++; Bdf -= dzl; }
+          else if (stage === 1) break;
+        }
+        if (nD === 0 || Bdf < Aex) continue;
+        for (var e = 0; e < nE; e++) for (var fq = 0; fq < nD; fq++) this.moveSed(exC[e], dfC[fq], exV[e] * dfV[fq] / Bdf);
+        this.nHase++;
+        break;
+      }
+    }
+  };
+  // セル a の上から厚さ dz の土砂を（堆積層の粒度で）セル b へ移す。動かせた厚さを返す
+  Sim.prototype.moveSed = function (a, b, dz) {
+    var K = this.K, A = this.A, ak = a * K, bk = b * K, left = dz, k, it = 0;
+    while (left > 1e-9 && it++ < 400) {
+      var av = 0; for (k = 0; k < K; k++) av += A[ak + k];
+      if (av < 1e-9) break;
+      var take = left < av ? left : av, frc = take / av;
+      for (k = 0; k < K; k++) { var t = A[ak + k] * frc; A[ak + k] -= t; A[bk + k] += t; }
+      this.z[a] -= take; this.z[b] += take; left -= take;
+      this.fixLayers(a); this.fixLayers(b);
+    }
+    return dz - left;
   };
 
   // 水際の側岸侵食：濡れたセルが侵食されたとき、その一部（割合 dryEro）を隣の乾いた側岸セルから削る
@@ -1616,6 +1774,7 @@ table.res th,table.res td{white-space:nowrap}
     if (!this.dord) { this.dord = []; for (k = 0; k < K; k++) this.dord.push(k); var dd_ = d; this.dord.sort(function (a, b) { return dd_[a] - dd_[b]; }); }
     var ord = this.dord, sqd3 = this.sqd3 || (this.sqd3 = Array.prototype.map.call(d, function (dk) { return Math.sqrt(sg1 * g * dk * dk * dk); }));
     var iK = this.dA;
+    var SEC = P.sec || {}, secBed = !!SEC.bed, kapA = this.kap, Nst = SEC.Nstar || 11.5, hrMx = SEC.hrMax || 0.05;
     // ---- 1a. 輸送速度と限界摩擦速度（河床を変える前の地形で全セル分を先に求める）
     var ucm = this.neUcm || (this.neUcm = new Float64Array(N));
     for (c = 0; c < N; c++) {
@@ -1635,7 +1794,9 @@ table.res th,table.res td{white-space:nowrap}
         var zl = ic0 > 0 ? z[c - 1] : z[c], zr = ic0 < nx - 1 ? z[c + 1] : z[c], zd = jc0 > 0 ? z[c - nx] : z[c], zu = jc0 < ny - 1 ? z[c + nx] : z[c];
         var dzdn = ((zr - zl) / ((ic0 > 0 && ic0 < nx - 1) ? 2 * dx : dx)) * nxn + ((zu - zd) / ((jc0 > 0 && jc0 < ny - 1) ? 2 * dx : dx)) * nyn;
         var Kc = us20 > 1e-12 ? Math.sqrt(Math.min(1, uc0 / us20)) * gK : 0;
-        var b2 = Math.atan(-Kc * dzdn); if (b2 > 1) b2 = 1; else if (b2 < -1) b2 = -1;
+        var sd0 = 0;   // 2次流による河床付近の流向の偏り（長田ら 1996 式11・14）
+        if (secBed) { var hk1 = h0 * kapA[c]; if (hk1 > hrMx) hk1 = hrMx; else if (hk1 < -hrMx) hk1 = -hrMx; sd0 = Nst * hk1; }
+        var b2 = Math.atan(sd0 - Kc * dzdn); if (b2 > 1) b2 = 1; else if (b2 < -1) b2 = -1;
         tu[ck] = V0 * Math.cos(b1 + b2); tv[ck] = V0 * Math.sin(b1 + b2);
       }
     }
@@ -2133,7 +2294,8 @@ table.res th,table.res td{white-space:nowrap}
     $('s_n').value = P.manning; $('s_tc').value = P.tauCm; $('s_tcm').value = P.tcMethod || 'atm'; $('s_hid').value = P.hiding || 'atm'; tcSwitch(); $('s_por').value = P.porosity; $('s_rep').value = P.reposeDeg;
     var BK = P.bank || {}, NE = P.noneq || {}, BO = P.boulders || {};
     $('s_tr').value = P.transport || 'eq'; $('ne_de').value = NE.de; $('ne_dd').value = NE.dd; $('ne_he').value = NE.hEdge; $('ne_fe').value = NE.fe; $('ne_fd').value = NE.fd;
-    $('bk_h').value = BK.erodH; $('bk_w').value = BK.reposeWet; $('bk_d').value = BK.reposeDry; $('bk_e').value = BK.dryEro;
+    $('bk_h').value = BK.erodH; $('bk_w').value = BK.reposeWet; $('bk_d').value = BK.reposeDry; $('bk_e').value = BK.dryEro; $('bk_cm').value = BK.collapse || 'repose';
+    var SC = P.sec || {}; $('sc_bed').checked = !!SC.bed; $('sc_mom').checked = !!SC.mom; $('sc_N').value = SC.Nstar || 11.5; $('sc_hr').value = SC.hrMax || 0.05;
     $('bo_L').value = BO.L; $('bo_m').value = BO.mode || 'parallel'; $('bo_s').value = BO.size || 1; trSwitch();
     $('c_dx').value = String(P.dx); $('c_mf').value = P.morfac; $('c_ord').value = String(P.order);
     modeSwitch();
@@ -2221,7 +2383,8 @@ table.res th,table.res td{white-space:nowrap}
     p.manning = num('s_n', 0.05, 0.01, 0.3); p.tauCm = num('s_tc', 0.05, 0.01, 0.2); p.tcMethod = $('s_tcm').value; p.hiding = $('s_hid').value; p.porosity = num('s_por', 0.4, 0.1, 0.7); p.reposeDeg = num('s_rep', 35, 15, 60);
     p.transport = $('s_tr').value === 'noneq' ? 'noneq' : 'eq';
     p.noneq = { de: num('ne_de', 0.6, 0.001, 100), dd: num('ne_dd', 0.6, 0.001, 100), hEdge: num('ne_he', 0, 0, 10), fe: num('ne_fe', 2, 1, 100), fd: num('ne_fd', 10, 1, 1000) };
-    p.bank = { erodH: num('bk_h', 0, 0, 100), reposeWet: num('bk_w', 30, 15, 60), reposeDry: num('bk_d', 50, 15, 80), dryEro: num('bk_e', 0, 0, 1) };
+    p.bank = { erodH: num('bk_h', 0, 0, 100), reposeWet: num('bk_w', 30, 15, 60), reposeDry: num('bk_d', 50, 15, 80), dryEro: num('bk_e', 0, 0, 1), collapse: $('bk_cm').value };
+    p.sec = { bed: $('sc_bed').checked, mom: $('sc_mom').checked, Nstar: num('sc_N', 11.5, 0, 50), hrMax: num('sc_hr', 0.05, 0.005, 0.2) };
     p.boulders = { L: num('bo_L', 0, 0, 10000), mode: $('bo_m').value, size: num('bo_s', 1, 1, 4) };
     p.morfac = num('c_mf', 4, 1, 50); p.order = +$('c_ord').value || 2;
     // 格子数の上限（ブラウザで動く範囲）
@@ -3326,6 +3489,10 @@ table.res th,table.res td{white-space:nowrap}
     $('xs_x').max = sim.Lx; $('xs_x').step = sim.dx; if (xsX == null || xsX > sim.Lx) xsX = Math.round(sim.Lx * 0.55); $('xs_x').value = xsX;
     $('gridinfo').textContent = '格子 ' + sim.nx + ' × ' + sim.ny + '（' + sim.N.toLocaleString() + ' セル、幅 ' + sim.dx + ' m）　粒径階 ' + sim.K + '　堰堤 ' + sim.dams.length + ' 基' + (sim.fromCSV ? '　CSV 地形（平均勾配 1/' + (1 / sim.I).toFixed(0) + '）' : '') + (sim.I > 0.1 + 1e-9 ? '　注意：勾配 1/' + (1 / sim.I).toFixed(0) + ' は掃流砂の式の適用範囲（1/10 程度より緩い）を超えます。' : '') + (sim.warn.length ? '　注意：' + sim.warn.join(' ') : '');
     if (P.prefill > 0) $('gridinfo').textContent += '　はじめから満砂（比 ' + P.prefill + '）';
+    // 文献の式の適用範囲から外れる設定の注意
+    var nag = (P.sec && (P.sec.bed || P.sec.mom)) || (P.bank && P.bank.collapse === 'hasegawa' && P.bank.erodH > 0);
+    if (nag && sim.I > 0.01 + 1e-9) $('gridinfo').textContent += '　注意：長田ら（1996）の2次流・崩落モデルの検証は勾配 1/100〜1/466 の砂の水路です。勾配 1/' + (1 / sim.I).toFixed(0) + ' では定性的な目安として見てください。';
+    if (P.transport === 'noneq') $('gridinfo').textContent += '　侵食・堆積速度式の係数は水路実験の値です。';
     damRangeNote();
     var src = $('g_src').value, tkey = src + '|' + (src === 'csv' ? textHash($('csv_text').value) + $('csv_cs').value + $('csv_tr').checked + $('csv_flip').checked + $('csv_I').value
       : src === 'survey' ? textHash($('sv_xs').value + '#' + $('sv_long').value) + $('sv_align').value + $('sv_wall').value

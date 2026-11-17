@@ -11,7 +11,8 @@
 
 - 平面2次元の浅水流と、混合粒径の掃流砂による河床変動の計算
 - 網状流路・砂州・アーマー化（交換層モデル）
-- 側岸侵食：段丘の側岸の侵食、水中・陸上の安息角、水際の乾いた側岸の侵食、巨礫による流路の固定
+- 側岸侵食：段丘の側岸の侵食、水中・陸上の安息角、水際の乾いた側岸の侵食、巨礫による流路の固定、長谷川の崩落モデル
+- 湾曲部の2次流：流砂の向きの偏りと運動量の分散項（長田ら 1996）
 - 流砂は平衡流砂量（芦田・道上）か、侵食・堆積速度式（高橋・里深 1999）から選ぶ
 - 堰堤の位置・堤高・水通し幅を自由に設定。向き・中心・天端標高・堤長も指定できる
 - 地形は 3 通り：数値で指定（川幅の変化・湾曲・狭窄・澪筋・支渓の扇状地）、横断・縦断の測量値、格子 CSV（DEM）
@@ -50,6 +51,7 @@ cd python
 python sabo2d.py --preset A --minutes 60            # モデル渓流 A を 1 時間の出水で計算
 python sabo2d.py --xs ../tools/test_cross_sections.csv --long ../tools/test_longitudinal.csv --dams "150:3:0,300:3:0"
 python sabo2d.py --preset B --noneq --bank-h 2 --dry-ero 0.5 --boulders 30   # 非平衡の流砂＋側岸侵食＋巨礫
+python sabo2d.py --preset A --bank-h 2 --collapse hasegawa --secondary --secondary-mom   # 長田ら（1996）の崩落モデルと2次流
 python sabo2d.py --help
 ```
 
@@ -64,7 +66,8 @@ Jupyter では `python/sabo2d.ipynb` を開いて上から実行します。
 - 限界掃流力：芦田・高橋・水山（1978）、岩垣（1956）、一定値から選ぶ
 - 粒度：交換層（平野 1971）＋多層の堆積層
 - 非平衡の流砂：高橋・里深（1999）、高橋ら（1998）の侵食・堆積速度式（選択）
-- 側岸侵食：高橋・里深・奥村（1996）の水中安息角と巨礫による流路の固定、Delft3D の dry-cell erosion、XBeach の wetslp／dryslp の考え方
+- 側岸侵食：高橋・里深・奥村（1996）の水中安息角と巨礫による流路の固定、長田ら（1996）の長谷川型崩落モデルと2次流、Delft3D の dry-cell erosion、XBeach の wetslp／dryslp の考え方
+- 文献の式の適用条件は [docs/model.md](docs/model.md) の表にまとめています
 - 浮遊砂・土石流は扱わない
 
 詳しくは [docs/model.md](docs/model.md) にあります。

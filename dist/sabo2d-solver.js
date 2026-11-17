@@ -77,7 +77,15 @@
         erodH: 0,        // 谷壁のうち、谷底から erodH [m] の高さまでを侵食できる側岸（段丘・崖錐）にする。0 で谷壁は固定床
         reposeWet: 30,   // 水中の安息角 [deg]（高橋・里深・奥村 1996 は 30°）
         reposeDry: 50,   // 陸上の安息角 [deg]（乾いた側岸が立っていられる角度。根や見かけの粘着力で急でも立つ）
-        dryEro: 0        // 水際の濡れたセルの侵食のうち、隣の乾いた側岸から削る割合（Delft3D の THETSD と同じ考え方）。0〜1
+        dryEro: 0,       // 水際の濡れたセルの侵食のうち、隣の乾いた側岸から削る割合（Delft3D の THETSD と同じ考え方）。0〜1
+        collapse: 'repose' // 'repose' 安息角を超えた分を少しずつ崩す | 'hasegawa' 長谷川の崩落モデル（長田ら 1996 式17）
+      },
+      // ---- 2次流（湾曲部のらせん流）。長田・細田・村本・Rahman（1996）
+      sec: {
+        bed: false,      // 河床付近の流れを曲率の内側へ向け、掃流砂の向きを変える（式11・14：u_nb/u_sb = N* h/r）
+        mom: false,      // 2次流による運動量の分散項（式19〜23、Kalkwijk・de Vriend）
+        Nstar: 11.5,     // 式14の係数 N*
+        hrMax: 0.05      // h/r の上限（弱い曲率を前提とする式のため。これを超える所は上限値で頭打ち）
       },
       // ---- 流砂の計算法
       transport: 'eq',   // 'eq' 平衡流砂量（芦田・道上式）| 'noneq' 侵食・堆積速度式（高橋・里深 1999、高橋ら 1998）
@@ -573,6 +581,9 @@
     this.SFx = new Float64Array(NFx * K); this.SFy = new Float64Array(NFy * K);
     this.scS = new Float64Array(N * K);
     this.dA = new Float64Array(K);
+    this.kap = new Float64Array(N); this.kapW = new Float64Array(N); this.secMask = new Uint8Array(N); this.uf = new Float64Array(N); this.vf = new Float64Array(N);   // 流線の曲率 1/r（左曲がりが正） [1/m]
+    this.Txx = new Float64Array(N); this.Txy = new Float64Array(N);    // 2次流による運動量の分散項（セル中心）
+    this.nHase = 0;                               // 長谷川モデルの崩落回数
     this.dzs = new Float64Array(N);               // 1 回の河床変動計算での河床変化（水際の側岸侵食に使う）
     this.Cc = new Float64Array(N * K);            // 侵食・堆積速度式：流れの中の粒径別土砂量 C_k h（実質体積の層厚） [m]
     this.Cn = new Float64Array(N * K);
@@ -683,6 +694,10 @@
       qin[j] = qj;
       uin[j] = qj > 0 ? qj / Math.pow(qj * nman / sqI, 0.6) : 0;
     }
+
+    // ---- 2次流：流線の曲率（前のステップの面の流束から求める）
+    var SEC = P.sec || {}, secOn = !!(SEC.bed || SEC.mom);
+    if (secOn) this.curvature();
 
     // ---- 原始変数と勾配
     for (c = 0; c < N; c++) {
@@ -858,6 +873,10 @@
       }
     }
 
+    // ---- 2次流による運動量の分散項（面の値は両側のセル中心の平均。どちらかが乾いていれば 0）
+    var secM = !!SEC.mom, Txx = this.Txx, Txy = this.Txy, kmk = this.secMask, tE, tW, tN, tS, sE, sW, sN, sS;
+    if (secM) this.secStress();
+
     // ---- 更新（勾配項・流入・摩擦）
     var n2 = this.n2, hn, qxn, qyn, Vv, fr, qoutSum = 0;
     for (j = 0; j < ny; j++) {
@@ -872,6 +891,15 @@
         if (second && hh > 0) {
           qxn -= cf * g * hh * (dex[c] - dhx[c]);
           qyn -= cf * g * hh * (dey[c] - dhy[c]);
+        }
+        if (secM && kmk[c] > 0) {
+          // x 運動量：∂Txx/∂x + ∂Txy/∂y、y 運動量：∂Txy/∂x + ∂Tyy/∂y（Tyy = −Txx）
+          tE = (i < nx - 1 && kmk[c + 1] > 0) ? 0.5 * (Txx[c] + Txx[c + 1]) : 0; sE = (i < nx - 1 && kmk[c + 1] > 0) ? 0.5 * (Txy[c] + Txy[c + 1]) : 0;
+          tW = (i > 0 && kmk[c - 1] > 0) ? 0.5 * (Txx[c] + Txx[c - 1]) : 0; sW = (i > 0 && kmk[c - 1] > 0) ? 0.5 * (Txy[c] + Txy[c - 1]) : 0;
+          tN = (j < ny - 1 && kmk[c + nx] > 0) ? 0.5 * (Txx[c] + Txx[c + nx]) : 0; sN = (j < ny - 1 && kmk[c + nx] > 0) ? 0.5 * (Txy[c] + Txy[c + nx]) : 0;
+          tS = (j > 0 && kmk[c - nx] > 0) ? 0.5 * (Txx[c] + Txx[c - nx]) : 0; sS = (j > 0 && kmk[c - nx] > 0) ? 0.5 * (Txy[c] + Txy[c - nx]) : 0;
+          qxn -= cf * ((tE - tW) + (sN - sS));
+          qyn -= cf * ((sE - sW) - (tN - tS));
         }
         if (i === 0 && qin[j] > 0) { hn += cf * qin[j]; qxn += cf * qin[j] * uin[j]; }
         if (hn < 0) hn = 0;
@@ -917,6 +945,7 @@
     this.dzs.fill(0);
     if (this.P.transport === 'noneq') this.morphNoneq(dtm); else this.morphEq(dtm);
     this.dryBankErosion();
+    this.hasegawaCollapse();
     this.collapse();
   };
 
@@ -932,6 +961,7 @@
     var cGrid = P.gridDamp == null ? 0.3 : P.gridDamp;
 
     var tcs = this.tcs, hideEg = P.hiding === 'egiazaroff';
+    var SEC = P.sec || {}, secBed = !!SEC.bed, kapA = this.kap, Nst = SEC.Nstar || 11.5, hrMx = SEC.hrMax || 0.05;
     // ---- 各セルの粒径別掃流砂量（芦田・道上式）
     for (c = 0; c < N; c++) {
       act[c] = 0;
@@ -961,13 +991,16 @@
       tcs[c] = uscm2 / (sg1 * g * dm);
       // 格子スケールの凹凸（2Δx の振動）を抑える下限。Δx→0 で物理的な係数に戻る
       var epsMin = cGrid * dx / hh; if (epsMin > 4) epsMin = 4;
+      // 2次流で河床付近の流れが曲率の内側へ向く（長田ら 1996 式14：u_nb/u_sb = N* h/r。n は流れの左向き）
+      var secD = 0;
+      if (secBed) { var hk0 = hh * kapA[c]; if (hk0 > hrMx) hk0 = hrMx; else if (hk0 < -hrMx) hk0 = -hrMx; secD = Nst * hk0; }
       for (k = 0; k < K; k++) {
         var rr = d[k] / dm, usc2 = uscm2;
         if (hideEg) { if (rr >= 0.4) { var lg = LN19 / Math.log(19 * rr); usc2 = uscm2 * lg * lg * rr; } else usc2 = 0.85 * uscm2; }
         if (us2 > usc2 && A[ck + k] > 0) {
           var usc = Math.sqrt(usc2);
           var qb = cap * A[ck + k] * (1 - usc2 / us2) * (1 - usc / uss);
-          qbx[ck + k] = qb * uu / V; qby[ck + k] = qb * vv / V;
+          qbx[ck + k] = qb * (uu - secD * vv) / V; qby[ck + k] = qb * (vv + secD * uu) / V;
           var epsg = (usc / uss) * invMu; if (epsg < epsMin) epsg = epsMin;
           gk[ck + k] = qb * epsg;
           anyq = true;
@@ -1098,7 +1131,7 @@
   Sim.prototype.collapse = function () {
     var nx = this.nx, ny = this.ny, K = this.K, dx = this.dx, A = this.A, z = this.z, h = this.h, fxC = this.fixedC, BK = this.P.bank || {};
     var limW = Math.tan((BK.reposeWet || this.P.reposeDeg) * Math.PI / 180) * dx, limD = Math.tan((BK.reposeDry || this.P.reposeDeg) * Math.PI / 180) * dx;
-    var HW = 0.01, i, j, c, k, row, lim, diff, hi, lo, av, mv, hk, lk, frc;
+    var HW = 0.01, i, j, c, k, row, lim, diff, hi, lo, av, mv, hk, lk, frc, hase = BK.collapse === 'hasegawa', kind = this.kind;
     for (var pass = 0; pass < 2; pass++) {
       var off = pass === 0 ? 1 : nx;
       var iEnd = pass === 0 ? nx - 1 : nx, jEnd = pass === 0 ? ny : ny - 1;
@@ -1110,6 +1143,8 @@
           lim = (h[c] > HW || h[c + off] > HW) ? limW : limD;
           diff = z[c] - z[c + off];
           if (diff > lim) { hi = c; lo = c + off; } else if (-diff > lim) { hi = c + off; lo = c; diff = -diff; } else continue;
+          // 長谷川モデルでは、水際の乾いた側岸（高い側が乾き、低い側が濡れている）は崩落モデルに任せる
+          if (hase && h[hi] <= HW && h[lo] > HW && kind[hi] === 0 && kind[lo] === 0) continue;
           hk = hi * K; lk = lo * K; av = 0;
           for (k = 0; k < K; k++) av += A[hk + k];
           if (av < 1e-6) continue;
@@ -1122,6 +1157,118 @@
         }
       }
     }
+  };
+
+  // ---- 2次流（長田・細田・村本・Rahman 1996）------------------------------------------
+  // 流線の曲率 κ = 1/r = (u(u v_x + v v_y) − v(u u_x + v u_y)) / V³（左に曲がるとき正）。
+  // 流速は前のステップの面の流束の平均。格子規模のばらつきを抑えるため、濡れたセルだけで 3×3 平均を 2 回とる。
+  // 弱い曲率を前提とする式なので、|h κ| を hrMax で頭打ちにする。
+  Sim.prototype.curvature = function () {
+    var nx = this.nx, ny = this.ny, N = this.N, dx = this.dx, h = this.h, FxM = this.FxM, GyM = this.GyM;
+    var kap = this.kap, tmp = this.kapW, uf = this.uf, vf = this.vf, HS = 0.05, i, j, c, f;
+    var hrMax = (this.P.sec && this.P.sec.hrMax) || 0.05;
+    for (c = 0; c < N; c++) {
+      var hh = h[c];
+      if (hh > HS) { i = c % nx; j = (c - i) / nx; f = j * (nx + 1) + i; uf[c] = 0.5 * (FxM[f] + FxM[f + 1]) / hh; vf[c] = 0.5 * (GyM[c] + GyM[c + nx]) / hh; }
+      else { uf[c] = 0; vf[c] = 0; }
+      tmp[c] = 0;
+    }
+    for (j = 1; j < ny - 1; j++) for (i = 1; i < nx - 1; i++) {
+      c = j * nx + i;
+      if (!(h[c] > HS && h[c - 1] > HS && h[c + 1] > HS && h[c - nx] > HS && h[c + nx] > HS)) continue;
+      var uu = uf[c], vv = vf[c], V2 = uu * uu + vv * vv;
+      if (V2 < 0.01) continue;
+      var ux = (uf[c + 1] - uf[c - 1]) / (2 * dx), uy = (uf[c + nx] - uf[c - nx]) / (2 * dx);
+      var vx = (vf[c + 1] - vf[c - 1]) / (2 * dx), vy = (vf[c + nx] - vf[c - nx]) / (2 * dx);
+      tmp[c] = (uu * (uu * vx + vv * vy) - vv * (uu * ux + vv * uy)) / (V2 * Math.sqrt(V2));
+    }
+    for (var pass = 0; pass < 2; pass++) {
+      var src = pass === 0 ? tmp : kap, dst = pass === 0 ? kap : tmp;
+      for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {
+        c = j * nx + i; dst[c] = 0;
+        if (!(h[c] > HS)) continue;
+        var sm = 0, nn = 0;
+        for (var dj = -1; dj <= 1; dj++) { var jj = j + dj; if (jj < 0 || jj >= ny) continue;
+          for (var di = -1; di <= 1; di++) { var ii = i + di; if (ii < 0 || ii >= nx) continue; var cc = jj * nx + ii; if (h[cc] > HS) { sm += src[cc]; nn++; } } }
+        dst[c] = sm / nn;
+      }
+    }
+    for (c = 0; c < N; c++) {
+      var lim = hrMax / Math.max(h[c], 1e-3), kk = tmp[c];
+      kap[c] = kk > lim ? lim : (kk < -lim ? -lim : kk);
+    }
+  };
+  // 2次流による運動量の分散項（Kalkwijk・de Vriend 1980、長田ら 1996 式19〜23）。
+  // s–n 座標の T_sn = h ū_s ū_n の水深積分 = −k_sn h² V² κ（外岸向きに主流の運動量を運ぶ）を x–y に回す：
+  //   Txx = −Tyy = 2 k_sn h² κ u v、Txy = −k_sn h² κ (u² − v²)
+  //   k_sn = 5a − 15.6a² + 37.5a³、a = √g/(κ_K C)、C = h^(1/6)/n。外挿を避けるため a ≤ 0.4
+  Sim.prototype.secStress = function () {
+    var N = this.N, h = this.h, uf = this.uf, vf = this.vf, kap = this.kap, Txx = this.Txx, Txy = this.Txy, msk = this.secMask;
+    var nman = this.P.manning, HS = 0.05, sg = Math.sqrt(G);
+    for (var c = 0; c < N; c++) {
+      Txx[c] = 0; Txy[c] = 0; msk[c] = 0;
+      var hh = h[c]; if (!(hh > HS)) continue;
+      msk[c] = 1;
+      var uu = uf[c], vv = vf[c], kk = kap[c];
+      if (kk === 0) continue;
+      var a = sg * nman / (0.4 * Math.pow(hh, 1 / 6)); if (a > 0.4) a = 0.4;
+      var ksn = 5 * a - 15.6 * a * a + 37.5 * a * a * a;
+      var w = ksn * hh * hh * kk;
+      Txx[c] = 2 * w * uu * vv; Txy[c] = -w * (uu * uu - vv * vv);
+    }
+  };
+
+  // ---- 長谷川の側岸崩落モデル（長谷川 1983、長田ら 1996 式17）-----------------------------
+  // 乾いた側岸セル b の隣が水に浸かっているとき、b の位置の水面から水中安息角 βk で下る線を引く。
+  // 線より上の土砂（崩落する土塊 A）と、線より下の洗掘の不足分 B を、横断方向（4 方向）に数える。
+  // B ≥ A になったら土塊 A が一度に崩れ、B の部分を埋め戻す（崩落限界幅 ΔBc は 1 セル）。
+  Sim.prototype.hasegawaCollapse = function () {
+    var BK = this.P.bank || {}; if (BK.collapse !== 'hasegawa') return;
+    var nx = this.nx, ny = this.ny, N = this.N, dx = this.dx, h = this.h, z = this.z, kind = this.kind, fxC = this.fixedC;
+    var tb = Math.tan((BK.reposeWet || this.P.reposeDeg) * Math.PI / 180) * dx;
+    var HW = 0.01, MAXM = 40, exC = this._exC || (this._exC = new Int32Array(MAXM + 1)), exV = this._exV || (this._exV = new Float64Array(MAXM + 1));
+    var dfC = this._dfC || (this._dfC = new Int32Array(MAXM + 1)), dfV = this._dfV || (this._dfV = new Float64Array(MAXM + 1));
+    var DI = [1, -1, 0, 0], DJ = [0, 0, 1, -1];
+    for (var c = 0; c < N; c++) {
+      if (h[c] >= HW || kind[c] !== 0 || fxC[c]) continue;
+      var i0 = c % nx, j0 = (c - i0) / nx;
+      for (var q = 0; q < 4; q++) {
+        var i1 = i0 + DI[q], j1 = j0 + DJ[q];
+        if (i1 < 0 || i1 >= nx || j1 < 0 || j1 >= ny) continue;
+        var w1 = j1 * nx + i1;
+        if (h[w1] < HW || kind[w1] !== 0 || fxC[w1]) continue;
+        var H = z[w1] + h[w1]; if (z[c] <= H) continue;
+        var nE = 1, nD = 0, Aex = z[c] - H, Bdf = 0, stage = 0;
+        exC[0] = c; exV[0] = Aex;
+        for (var m = 1; m <= MAXM; m++) {
+          var ii = i0 + m * DI[q], jj = j0 + m * DJ[q];
+          if (ii < 0 || ii >= nx || jj < 0 || jj >= ny) break;
+          var cc = jj * nx + ii;
+          if (h[cc] < HW || kind[cc] !== 0 || fxC[cc]) break;
+          var dzl = z[cc] - (H - m * tb);
+          if (dzl > 0) { if (stage === 0) { exC[nE] = cc; exV[nE] = dzl; nE++; Aex += dzl; } else break; }
+          else if (dzl < 0) { stage = 1; dfC[nD] = cc; dfV[nD] = -dzl; nD++; Bdf -= dzl; }
+          else if (stage === 1) break;
+        }
+        if (nD === 0 || Bdf < Aex) continue;
+        for (var e = 0; e < nE; e++) for (var fq = 0; fq < nD; fq++) this.moveSed(exC[e], dfC[fq], exV[e] * dfV[fq] / Bdf);
+        this.nHase++;
+        break;
+      }
+    }
+  };
+  // セル a の上から厚さ dz の土砂を（堆積層の粒度で）セル b へ移す。動かせた厚さを返す
+  Sim.prototype.moveSed = function (a, b, dz) {
+    var K = this.K, A = this.A, ak = a * K, bk = b * K, left = dz, k, it = 0;
+    while (left > 1e-9 && it++ < 400) {
+      var av = 0; for (k = 0; k < K; k++) av += A[ak + k];
+      if (av < 1e-9) break;
+      var take = left < av ? left : av, frc = take / av;
+      for (k = 0; k < K; k++) { var t = A[ak + k] * frc; A[ak + k] -= t; A[bk + k] += t; }
+      this.z[a] -= take; this.z[b] += take; left -= take;
+      this.fixLayers(a); this.fixLayers(b);
+    }
+    return dz - left;
   };
 
   // 水際の側岸侵食：濡れたセルが侵食されたとき、その一部（割合 dryEro）を隣の乾いた側岸セルから削る
@@ -1176,6 +1323,7 @@
     if (!this.dord) { this.dord = []; for (k = 0; k < K; k++) this.dord.push(k); var dd_ = d; this.dord.sort(function (a, b) { return dd_[a] - dd_[b]; }); }
     var ord = this.dord, sqd3 = this.sqd3 || (this.sqd3 = Array.prototype.map.call(d, function (dk) { return Math.sqrt(sg1 * g * dk * dk * dk); }));
     var iK = this.dA;
+    var SEC = P.sec || {}, secBed = !!SEC.bed, kapA = this.kap, Nst = SEC.Nstar || 11.5, hrMx = SEC.hrMax || 0.05;
     // ---- 1a. 輸送速度と限界摩擦速度（河床を変える前の地形で全セル分を先に求める）
     var ucm = this.neUcm || (this.neUcm = new Float64Array(N));
     for (c = 0; c < N; c++) {
@@ -1195,7 +1343,9 @@
         var zl = ic0 > 0 ? z[c - 1] : z[c], zr = ic0 < nx - 1 ? z[c + 1] : z[c], zd = jc0 > 0 ? z[c - nx] : z[c], zu = jc0 < ny - 1 ? z[c + nx] : z[c];
         var dzdn = ((zr - zl) / ((ic0 > 0 && ic0 < nx - 1) ? 2 * dx : dx)) * nxn + ((zu - zd) / ((jc0 > 0 && jc0 < ny - 1) ? 2 * dx : dx)) * nyn;
         var Kc = us20 > 1e-12 ? Math.sqrt(Math.min(1, uc0 / us20)) * gK : 0;
-        var b2 = Math.atan(-Kc * dzdn); if (b2 > 1) b2 = 1; else if (b2 < -1) b2 = -1;
+        var sd0 = 0;   // 2次流による河床付近の流向の偏り（長田ら 1996 式11・14）
+        if (secBed) { var hk1 = h0 * kapA[c]; if (hk1 > hrMx) hk1 = hrMx; else if (hk1 < -hrMx) hk1 = -hrMx; sd0 = Nst * hk1; }
+        var b2 = Math.atan(sd0 - Kc * dzdn); if (b2 > 1) b2 = 1; else if (b2 < -1) b2 = -1;
         tu[ck] = V0 * Math.cos(b1 + b2); tv[ck] = V0 * Math.sin(b1 + b2);
       }
     }

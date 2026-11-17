@@ -250,17 +250,24 @@ table.res th,table.res td{white-space:nowrap}
         <div class="row"><label for="ne_dd">堆積係数 δd</label><input type="number" id="ne_dd" step="0.1" min="0.01"></div>
         <div class="row"><label for="ne_he">水際とみなす水深<span class="u">m、0＝自動</span></label><input type="number" id="ne_he" step="0.01" min="0"></div>
         <div class="row"><label for="ne_fe">水際の倍率（侵食／堆積）</label><span style="display:flex;gap:4px"><input type="number" id="ne_fe" step="0.5" min="1" style="width:4.5em"><input type="number" id="ne_fd" step="1" min="1" style="width:4.5em"></span></div>
-        <p class="note">i_k = f_bk·δe(C∞−C)/C*·|u*−u*ck|（侵食）、f_0k·δd(C∞−C)/C*·|u*−u*ck|（堆積）。流れの中の土砂を運び、その場で平衡濃度 C∞ との差だけ侵食・堆積させます（非平衡）。高橋・里深（1999）は δe = δd = 0.6、水深 5 mm 以下で δe = 1.2・δd = 6.0（倍率 2 と 10）としています。水際とみなす水深の自動値は平均粒径の 2.5 倍です（同論文の 5 mm／2 mm の比）。</p>
+        <p class="note">i_k = f_bk·δe(C∞−C)/C*·|u*−u*ck|（侵食）、f_0k·δd(C∞−C)/C*·|u*−u*ck|（堆積）。流れの中の土砂を運び、その場で平衡濃度 C∞ との差だけ侵食・堆積させます（非平衡）。高橋・里深（1999）は δe = δd = 0.6、水深 5 mm 以下で δe = 1.2・δd = 6.0（倍率 2 と 10）としています。水際とみなす水深の自動値は平均粒径の 2.5 倍です（同論文の 5 mm／2 mm の比）。<b>適用条件</b>：δe、δd と水際の倍率は水路実験に合わせた値です。現地の規模へは、水際の水深を粒径との比で移しています（本プログラムの仮定）。掃流砂の式なので、浮遊砂・土石流の濃度では使えません。</p>
       </div>
       <div class="row"><label for="bk_h">側岸として侵食できる高さ<span class="u">m</span></label><input type="number" id="bk_h" step="0.5" min="0"></div>
       <div class="row"><label for="bk_w">水中の安息角<span class="u">°</span></label><input type="number" id="bk_w" step="1" min="15" max="60"></div>
       <div class="row"><label for="bk_d">陸上の安息角<span class="u">°</span></label><input type="number" id="bk_d" step="1" min="15" max="80"></div>
       <div class="row"><label for="bk_e">水際の侵食を側岸から削る割合</label><input type="number" id="bk_e" step="0.1" min="0" max="1"></div>
+      <div class="row"><label for="bk_cm">側岸の崩れ方</label><select id="bk_cm"><option value="repose">安息角を超えた分を少しずつ崩す</option><option value="hasegawa">長谷川の崩落モデル（長田ら 1996）</option></select></div>
       <p class="note">谷壁のうち、谷底から「侵食できる高さ」までを段丘・崖錐の土砂とし、削れるようにします（0 なら谷壁は固定床）。斜面は、水に浸かっていれば水中の安息角、乾いていれば陸上の安息角を超えた所で崩れます。水際の濡れたセルが削られると、その一部を隣の乾いた側岸から削ります（0 で使わない）。</p>
+      <p class="note">長谷川の崩落モデル（長谷川 1983、長田ら 1996 式17）：水際の乾いた側岸は、根元の洗掘が進むまで立ったままです。側岸の位置の水面から水中安息角で下る線を引き、線より下の洗掘量 B が線より上の土塊 A に達したとき、A が一度に崩れて B を埋め戻します。崩落限界幅 ΔBc は 1 セル（格子幅）です。<b>適用条件</b>：長田らの検証は、粘着力のない砂（粒径 0.7〜1.4 mm）、勾配 1/100〜1/466、側岸の高さ 4〜7 cm の水路実験で、掃流砂が主で変化がゆるやかな場合です。崩れる周期が計算時間より十分短く、崩落土砂が埋め戻す範囲の河床変動が正しく計算できることが前提です。蛇行頂部の下流のように水際で流砂の非平衡性が強い所では侵食量が過小になったと報告されています（非平衡の流砂と合わせると改善が見込まれます）。粘着性の土、植生の根、引張り亀裂による崩落は扱いません。</p>
+      <div class="row"><label for="sc_bed">2次流で流砂の向きを内岸へ曲げる</label><input type="checkbox" id="sc_bed"></div>
+      <div class="row"><label for="sc_mom">2次流による運動量の分散項</label><input type="checkbox" id="sc_mom"></div>
+      <div class="row"><label for="sc_N">係数 N*</label><input type="number" id="sc_N" step="0.5" min="0"></div>
+      <div class="row"><label for="sc_hr">h/r の上限</label><input type="number" id="sc_hr" step="0.01" min="0.005" max="0.2"></div>
+      <p class="note">湾曲部のらせん流（2次流）。流線の曲率 1/r を流速分布から求めます（3×3 で 2 回平滑化）。流砂の向き：河床付近の流速の横断成分 u_nb = N*·(h/r)·u_sb（長田ら 1996 式14、N* = 11.5）を長谷川式の横断方向流砂に加えます。分散項：Kalkwijk・de Vriend（1980）の流速分布の仮定から、主流の運動量を外岸へ運ぶ項（式19〜23）を運動方程式に加えます。流速の最大が外岸側へ寄ります。<b>適用条件</b>：曲率が弱い（h/r ≪ 1）こと、2次流が十分に発達していること（湾曲の入口での発達の遅れは扱いません）、流速分布が対数則に近いこと。そのため h/r を上限値で頭打ちにし、k_sn の近似式は √g/(κC) ≤ 0.4 の範囲で使います。長田らの検証は、勾配 1/400 の一様湾曲水路（砂、掃流砂が主）です。網状に分かれた流れや急勾配の渓流では、曲率は格子規模のばらつきを含むので、結果は定性的な目安です。</p>
       <div class="row"><label for="bo_L">巨礫の間隔<span class="u">m、0＝置かない</span></label><input type="number" id="bo_L" step="5" min="0"></div>
       <div class="row"><label for="bo_m">巨礫の並べ方</label><select id="bo_m"><option value="parallel">両岸でそろえる（つがい）</option><option value="zigzag">千鳥</option></select></div>
       <div class="row"><label for="bo_s">巨礫の大きさ<span class="u">セル</span></label><input type="number" id="bo_s" step="1" min="1" max="4"></div>
-      <p class="note">動かない巨礫を、水みち（初期の澪筋。なければ谷底）の両岸に間隔ごとに置きます。そのセルは侵食も堆積もしません。高橋・里深・奥村（1996）の水路実験では、間隔 L が水みち幅 B の 9/4 倍より狭いと水みちの拡幅・分裂が抑えられ、流路が固定されました。</p>
+      <p class="note">動かない巨礫を、水みち（初期の澪筋。なければ谷底）の両岸に間隔ごとに置きます。そのセルは侵食も堆積もしません。高橋・里深・奥村（1996）の水路実験では、間隔 L が水みち幅 B の 9/4 倍より狭いと水みちの拡幅・分裂が抑えられ、流路が固定されました。<b>適用条件</b>：水路実験から得た目安で、巨礫が流れで動かないことが前提です。巨礫の大きさは格子幅で決まり、実際の礫の大きさは表せません。</p>
     </div></details>
 
     <details><summary>計算条件</summary><div class="body">
@@ -369,7 +376,8 @@ table.res th,table.res td{white-space:nowrap}
           <li>流砂の向きは流速の向きに、河床勾配による重力の効果を加えます。係数は長谷川の横断方向流砂量式の形 √(τ*c/(μs μk τ*)) を使い、勾配方向の拡散として等方的に与えています。</li>
           <li>粒度は交換層（平野）と多層の堆積層で追跡します。粗粒化（アーマー化）と、堆積した土砂の再侵食時の粒度を表現できます。</li>
           <li>安息角を超えた斜面は崩落させます。水に浸かった斜面は水中の安息角（既定 30°、高橋・里深・奥村 1996）、乾いた斜面は陸上の安息角（既定 50°）で判定します。重力項と合わせて、側岸侵食と流路の移動を表します。</li>
-          <li>側岸侵食の拡張：谷壁の下部を侵食できる段丘・崖錐とする設定、水際の濡れたセルの侵食の一部を隣の乾いた側岸から削る設定（Delft3D の dry-cell erosion と同じ考え方）、動かない巨礫で流路を固定する設定（高橋・里深・奥村 1996）を選べます。</li>
+          <li>側岸侵食の拡張：谷壁の下部を侵食できる段丘・崖錐とする設定、水際の濡れたセルの侵食の一部を隣の乾いた側岸から削る設定（Delft3D の dry-cell erosion と同じ考え方）、動かない巨礫で流路を固定する設定（高橋・里深・奥村 1996）、長谷川の崩落モデル（側岸は根元の洗掘が溜まってから一度に崩れる。長田ら 1996）を選べます。</li>
+          <li>湾曲部の2次流（長田ら 1996）：流線の曲率から、河床付近の流れを内岸へ向ける効果（流砂の向き）と、主流の運動量を外岸へ運ぶ分散項（Kalkwijk・de Vriend 1980）を加えられます。どちらも弱い曲率を前提とする式です。</li>
           <li>流砂量は、平衡流砂量（芦田・道上式）のほかに、高橋・里深（1999）と高橋ら（1998）の侵食・堆積速度式（非平衡）でも計算できます。流れの中の粒径別土砂濃度を運び、平衡濃度との差で侵食・堆積させます。水際の浅い所では係数を割り増して、水際の掃流力の過小評価を補います。</li>
           <li>堰堤は1セル幅の固定床です。天端、水通し、袖部を標高で与えます。固定床への段上がりが水深の半分を超える間は、掃流砂を通しません。</li>
         </ul>
@@ -397,6 +405,9 @@ table.res th,table.res td{white-space:nowrap}
           <li>Egiazaroff, I. V. (1965): Calculation of nonuniform sediment concentrations, J. Hydraul. Div., ASCE, 91(HY4), pp.225–247.</li>
           <li>平野宗夫（1971）：Armoring をともなう河床低下について，土木学会論文報告集，第195号，pp.55–65．</li>
           <li>長谷川和義（1981）：非平衡性を考慮した側岸侵食量式に関する研究，土木学会論文報告集，第316号，pp.37–50．</li>
+          <li>長田信寿・細田尚・村本嘉雄・Md. M. Rahman（1996）：側岸侵食を伴う河道変動の数値解析，京都大学防災研究所年報，第39号B-2，pp.415–428．</li>
+          <li>長谷川和義（1983）：沖積蛇行の平面および河床形状と流れに関する水理学的研究，北海道大学学位論文．</li>
+          <li>Kalkwijk, J. P. Th., de Vriend, H. J. (1980): Computation of the flow in shallow river bends, J. Hydraulic Research, 18(4), pp.327–342.</li>
           <li>高橋保・里深好文・奥村（1996）：京都大学防災研究所年報，第39号B-2（巨礫による流路の固定、水中の安息角）．</li>
           <li>高橋保・中川一・里深好文・奥村・安本（1998）：京都大学防災研究所年報，第41号B-2（侵食・堆積速度式による河床変動）．</li>
           <li>高橋保・里深好文（1999）：京都大学防災研究所年報，第42号B-2（水際での侵食・堆積係数の割り増し）．</li>
@@ -407,7 +418,7 @@ table.res th,table.res td{white-space:nowrap}
           <li>Audusse, E., Bouchut, F., Bristeau, M.-O., Klein, R., Perthame, B. (2004): A fast and stable well-balanced scheme with hydrostatic reconstruction for shallow water flows, SIAM J. Sci. Comput., 25(6), pp.2050–2065.</li>
           <li>Chen, G., Noelle, S. (2017): A new hydrostatic reconstruction scheme based on subcell reconstructions, SIAM J. Numer. Anal., 55(2), pp.758–784.</li>
         </ul>
-        <p>高橋ら（1996・1998・1999）と橋本ら（2003）は、いただいた PDF をもとにしています（題名は原典を見てください）。長田ら（1996）の側岸侵食モデルは、PDF を入手できなかったため使っていません。里深・高橋（1998）の書誌は土木学会水工学委員会の論文集目次で確認しました。それ以外は記憶に基づく書誌です。引用する際は原典で確認してください。</p>
+        <p>高橋ら（1996・1998・1999）、橋本ら（2003）、長田ら（1996）は、いただいた PDF をもとにしています（題名は原典を見てください）。長田ら（1996）と、同論文が引く長谷川（1983）、Kalkwijk・de Vriend（1980）の書誌は、いただいた長田らの PDF の参考文献欄によります。里深・高橋（1998）の書誌は土木学会水工学委員会の論文集目次で確認しました。それ以外は記憶に基づく書誌です。引用する際は原典で確認してください。</p>
       </div></details>
     </div>
   </div>

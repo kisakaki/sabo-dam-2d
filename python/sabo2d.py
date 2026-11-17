@@ -111,7 +111,13 @@ def default_params():
         'bank': {'erodH': 0.0,       # 谷壁のうち谷底から erodH [m] までを侵食できる側岸にする（0 で固定床）
                  'reposeWet': 30.0,  # 水中の安息角 [deg]（高橋・里深・奥村 1996 は 30°）
                  'reposeDry': 50.0,  # 陸上の安息角 [deg]
-                 'dryEro': 0.0},     # 水際の濡れたセルの侵食のうち、隣の乾いた側岸から削る割合（0〜1）
+                 'dryEro': 0.0,      # 水際の濡れたセルの侵食のうち、隣の乾いた側岸から削る割合（0〜1）
+                 'collapse': 'repose'},  # 'repose' 安息角を超えた分を少しずつ崩す | 'hasegawa' 長谷川の崩落モデル（長田ら 1996 式17）
+        # ---- 2次流（湾曲部のらせん流）。長田・細田・村本・Rahman（1996）
+        'sec': {'bed': False,    # 河床付近の流れを曲率の内側へ向け、掃流砂の向きを変える（式11・14：u_nb/u_sb = N* h/r）
+                'mom': False,    # 2次流による運動量の分散項（式19〜23、Kalkwijk・de Vriend）
+                'Nstar': 11.5,   # 式14の係数 N*
+                'hrMax': 0.05},  # h/r の上限（弱い曲率を前提とする式のため）
         # ---- 流砂の計算法：'eq' 平衡流砂量（芦田・道上式）| 'noneq' 侵食・堆積速度式（高橋・里深 1999）
         'transport': 'eq',
         'noneq': {'de': 0.6, 'dd': 0.6, 'hEdge': 0.0, 'fe': 2.0, 'fd': 10.0},
@@ -641,6 +647,8 @@ class Sim:
         self.tcs = np.full((ny, nx), np.nan)
         self.Cc = np.zeros((N, K))          # 侵食・堆積速度式：流れの中の粒径別土砂量 C_k h（実質体積の層厚） [m]
         self.dzs = np.zeros((ny, nx))       # 1 回の河床変動計算での河床変化
+        self.kap = np.zeros((ny, nx))       # 流線の曲率 1/r（左曲がりが正） [1/m]
+        self.nHase = 0                      # 長谷川モデルの崩落回数
 
         # ---- 初期の水
         h = np.zeros((ny, nx)); qx = np.zeros((ny, nx)); qy = np.zeros((ny, nx))
@@ -719,6 +727,11 @@ class Sim:
         qin = Q * w / w.sum() / dx if w.sum() > 0 else np.zeros(ny)
         uin = np.where(qin > 0, qin / np.maximum(qin * nman / sqI, 1e-30) ** 0.6, 0.0)
         self.qin, self.uin = qin, uin
+
+        # ---- 2次流：流線の曲率（前のステップの面の流束から求める）
+        SEC = P.get('sec') or {}
+        if SEC.get('bed') or SEC.get('mom'):
+            self._curvature()
 
         # ---- 原始変数
         wet = h > HDRY
@@ -814,6 +827,19 @@ class Sim:
             pos = h > 0
             qxn = qxn - np.where(pos, cf * g * h * (dex - dhx), 0.0)
             qyn = qyn - np.where(pos, cf * g * h * (dey - dhy), 0.0)
+        if SEC.get('mom'):
+            # 2次流による運動量の分散項（面の値は両側のセル中心の平均。どちらかが乾いていれば 0）
+            Txx, Txy, msk = self._sec_stress()
+            def face(T):
+                E = np.zeros_like(T); W = np.zeros_like(T); Nf = np.zeros_like(T); Sf = np.zeros_like(T)
+                E[:, :-1] = np.where(msk[:, 1:], 0.5 * (T[:, :-1] + T[:, 1:]), 0.0)
+                W[:, 1:] = np.where(msk[:, :-1], 0.5 * (T[:, 1:] + T[:, :-1]), 0.0)
+                Nf[:-1] = np.where(msk[1:], 0.5 * (T[:-1] + T[1:]), 0.0)
+                Sf[1:] = np.where(msk[:-1], 0.5 * (T[1:] + T[:-1]), 0.0)
+                return E, W, Nf, Sf
+            tE, tW, tN, tS = face(Txx); sE, sW, sN, sS = face(Txy)
+            qxn = qxn - np.where(msk, cf * ((tE - tW) + (sN - sS)), 0.0)
+            qyn = qyn - np.where(msk, cf * ((sE - sW) - (tN - tS)), 0.0)
         hn[:, 0] += np.where(qin > 0, cf * qin, 0.0)
         qxn[:, 0] += np.where(qin > 0, cf * qin * uin, 0.0)
         hn = np.maximum(hn, 0.0)
@@ -890,6 +916,7 @@ class Sim:
         else:
             self._morph_eq(dtm)
         self._dry_bank_erosion()
+        self._hasegawa_collapse()
         self._collapse()
 
     def _morph_eq(self, dtm):
@@ -928,6 +955,9 @@ class Sim:
         qbx = np.zeros((ny, nx, K)); qby = np.zeros((ny, nx, K)); gk = np.zeros((ny, nx, K))
         act = np.zeros((ny, nx), dtype=bool)
         hideEg = P['hiding'] == 'egiazaroff'
+        # 2次流で河床付近の流れが曲率の内側へ向く（長田ら 1996 式14：u_nb/u_sb = N* h/r。n は流れの左向き）
+        SEC = P.get('sec') or {}
+        secD = (SEC.get('Nstar') or 11.5) * np.clip(hs * self.kap, -(SEC.get('hrMax') or 0.05), SEC.get('hrMax') or 0.05) if SEC.get('bed') else 0.0
         for k in range(K):
             rr = d[k] / dm
             if hideEg:
@@ -938,7 +968,7 @@ class Sim:
             m = base & (us2 > usc2) & (A[:, :, k] > 0)
             usc = np.sqrt(usc2)
             qb = np.where(m, cap * A[:, :, k] * (1 - usc2 / np.where(m, us2, 1)) * (1 - usc / uss), 0.0)
-            qbx[:, :, k] = qb * uu / V; qby[:, :, k] = qb * vv / V
+            qbx[:, :, k] = qb * (uu - secD * vv) / V; qby[:, :, k] = qb * (vv + secD * uu) / V
             epsg = np.maximum(usc / uss * invMu, epsMin)
             gk[:, :, k] = qb * epsg
             act |= m
@@ -1036,7 +1066,9 @@ class Sim:
         gy, gx = np.gradient(z, dx)
         dzdn = gx * nxn + gy * nyn
         Kc = np.where(us2 > 1e-12, np.sqrt(np.minimum(1.0, uscm2 / np.where(us2 > 1e-12, us2, 1))) * gK, 0.0)
-        b2 = np.clip(np.arctan(-Kc * dzdn), -1.0, 1.0)
+        SEC = P.get('sec') or {}       # 2次流による河床付近の流向の偏り（長田ら 1996 式11・14）
+        sd0 = (SEC.get('Nstar') or 11.5) * np.clip(hs * self.kap, -(SEC.get('hrMax') or 0.05), SEC.get('hrMax') or 0.05) if SEC.get('bed') else 0.0
+        b2 = np.clip(np.arctan(sd0 - Kc * dzdn), -1.0, 1.0)
         mv_ = wet & (V > 1e-6)
         tu = np.where(mv_, V * np.cos(b1 + b2), 0.0); tv = np.where(mv_, V * np.sin(b1 + b2), 0.0)
         # 侵食・堆積速度
@@ -1100,6 +1132,121 @@ class Sim:
         self.QsOut = out_k.sum() * dx
         self.sedOut += self.QsOut * dts
 
+    # ------------------------------------------------------------ 2次流（長田・細田・村本・Rahman 1996）
+    def _curvature(self):
+        """流線の曲率 κ = (u(u v_x + v v_y) − v(u u_x + v u_y)) / V³（左に曲がるとき正）。
+        流速は前のステップの面の流束の平均。濡れたセルだけで 3×3 平均を 2 回とり、|h κ| を hrMax で頭打ちにする。"""
+        nx, ny, dx, h = self.nx, self.ny, self.dx, self.h
+        HS = 0.05; hrMax = (self.P.get('sec') or {}).get('hrMax') or 0.05
+        w = h > HS; hs = np.where(w, h, 1.0)
+        uf = np.where(w, 0.5 * (self.FxM[:, :-1] + self.FxM[:, 1:]) / hs, 0.0)
+        vf = np.where(w, 0.5 * (self.GyM[:-1] + self.GyM[1:]) / hs, 0.0)
+        self.uf, self.vf = uf, vf
+        tmp = np.zeros((ny, nx))
+        ok = w[1:-1, 1:-1] & w[1:-1, :-2] & w[1:-1, 2:] & w[:-2, 1:-1] & w[2:, 1:-1]
+        uu = uf[1:-1, 1:-1]; vv = vf[1:-1, 1:-1]; V2 = uu * uu + vv * vv
+        ok &= V2 >= 0.01
+        ux = (uf[1:-1, 2:] - uf[1:-1, :-2]) / (2 * dx); uy = (uf[2:, 1:-1] - uf[:-2, 1:-1]) / (2 * dx)
+        vx = (vf[1:-1, 2:] - vf[1:-1, :-2]) / (2 * dx); vy = (vf[2:, 1:-1] - vf[:-2, 1:-1]) / (2 * dx)
+        V2s = np.where(ok, V2, 1.0)
+        tmp[1:-1, 1:-1] = np.where(ok, (uu * (uu * vx + vv * vy) - vv * (uu * ux + vv * uy)) / (V2s * np.sqrt(V2s)), 0.0)
+        wp = np.pad(w, 1)
+        for _ in range(2):
+            sp = np.pad(tmp, 1); sm = np.zeros((ny, nx)); nn = np.zeros((ny, nx))
+            for dj in (-1, 0, 1):
+                for di in (-1, 0, 1):
+                    m = wp[1 + dj:1 + dj + ny, 1 + di:1 + di + nx]
+                    sm = sm + np.where(m, sp[1 + dj:1 + dj + ny, 1 + di:1 + di + nx], 0.0)
+                    nn = nn + m
+            tmp = np.where(w, sm / np.maximum(nn, 1), 0.0)
+        lim = hrMax / np.maximum(h, 1e-3)
+        self.kap = np.clip(tmp, -lim, lim)
+
+    def _sec_stress(self):
+        """2次流による運動量の分散項（Kalkwijk・de Vriend 1980、長田ら 1996 式19〜23）。
+        Txx = −Tyy = 2 k_sn h² κ u v、Txy = −k_sn h² κ (u² − v²)、k_sn = 5a − 15.6a² + 37.5a³、a = √g/(κ_K C) ≤ 0.4"""
+        h = self.h; HS = 0.05
+        msk = h > HS; hs = np.where(msk, h, 1.0)
+        a = np.minimum(math.sqrt(G) * self.P['manning'] / (0.4 * hs ** (1 / 6)), 0.4)
+        ksn = 5 * a - 15.6 * a * a + 37.5 * a * a * a
+        wv = np.where(msk, ksn * hs * hs * self.kap, 0.0)
+        uu, vv = self.uf, self.vf
+        return 2 * wv * uu * vv, -wv * (uu * uu - vv * vv), msk
+
+    def _hasegawa_collapse(self):
+        """長谷川の側岸崩落モデル（長谷川 1983、長田ら 1996 式17）。乾いた側岸セルの位置の水面から水中安息角で下る線を引き、
+        線より上の土塊 A と線より下の洗掘の不足 B を横断方向（4 方向）に数え、B ≥ A なら A を崩して B を埋め戻す（ΔBc = 1 セル）"""
+        BK = self.P.get('bank') or {}
+        if BK.get('collapse') != 'hasegawa':
+            return
+        nx, ny, dx = self.nx, self.ny, self.dx
+        HW = 0.01; MAXM = 40
+        self.z = np.ascontiguousarray(self.z)
+        tb = math.tan(math.radians(BK.get('reposeWet') or self.P['reposeDeg'])) * dx
+        z = self.z.ravel(); h = self.h.ravel(); kind = self.kind.ravel(); fxC = self.fixedC.ravel()
+        okc = (h >= HW) & (kind == 0) & ~fxC            # 水に浸かった移動床
+        dry = (h < HW) & (kind == 0) & ~fxC
+        ok2 = okc.reshape(ny, nx); nbw = np.zeros((ny, nx), dtype=bool)
+        nbw[:, :-1] |= ok2[:, 1:]; nbw[:, 1:] |= ok2[:, :-1]; nbw[:-1] |= ok2[1:]; nbw[1:] |= ok2[:-1]
+        cand = np.flatnonzero(dry & nbw.ravel())
+        DI = (1, -1, 0, 0); DJ = (0, 0, 1, -1)
+        for c in cand:            # ブラウザ版と同じく 1 セルずつ順に処理する
+            i0 = c % nx; j0 = c // nx
+            for q in range(4):
+                i1 = i0 + DI[q]; j1 = j0 + DJ[q]
+                if i1 < 0 or i1 >= nx or j1 < 0 or j1 >= ny:
+                    continue
+                w1 = j1 * nx + i1
+                if not okc[w1]:
+                    continue
+                H = z[w1] + h[w1]
+                if z[c] <= H:
+                    continue
+                exC = [c]; exV = [z[c] - H]; Aex = z[c] - H; dfC = []; dfV = []; Bdf = 0.0; stage = 0
+                for m in range(1, MAXM + 1):
+                    ii = i0 + m * DI[q]; jj = j0 + m * DJ[q]
+                    if ii < 0 or ii >= nx or jj < 0 or jj >= ny:
+                        break
+                    cc = jj * nx + ii
+                    if not okc[cc]:
+                        break
+                    dzl = z[cc] - (H - m * tb)
+                    if dzl > 0:
+                        if stage == 0:
+                            exC.append(cc); exV.append(dzl); Aex += dzl
+                        else:
+                            break
+                    elif dzl < 0:
+                        stage = 1; dfC.append(cc); dfV.append(-dzl); Bdf -= dzl
+                    elif stage == 1:
+                        break
+                if not dfC or Bdf < Aex:
+                    continue
+                for e in range(len(exC)):
+                    for f in range(len(dfC)):
+                        self._move_sed(exC[e], dfC[f], exV[e] * dfV[f] / Bdf)
+                self.nHase += 1
+                break
+
+    def _move_sed(self, a, b, dz):
+        """セル a の上から厚さ dz の土砂を（堆積層の粒度で）セル b へ移す。動かせた厚さを返す"""
+        A = self.A; z = self.z.ravel(); K = self.K
+        left = dz; it = 0
+        while left > 1e-9 and it < 400:
+            it += 1
+            av = 0.0
+            for k in range(K):
+                av += A[a, k]
+            if av < 1e-9:
+                break
+            take = left if left < av else av
+            frc = take / av
+            for k in range(K):
+                t = A[a, k] * frc; A[a, k] -= t; A[b, k] += t
+            z[a] -= take; z[b] += take; left -= take
+            self._fix_layers(np.array([a])); self._fix_layers(np.array([b]))
+        return dz - left
+
     def _dry_bank_erosion(self):
         """水際の側岸侵食：濡れたセルが侵食されたとき、その一部（割合 dryEro）を隣の乾いた側岸セルから削る
         （Delft3D の dry-cell erosion と同じ考え方）"""
@@ -1136,58 +1283,51 @@ class Sim:
         return float(self.Cc.sum() * self.dx * self.dx)
 
     def _collapse(self):
-        """安息角を超えた斜面の崩落。水に浸かった斜面は水中安息角、乾いた斜面は陸上安息角で判定する"""
+        """安息角を超えた斜面の崩落。水に浸かった斜面は水中安息角、乾いた斜面は陸上安息角で判定する。
+        ブラウザ版と同じ順序で処理する（x 方向の面を左から順に、y 方向の面を下から順に。同じ列・行の面は互いに独立なのでまとめて計算）"""
         nx, ny, K, dx = self.nx, self.ny, self.K, self.dx
         BK = self.P.get('bank') or {}
         limW = math.tan(math.radians(BK.get('reposeWet') or self.P['reposeDeg'])) * dx
         limD = math.tan(math.radians(BK.get('reposeDry') or self.P['reposeDeg'])) * dx
-        HW = 0.01; fxC = self.fixedC
-        for axis in (1, 0):
-            n_faces = (nx - 1) if axis == 1 else (ny - 1)
-            for parity in (0, 1):
-                z = self.z; A = self.A.reshape(ny, nx, K)
-                idx = np.arange(parity, n_faces, 2)
-                if idx.size == 0:
-                    continue
-                h = self.h
-                if axis == 1:
-                    za = z[:, idx]; zb = z[:, idx + 1]
-                    wetp = (h[:, idx] > HW) | (h[:, idx + 1] > HW); fxp = fxC[:, idx] | fxC[:, idx + 1]
-                else:
-                    za = z[idx, :]; zb = z[idx + 1, :]
-                    wetp = (h[idx, :] > HW) | (h[idx + 1, :] > HW); fxp = fxC[idx, :] | fxC[idx + 1, :]
-                lim = np.where(wetp, limW, limD)
-                diff = np.where(fxp, 0.0, za - zb)
-                hiA = diff > lim; hiB = -diff > lim
-                if not (hiA.any() or hiB.any()):
-                    continue
-                dd = np.abs(diff)
-                if axis == 1:
-                    Aa = A[:, idx, :]; Ab = A[:, idx + 1, :]
-                else:
-                    Aa = A[idx, :, :]; Ab = A[idx + 1, :, :]
-                Ahi = np.where(hiA[..., None], Aa, Ab)
-                av = Ahi.sum(axis=2)
-                mv = np.minimum(0.25 * (dd - lim), 0.5 * av)
-                ok = (hiA | hiB) & (av >= 1e-6) & (mv >= 1e-6)
-                if not ok.any():
-                    continue
-                frc = np.where(ok, mv / np.where(av > 0, av, 1), 0.0)
-                tk = Ahi * frc[..., None]
-                sA = np.where(hiA[..., None], -tk, tk)          # セル a の変化
-                dza = np.where(ok, np.where(hiA, -mv, mv), 0.0)
-                if axis == 1:
-                    A[:, idx, :] += sA; A[:, idx + 1, :] -= sA
-                    z[:, idx] += dza; z[:, idx + 1] -= dza
-                    jj, ii = np.nonzero(ok)
-                    cells = np.concatenate([jj * nx + idx[ii], jj * nx + idx[ii] + 1])
-                else:
-                    A[idx, :, :] += sA; A[idx + 1, :, :] -= sA
-                    z[idx, :] += dza; z[idx + 1, :] -= dza
-                    jj, ii = np.nonzero(ok)
-                    cells = np.concatenate([idx[jj] * nx + ii, (idx[jj] + 1) * nx + ii])
-                self.A = A.reshape(-1, K)
-                self._fix_layers(np.unique(cells))
+        HW = 0.01
+        hase = BK.get('collapse') == 'hasegawa'
+        self.z = np.ascontiguousarray(self.z)
+        z = self.z.ravel(); h = self.h.ravel(); A = self.A
+        fxC = self.fixedC.ravel(); k0 = self.kind.ravel() == 0
+        wet = h > HW
+        def faces(ca, cb):
+            """面（セル ca と cb の間）の組を一度に処理する。動かしたら True"""
+            lim = np.where(wet[ca] | wet[cb], limW, limD)
+            diff = z[ca] - z[cb]
+            hiA = diff > lim; hiB = -diff > lim
+            ok = (hiA | hiB) & ~(fxC[ca] | fxC[cb])
+            if hase:   # 長谷川モデルでは、水際の乾いた側岸（高い側が乾き、低い側が濡れている）は崩落モデルに任せる
+                kk = k0[ca] & k0[cb]
+                ok &= ~(kk & ((hiA & ~wet[ca] & wet[cb]) | (hiB & wet[ca] & ~wet[cb])))
+            if not ok.any():
+                return False
+            ca = ca[ok]; cb = cb[ok]; hiA = hiA[ok]; dd = np.abs(diff[ok]); lim = lim[ok]
+            hi = np.where(hiA, ca, cb); lo = np.where(hiA, cb, ca)
+            av = np.zeros(hi.size)
+            for k in range(K):
+                av = av + A[hi, k]
+            m = av >= 1e-6
+            mv = np.minimum(0.25 * (dd - lim), 0.5 * av)
+            m &= mv >= 1e-6
+            if not m.any():
+                return False
+            hi = hi[m]; lo = lo[m]; mv = mv[m]; frc = mv / av[m]
+            t = A[hi] * frc[:, None]
+            A[hi] -= t; A[lo] += t
+            z[hi] -= mv; z[lo] += mv
+            self._fix_layers(hi); self._fix_layers(lo)
+            return True
+        jx = np.arange(ny) * nx
+        for i in range(nx - 1):          # x 方向の面
+            faces(jx + i, jx + i + 1)
+        ix = np.arange(nx)
+        for j in range(ny - 1):          # y 方向の面
+            faces(j * nx + ix, (j + 1) * nx + ix)
 
     def _fix_layers(self, cells):
         """交換層厚を La に保つよう、堆積層との間で土砂を出し入れする（cells：平坦化した番号の配列）"""
@@ -1821,6 +1961,9 @@ def main(argv=None):
     ap.add_argument('--dry-ero', type=float, help='水際の乾いた側岸を削る割合（0〜1。Delft3D の dry-cell erosion）')
     ap.add_argument('--repose-wet', type=float, help='水中の安息角 [度]（既定 30）')
     ap.add_argument('--repose-dry', type=float, help='陸上の安息角 [度]（既定 50）')
+    ap.add_argument('--collapse', choices=['repose', 'hasegawa'], help='側岸の崩れ方（安息角で少しずつ／長谷川の崩落モデル。長田ら 1996）')
+    ap.add_argument('--secondary', action='store_true', help='2次流で流砂の向きを内岸へ曲げる（長田ら 1996 式14）')
+    ap.add_argument('--secondary-mom', action='store_true', help='2次流による運動量の分散項を加える（Kalkwijk・de Vriend 1980）')
     ap.add_argument('--boulders', type=float, help='岸に置く動かない巨礫の間隔 [m]（高橋・里深・奥村 1996。0 で置かない）')
     ap.add_argument('--boulder-mode', choices=['parallel', 'zigzag'], help='巨礫の並べ方（両岸で向かい合わせ／千鳥）')
     ap.add_argument('--out', default='result', help='図と CSV を書き出すフォルダ')
@@ -1861,6 +2004,10 @@ def main(argv=None):
         B['reposeWet'] = a.repose_wet
     if a.repose_dry is not None:
         B['reposeDry'] = a.repose_dry
+    if a.collapse:
+        B['collapse'] = a.collapse
+    if a.secondary or a.secondary_mom:
+        SC = P.setdefault('sec', {}); SC['bed'] = bool(a.secondary); SC['mom'] = bool(a.secondary_mom)
     if a.boulders is not None:
         P.setdefault('boulders', {})['L'] = a.boulders
     if a.boulder_mode:
