@@ -9,17 +9,23 @@
   // ------------------------------------------------------------ 入力欄
   // 堰堤の行：位置・堤高・水通し幅と、任意で回転角・中心 y・天端標高・堤長（空欄は自動）
   function fv(v, n) { return isFinite(v) && v !== null && v !== '' ? +(+v).toFixed(n) : ''; }
+  var DTYPES = [['closed', '不透過'], ['slit', 'スリット'], ['mslit', '複数スリット'], ['grid', '鋼製格子型'], ['sslit', '鋼製スリット型']];
+  var DCODE = { closed: 0, slit: 1, mslit: 2, grid: 3, sslit: 4 }, DNAME = ['closed', 'slit', 'mslit', 'grid', 'sslit'];
   function damRow(d) {
     var tr = document.createElement('tr');
     tr.innerHTML = '<td><input type="number" step="5" min="0" value="' + d.x + '" aria-label="位置"></td>' +
       '<td><input type="number" step="0.1" min="0.1" value="' + d.H + '" aria-label="堤高"></td>' +
       '<td><input type="number" step="1" min="0" value="' + d.b + '" aria-label="水通し幅"></td>' +
+      '<td><select aria-label="形式">' + DTYPES.map(function (t) { return '<option value="' + t[0] + '"' + ((d.type || 'closed') === t[0] ? ' selected' : '') + '>' + t[1] + '</option>'; }).join('') + '</select></td>' +
+      '<td><input type="number" step="0.1" min="0.05" value="' + (d.l > 0 ? d.l : '') + '" placeholder="–" aria-label="開口幅"></td>' +
+      '<td><input type="number" step="1" min="1" value="' + (d.n > 0 ? d.n : '') + '" placeholder="–" aria-label="開口数"></td>' +
       '<td class="adv"><input type="number" step="1" value="' + fv(d.ang, 4) + '" placeholder="自動" aria-label="回転角"></td>' +
       '<td class="adv"><input type="number" step="1" value="' + fv(d.y, 4) + '" placeholder="自動" aria-label="中心 y"></td>' +
       '<td class="adv"><input type="number" step="0.1" value="' + fv(d.zc, 3) + '" placeholder="自動" aria-label="天端標高"></td>' +
       '<td class="adv"><input type="number" step="2" min="2" value="' + fv(d.len, 2) + '" placeholder="自動" aria-label="堤長"></td>' +
       '<td><button class="x" aria-label="削除">×</button></td>';
     if (isFinite(d.so) && d.so !== null && d.b > 0) { tr.dataset.so = d.so; tr.dataset.b0 = d.b; }   // 水通しの位置（固定したときだけ）
+    if (d.hb > 0) tr.dataset.hb = d.hb;
     tr.querySelector('button').onclick = function () { tr.remove(); };
     return tr;
   }
@@ -28,8 +34,10 @@
   function damsFixed() {
     return sim.dams.map(function (D) {
       var sp = D.spMax - D.spMin;
-      return { x: +D.x.toFixed(3), H: D.H, b: +Math.max(0, sp).toFixed(3), ang: +(D.th * 180 / Math.PI).toFixed(4), y: +D.cy.toFixed(4),
+      var o = { x: +D.x.toFixed(3), H: D.H, b: +Math.max(0, sp).toFixed(3), ang: +(D.th * 180 / Math.PI).toFixed(4), y: +D.cy.toFixed(4),
         zc: +D.crest.toFixed(3), len: +(2 * Math.max(Math.abs(D.sMin), Math.abs(D.sMax))).toFixed(2), so: +((D.spMin + D.spMax) / 2).toFixed(4) };
+      if (D.op) { o.type = D.op.type; o.l = D.op.l; o.n = D.op.n; if (D.op.hb > 0) o.hb = +D.op.hb.toFixed(3); }
+      return o;
     });
   }
   function fixDams() { if (!sim || !sim.dams.length) return 0; setDams(damsFixed()); $('d_adv').checked = true; advSwitch(); presetDams = false; return sim.dams.length; }
@@ -38,7 +46,7 @@
     var out = [], fh = null, mask = [];
     String(text).split(/\r?\n/).forEach(function (ln) {
       var m = ln.match(/^\s*#\s*dam\s+(.*)$/i);
-      if (m) { var d = {}; m[1].replace(/(\w+)=(-?[\d.eE+-]+)/g, function (_, k, v) { d[k] = parseFloat(v); }); if (isFinite(d.x) && d.H > 0) out.push(d); }
+      if (m) { var d = {}; m[1].replace(/(\w+)=(-?[\d.eE+-]+)/g, function (_, k, v) { d[k] = parseFloat(v); }); if (isFinite(d.ty) && DNAME[d.ty]) { d.type = DNAME[d.ty]; delete d.ty; } if (isFinite(d.x) && d.H > 0) out.push(d); }
       var f = ln.match(/^\s*#\s*floorH=(-?[\d.]+)/i); if (f) fh = parseFloat(f[1]);
       var fm = ln.match(/^\s*#\s*floor\s+([01]+)\s*$/); if (fm) mask.push(fm[1].split('').map(Number));
     });
@@ -56,7 +64,7 @@
     fh = Math.min(20, Math.max(0.5, Math.ceil((fh + 0.05) * 10) / 10));
     lines.push('# 計算後の河床（出水の時刻 ' + (tt / 60).toFixed(1) + ' 分）　1行目が左岸側、左の列が上流　格子間隔 ' + sim.dx + ' m');
     lines.push('# floorH=' + fh);
-    damsFixed().forEach(function (d) { lines.push('# dam x=' + d.x + ' H=' + d.H + ' b=' + d.b + ' ang=' + d.ang + ' y=' + d.y + ' zc=' + d.zc + ' len=' + d.len + ' so=' + d.so); });
+    damsFixed().forEach(function (d) { lines.push('# dam x=' + d.x + ' H=' + d.H + ' b=' + d.b + ' ang=' + d.ang + ' y=' + d.y + ' zc=' + d.zc + ' len=' + d.len + ' so=' + d.so + (d.type && d.type !== 'closed' ? ' ty=' + DCODE[d.type] + ' l=' + d.l + ' n=' + d.n + (d.hb ? ' hb=' + d.hb : '') : '')); });
     // 谷底（侵食できるセル）の印。1 が谷底、0 が谷壁・堰堤。行の並びは数値の行と同じ
     for (var jm = ny - 1; jm >= 0; jm--) { var sm = ''; for (var im = 0; im < nx; im++) { var cm = jm * nx + im; sm += sim.kind[cm] === 0 || (sim.kind[cm] === 2 && sim.fl[cm]) ? '1' : '0'; } lines.push('# floor ' + sm); }
     for (var j2 = ny - 1; j2 >= 0; j2--) { var r = []; for (var i2 = 0; i2 < nx; i2++) { var c2 = j2 * nx + i2, v = sim.kind[c2] === 2 ? Math.min(damGround(c2, zA), zA[c2] - 0.01) : zA[c2]; r.push(v.toFixed(3)); } lines.push(r.join(',')); }   // 堰堤の下は天端より少し低くして、読み込み直しても同じセルに堰堤が立つように
@@ -214,6 +222,27 @@
     tr.querySelector('button').onclick = function () { tr.remove(); };
     return tr;
   }
+  function iRow(w) {
+    var tr = document.createElement('tr');
+    tr.innerHTML = '<td><input type="number" step="10" min="0" value="' + w[0] + '" aria-label="位置"></td><td><input type="number" step="1" min="2" value="' + w[1] + '" aria-label="勾配 1/n"></td><td><button class="x" aria-label="削除">×</button></td>';
+    tr.querySelector('button').onclick = function () { tr.remove(); };
+    return tr;
+  }
+  function tRow(t) {
+    var tr = document.createElement('tr');
+    tr.innerHTML = '<td><input type="number" step="10" min="0" value="' + t.x + '" aria-label="合流点"></td>' +
+      '<td><select aria-label="岸"><option value="L"' + (t.side !== 'R' ? ' selected' : '') + '>左岸</option><option value="R"' + (t.side === 'R' ? ' selected' : '') + '>右岸</option></select></td>' +
+      '<td><input type="number" step="1" min="2" value="' + t.B + '" aria-label="幅"></td>' +
+      '<td><input type="number" step="1" min="1.5" value="' + t.I + '" aria-label="勾配 1/n"></td>' +
+      '<td><input type="number" step="0.1" min="0" value="' + t.r + '" aria-label="流量比"></td>' +
+      '<td><input type="number" step="0.1" min="0" value="' + t.rs + '" aria-label="土砂量比"></td>' +
+      '<td><input type="number" step="10" min="0" value="' + (t.lag || 0) + '" aria-label="遅れ"></td>' +
+      '<td><button class="x" aria-label="削除">×</button></td>';
+    tr.querySelector('button').onclick = function () { tr.remove(); };
+    return tr;
+  }
+  function setT(list) { var tb = $('ttab').tBodies[0]; tb.innerHTML = ''; list.forEach(function (t) { tb.appendChild(tRow(t)); }); }
+  function setI(list) { var tb = $('itab').tBodies[0]; tb.innerHTML = ''; list.forEach(function (w) { tb.appendChild(iRow(w)); }); }
   function bRow(w) {
     var tr = document.createElement('tr');
     tr.innerHTML = '<td><input type="number" step="10" value="' + w[0] + '" aria-label="位置"></td><td><input type="number" step="5" value="' + w[1] + '" aria-label="中心線の横ずれ"></td>' +
@@ -251,12 +280,13 @@
     S: { L: 400, B: 50, I: 20, S: 2, grad: 0.8, wing: 1.5, dx: 2, bend: null, V: {},
       dams: [60, 105, 150, 195, 240, 285, 330].map(function (x) { return { x: x, H: 1.2, b: 0 }; }) }
   };
-  function trSwitch() { $('ne_box').hidden = $('s_tr').value !== 'noneq'; }
+  function trSwitch() { $('ne_box').hidden = $('s_tr').value !== 'noneq'; $('db_box').hidden = $('s_tr').value !== 'debris'; $('c_mf').disabled = $('s_tr').value === 'debris'; }
+  function gwSwitch() { $('gw_box').hidden = !$('gw_on').checked; }
   function fillSwitch() { $('d_fill_row').hidden = $('d_fill_note').hidden = !$('d_fill').checked; }
   function applyPreset(k) {
     var R = PRESETS[k]; if (!R) return;
     $('g_src').value = 'param';
-    $('g_L').value = R.L; $('g_B').value = R.B; $('g_I').value = R.I; $('g_S').value = R.S; setW([]);
+    $('g_L').value = R.L; $('g_B').value = R.B; $('g_I').value = R.I; $('g_S').value = R.S; setW([]); setI([]);
     if (R.bend) { $('b_mode').value = 'table'; setB(R.bend); } else { $('b_mode').value = 'none'; setB([[0, 0], [R.L, 0]]); }
     $('b_x1').value = R.L; $('c_dx').value = String(R.dx);
     setValley(R.V, R.grad); setDams(R.dams); $('d_wing').value = R.wing;
@@ -273,13 +303,13 @@
     $('h_table').value = '0, 10, 0.05\n60, 60, 0.30\n120, 30, 0.15\n180, 10, 0.05';
     $('g_L').value = P.L; $('g_B').value = P.B; $('g_I').value = +(1 / P.slope).toFixed(2); $('g_S').value = P.crossSlope * 100;
     $('g_P').value = P.perturb * 100; $('g_D').value = P.erodDepth; $('g_seed').value = P.seed;
-    setW(P.widthTable || []);
+    setW(P.widthTable || []); setI(P.slopeTable || []);
     $('b_mode').value = 'none'; $('b_amp').value = 25; $('b_wl').value = 160; $('b_x0').value = 40; $('b_x1').value = P.L;
     setB([[0, 0], [P.L, 0]]);
     setDams(P.dams); $('d_wing').value = P.wingHeight;
     setValley(P.valley || {}, P.sideGrad);
     var tb = $('grtab').tBodies[0]; tb.innerHTML = ''; P.grains.forEach(function (g) { tb.appendChild(grRow(g)); });
-    $('s_n').value = P.manning; $('s_tc').value = P.tauCm; $('s_tcm').value = P.tcMethod || 'atm'; $('s_hid').value = P.hiding || 'atm'; tcSwitch(); $('s_por').value = P.porosity; $('s_rep').value = P.reposeDeg;
+    $('s_n').value = P.manning; $('s_tc').value = P.tauCm; $('s_tcm').value = P.tcMethod || 'atm'; $('s_hid').value = P.hiding || 'egiazaroff'; tcSwitch(); $('s_por').value = P.porosity; $('s_rep').value = P.reposeDeg;
     var BK = P.bank || {}, NE = P.noneq || {}, BO = P.boulders || {};
     $('s_tr').value = P.transport || 'eq'; $('ne_de').value = NE.de; $('ne_dd').value = NE.dd; $('ne_he').value = NE.hEdge; $('ne_fe').value = NE.fe; $('ne_fd').value = NE.fd;
     $('bk_h').value = BK.erodH; $('bk_w').value = BK.reposeWet; $('bk_d').value = BK.reposeDry; $('bk_e').value = BK.dryEro; $('bk_cm').value = BK.collapse || 'repose';
@@ -287,6 +317,12 @@
     $('bo_L').value = BO.L; $('bo_m').value = BO.mode || 'parallel'; $('bo_s').value = BO.size || 1; trSwitch();
     $('c_dx').value = String(P.dx); $('c_mf').value = P.morfac; $('c_ord').value = String(P.order);
     $('o_ev').value = P.snapEvery == null ? 10 : +(P.snapEvery / 60).toFixed(2);
+    $('hd_t0').value = H.t0 == null ? 60 : H.t0; $('hd_tr').value = H.tRise || 30; $('hd_tf').value = H.tFall || 120; $('hd_c').value = H.Cd == null ? 0.4 : H.Cd; $('hd_iu').value = H.Iup || 0;
+    $('hd_td').value = H.mode === 'debris' ? H.duration / 60 : 10;
+    var OD = P.openDam || {}; $('od_w').value = OD.w || 0.5; $('od_b').value = OD.beta || 1.5; $('od_c').value = OD.Cblk || 0.2; $('od_a').value = OD.alpha || 1; $('od_p').value = OD.phiBlock || 0.05;
+    var DB = P.debris || {}; $('db_de').value = DB.de || 0.0007; $('db_dd').value = DB.dd || 0.05; $('db_tp').value = DB.tanPhi || 0.7; $('db_rho').value = DB.rho || 1000;
+    var GW = P.gw || {}; $('gw_on').checked = !!GW.on; $('gw_k').value = GW.k || 0; $('gw_kx').value = GW.kMax || 0.05; $('gw_s0').value = GW.s0 || 0; gwSwitch();
+    setT(P.tribs || []); trSwitch();
     modeSwitch();
   }
   function num(id, def, lo, hi) { var v = parseFloat($(id).value); if (!isFinite(v)) v = def; if (lo != null && v < lo) v = lo; if (hi != null && v > hi) v = hi; return v; }
@@ -296,6 +332,10 @@
     H.Qbase = num('h_qb', 10, 0); H.Qpeak = num('h_qp', 60, 0);
     H.duration = num('h_td', 180, 5) * 60; H.tPeak = Math.min(num('h_tp', 60, 1) * 60, H.duration * 0.98);
     H.Cs = (H.mode === 'table' ? num('h_cs2', 0.5, 0) : num('h_cs', 0.5, 0)) / 100;
+    if (H.mode === 'debris') {
+      H.t0 = num('hd_t0', 60, 0); H.tRise = num('hd_tr', 30, 1); H.tFall = num('hd_tf', 120, 1); H.Cd = num('hd_c', 0.4, 0, 0.55); H.Iup = num('hd_iu', 0, 0);
+      H.duration = num('hd_td', 10, 1) * 60; H.Cs = 0; H.tPeak = H.t0 + H.tRise;
+    }
     H.table = [];
     if (H.mode === 'table') {
       $('h_table').value.split(/\n/).forEach(function (ln) {
@@ -314,6 +354,11 @@
     Array.prototype.forEach.call($('wtab').tBodies[0].rows, function (tr) {
       var a = tr.querySelectorAll('input'), x = parseFloat(a[0].value), w = parseFloat(a[1].value);
       if (isFinite(x) && w > 0) p.widthTable.push([x, Math.min(400, Math.max(4, w))]);
+    });
+    p.slopeTable = [];
+    Array.prototype.forEach.call($('itab').tBodies[0].rows, function (tr) {
+      var a = tr.querySelectorAll('input'), x = parseFloat(a[0].value), n = parseFloat(a[1].value);
+      if (isFinite(x) && n >= 2) p.slopeTable.push([x, Math.min(5000, n)]);
     });
     var Bmax = p.B; if (p.widthTable.length) { Bmax = 0; p.widthTable.forEach(function (r) { if (r[1] > Bmax) Bmax = r[1]; }); }
     p.bend = { mode: $('b_mode').value, amp: num('b_amp', 25, 0, 500), wl: num('b_wl', 160, 20, 5000), x0: num('b_x0', 0, 0), x1: num('b_x1', p.L, 0), table: [] };
@@ -352,8 +397,10 @@
       var a = tr.querySelectorAll('input'); var x = parseFloat(a[0].value), h = parseFloat(a[1].value), b = parseFloat(a[2].value);
       if (!(isFinite(x) && h > 0)) return;
       var D = { x: x, H: h, b: isFinite(b) && b > 0 ? b : 0 };
+      var ty = tr.querySelector('select').value;
+      if (ty && ty !== 'closed') { D.type = ty; var lv = parseFloat(a[3].value), nv = parseFloat(a[4].value); D.l = lv > 0 ? lv : (ty === 'grid' || ty === 'sslit' ? 1.0 : 2.0); D.n = nv >= 1 ? Math.round(nv) : (ty === 'mslit' ? 3 : 1); if (tr.dataset.hb) D.hb = +tr.dataset.hb; }
       if ($('d_adv').checked) {
-        var ang = parseFloat(a[3].value), y = parseFloat(a[4].value), zc = parseFloat(a[5].value), len = parseFloat(a[6].value);
+        var ang = parseFloat(a[5].value), y = parseFloat(a[6].value), zc = parseFloat(a[7].value), len = parseFloat(a[8].value);
         if (isFinite(ang)) D.ang = Math.max(-80, Math.min(80, ang)); if (isFinite(y)) D.y = y; if (isFinite(zc)) D.zc = zc; if (len > 0) D.len = len;
         var so = parseFloat(tr.dataset.so); if (isFinite(so) && Math.abs(D.b - parseFloat(tr.dataset.b0)) < 1e-6) D.so = so;   // 水通し幅を変えたら位置の固定は外す
       }
@@ -370,7 +417,17 @@
     if (!p.grains.length) p.grains = S2.defaultParams().grains;
     p.grains.sort(function (a, b) { return a.d - b.d; });
     p.manning = num('s_n', 0.05, 0.01, 0.3); p.tauCm = num('s_tc', 0.05, 0.01, 0.2); p.tcMethod = $('s_tcm').value; p.hiding = $('s_hid').value; p.porosity = num('s_por', 0.4, 0.1, 0.7); p.reposeDeg = num('s_rep', 35, 15, 60);
-    p.transport = $('s_tr').value === 'noneq' ? 'noneq' : 'eq';
+    p.transport = $('s_tr').value === 'noneq' ? 'noneq' : $('s_tr').value === 'debris' ? 'debris' : 'eq';
+    if (H.mode === 'debris') p.transport = 'debris';
+    p.debris = { de: num('db_de', 0.0007, 0, 1), dd: num('db_dd', 0.05, 0, 10), tanPhi: num('db_tp', 0.7, 0.3, 1.2), rho: num('db_rho', 1000, 1000, 1600), Vmin: 0.1, manningFloor: true };
+    p.openDam = { w: num('od_w', 0.5, 0.05, 5), beta: num('od_b', 1.5, 0.5, 5), Cblk: num('od_c', 0.2, 0.01, 0.6), alpha: num('od_a', 1, 0.5, 3), phiBlock: num('od_p', 0.05, 0.001, 0.5) };
+    p.gw = { on: $('gw_on').checked, k: num('gw_k', 0, 0, 1), kMax: num('gw_kx', 0.05, 0.0001, 1), s0: num('gw_s0', 0, 0, 1) };
+    p.tribs = [];
+    Array.prototype.forEach.call($('ttab').tBodies[0].rows, function (tr) {
+      var a = tr.querySelectorAll('input'), x = parseFloat(a[0].value), B = parseFloat(a[1].value), I = parseFloat(a[2].value);
+      if (!(isFinite(x) && B > 0 && I > 0)) return;
+      p.tribs.push({ x: x, side: tr.querySelector('select').value, B: B, I: I, len: 40, r: Math.max(0, parseFloat(a[3].value) || 0), rs: Math.max(0, parseFloat(a[4].value) || 0), lag: Math.max(0, parseFloat(a[5].value) || 0) });
+    });
     p.noneq = { de: num('ne_de', 0.6, 0.001, 100), dd: num('ne_dd', 0.6, 0.001, 100), hEdge: num('ne_he', 0, 0, 10), fe: num('ne_fe', 2, 1, 100), fd: num('ne_fd', 10, 1, 1000) };
     p.bank = { erodH: num('bk_h', 0, 0, 100), reposeWet: num('bk_w', 30, 15, 60), reposeDry: num('bk_d', 50, 15, 80), dryEro: num('bk_e', 0, 0, 1), collapse: $('bk_cm').value };
     p.sec = { bed: $('sc_bed').checked, mom: $('sc_mom').checked, Nstar: num('sc_N', 11.5, 0, 50), hrMax: num('sc_hr', 0.05, 0.005, 0.2) };
@@ -528,7 +585,12 @@
     var m = $('s_tcm').value; $('s_tc_row').hidden = m !== 'const';
     $('s_tc_note').textContent = m === 'atm' ? 'τ*c = 0.04×10^(1.72 i)。i は各セルの流れの向きの河床勾配です。' : m === 'iwagaki' ? '岩垣式は勾配の効果を含みません。粒径別は「修正 Egiazaroff」と組み合わせるのが一般的です。' : '';
   }
-  function modeSwitch() { var m = $('h_mode').value; $('h_par').hidden = (m === 'table'); $('h_tab').hidden = (m !== 'table'); $('h_qb').closest('.row').hidden = $('h_tp').closest('.row').hidden = (m === 'const'); }
+  function modeSwitch() {
+    var m = $('h_mode').value; $('h_par').hidden = (m === 'table'); $('h_tab').hidden = (m !== 'table'); $('h_deb').hidden = (m !== 'debris');
+    $('h_qb').closest('.row').hidden = (m === 'const'); $('h_tp').closest('.row').hidden = (m === 'const' || m === 'debris');
+    $('h_td').closest('.row').hidden = $('h_cs').closest('.row').hidden = (m === 'debris');
+    if (m === 'debris' && $('s_tr').value !== 'debris') { $('s_tr').value = 'debris'; trSwitch(); }
+  }
 
   // ------------------------------------------------------------ 色
   function css(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
@@ -552,10 +614,12 @@
     tcr: { name: '限界掃流力 τ*c（平均粒径）', unit: '', water: true, ramp: seqBlue },
     fr: { name: 'フルード数', unit: '', water: true, ramp: seqBlue },
     dz: { name: '河床変動量', unit: 'm', ramp: divBR, div: true },
-    dm: { name: '表層の平均粒径', unit: 'mm', ramp: seqOr }
+    dm: { name: '表層の平均粒径', unit: 'mm', ramp: seqOr },
+    conc: { name: '流れの土砂濃度', unit: '', water: true, ramp: seqOr },
+    gw: { name: '伏流（堆積層の飽和度）', unit: '', ramp: seqBlue }
   };
   function hash(c) { var x = Math.sin(c * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); }
-  function trend(x) { return sim.trA + sim.trB * x; }
+  function trend(x) { return sim.zbAt ? sim.zbAt(x) : sim.trA + sim.trB * x; }
   function relZ(c) { return sim.z[c] - trend((c % sim.nx + 0.5) * sim.dx); }
   // 表層の粒度：out[0] 平均粒径, out[1] d84 [m]
   function gstat(c, out) {
@@ -590,13 +654,28 @@
     if (mode === 'tcr') { var tc = sim.tcs[c]; return h > 0.02 && tc === tc ? tc : NaN; }
     if (mode === 'bed') return sim.z[c];
     if (mode === 'bedrel') return relZ(c);
+    if (mode === 'conc') {   // 土石流：混合物中の容積濃度。侵食・堆積速度式（掃流）：水の中の土砂の容積比
+      if (h < 0.02 || !sim.Cc) return NaN; var K = sim.K, sc = 0; for (var k = 0; k < K; k++) sc += sim.Cc[c * K + k];
+      return sc / h;
+    }
+    if (mode === 'gw') { if (!sim.W || sim.kind[c] !== 0) return NaN; var Tq = sim.z[c] - sim.zfix[c]; return Tq > 0.01 ? Math.min(1, sim.W[c] / (sim.P.porosity * Tq)) : NaN; }
     return NaN;
   }
   var vrange = { lo: 0, hi: 1 };
   function computeRange(mode) {
     var V = VARS[mode]; if (!V.ramp) return;
-    if (mode === 'dm') { vrange.lo = sim.d[0] * 1000; vrange.hi = sim.dmax * 1000; return; }
+    if (mode === 'dm') {   // 実際の分布に合わせる（谷底のセルの 2〜98 % 点、対数目盛）
+      var vals = [];
+      for (var c3 = 0; c3 < sim.N; c3++) if (sim.fl[c3] && sim.kind[c3] === 0) { var dv = value('dm', c3); if (dv === dv) vals.push(dv); }
+      vals.sort(function (a, b) { return a - b; });
+      var dlo = sim.d[0] * 1000, dhi = sim.dmax * 1000;
+      if (vals.length) { dlo = Math.max(dlo, vals[Math.floor(vals.length * 0.02)]); dhi = Math.min(dhi, vals[Math.min(vals.length - 1, Math.floor(vals.length * 0.98))]); }
+      if (dhi / dlo < 1.5) { var gm = Math.sqrt(dhi * dlo); dlo = gm / Math.sqrt(1.5); dhi = gm * Math.sqrt(1.5); }
+      vrange.lo = dlo; vrange.hi = dhi; return;
+    }
     if (mode === 'fr') { vrange.lo = 0; vrange.hi = 2; return; }
+    if (mode === 'gw') { vrange.lo = 0; vrange.hi = 1; return; }
+    if (mode === 'conc') { var mxc = 0; for (var c4 = 0; c4 < sim.N; c4++) { var cv = value('conc', c4); if (cv > mxc) mxc = cv; } vrange.lo = 0; vrange.hi = Math.max(0.01, Math.min(0.6, nice(mxc))); return; }
     if (mode === 'bed' || mode === 'bedrel') {
       var lo = 1e30, hi = -1e30, am = 0;
       for (var c2 = 0; c2 < sim.N; c2++) if (sim.fl[c2]) { var w = value(mode, c2); if (w < lo) lo = w; if (w > hi) hi = w; if (Math.abs(w) > am) am = Math.abs(w); }
@@ -627,10 +706,25 @@
     return c;
   }
   // 堰堤を軸に沿って3つの部分（左袖・水通し・右袖）に分ける
+  function damTypeLabel(D) {
+    if (!D.op) return '不透過';
+    var nm = { slit: 'スリット', mslit: '複数スリット', grid: '鋼製格子型', sslit: '鋼製スリット型' }[D.op.type] || D.op.type;
+    return nm + ' l=' + D.op.l + ' m' + (D.op.type === 'mslit' ? '×' + D.op.n : '') + (D.op.blocked ? '　<b style="color:var(--err,#b3261e)">閉塞（' + (D.op.tBlock / 60).toFixed(1) + ' 分、C=' + D.op.Cblk.toFixed(2) + '、d95=' + (D.op.d95 * 1000).toFixed(0) + ' mm）</b>' : '　開口');
+  }
   function damSegs(D) {
-    var out = [];
+    var out = [], op = D.op;
     if (D.spMin - D.sMin > 1e-6) out.push({ s0: D.sMin, s1: D.spMin, top: D.wingTop, spill: false });
-    if (D.spMax - D.spMin > 1e-6) out.push({ s0: D.spMin, s1: D.spMax, top: D.crest, spill: true });
+    if (op) {   // 透過型：開口の部分を抜き、柱（複数スリット）・鋼製の部材を置く
+      var a0 = Math.max(D.spMin, op.s0), a1 = Math.min(D.spMax, op.s1);
+      if (a0 - D.spMin > 1e-6) out.push({ s0: D.spMin, s1: a0, top: D.crest, spill: true });
+      if (op.type === 'mslit') for (var m = 0; m < op.n - 1; m++) { var p0 = op.s0 + op.l + m * (op.l + op.w); out.push({ s0: p0, s1: p0 + op.w, top: D.crest, spill: true }); }
+      if (op.type === 'grid' || op.type === 'sslit') {
+        for (var p1 = a0 + op.l; p1 + op.w <= a1 + 1e-6; p1 += op.l + op.w) out.push({ s0: p1, s1: p1 + op.w, top: D.crest, bot: op.zo, steel: true });
+        out.push({ s0: a0, s1: a1, top: D.crest, bot: D.crest - op.w, steel: true, horiz: true });                      // 天端の横部材
+        if (op.type === 'grid') for (var hz = op.zo + op.l; hz + op.w < D.crest - op.w; hz += op.l + op.w) out.push({ s0: a0, s1: a1, top: hz + op.w, bot: hz, steel: true, horiz: true });
+      }
+      if (D.spMax - a1 > 1e-6) out.push({ s0: a1, s1: D.spMax, top: D.crest, spill: true });
+    } else if (D.spMax - D.spMin > 1e-6) out.push({ s0: D.spMin, s1: D.spMax, top: D.crest, spill: true });
     if (D.sMax - D.spMax > 1e-6) out.push({ s0: D.spMax, s1: D.sMax, top: D.wingTop, spill: false });
     return out;
   }
@@ -690,7 +784,7 @@
     for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {
       c = j * nx + i;
       var zw = z[i > 0 ? c - 1 : c], ze = z[i < nx - 1 ? c + 1 : c], zs = z[j > 0 ? c - nx : c], zn = z[j < ny - 1 ? c + nx : c];
-      var sh = 1 + 0.9 * ((zw - ze) / (2 * dx) + sim.trB) + 0.9 * (zn - zs) / (2 * dx); sh = sh < 0.55 ? 0.55 : sh > 1.35 ? 1.35 : sh;
+      var sh = 1 + 0.9 * ((zw - ze) / (2 * dx) - (sim.Ix ? sim.Ix[i] : -sim.trB)) + 0.9 * (zn - zs) / (2 * dx); sh = sh < 0.55 ? 0.55 : sh > 1.35 ? 1.35 : sh;
       var r, g, b, wa = 0;
       if (real) {
         ground(c, gcol); r = gcol[0] * sh; g = gcol[1] * sh; b = gcol[2] * sh;
@@ -765,7 +859,8 @@
     ctx.save(); ctx.lineCap = 'butt';
     sim.dams.forEach(function (D) {
       damSegs(D).forEach(function (g) {
-        ctx.strokeStyle = g.spill ? 'rgba(236,236,228,.96)' : 'rgba(40,40,40,.9)'; ctx.lineWidth = Math.max(2 * dpr, dx * sx * 0.85);
+        if (g.horiz) return;   // 横部材は平面図では描かない
+        ctx.strokeStyle = g.steel ? (D.op && D.op.blocked ? 'rgba(200,60,40,.95)' : 'rgba(70,80,96,.95)') : g.spill ? 'rgba(236,236,228,.96)' : 'rgba(40,40,40,.9)'; ctx.lineWidth = Math.max(2 * dpr, dx * sx * (g.steel ? 0.5 : 0.85));
         ctx.beginPath();
         ctx.moveTo((D.cx + D.nx * g.s0) * sx, cv.height - (D.cy + D.ny * g.s0) * sy);
         ctx.lineTo((D.cx + D.nx * g.s1) * sx, cv.height - (D.cy + D.ny * g.s1) * sy);
@@ -1063,14 +1158,14 @@
       tile('流砂量ピーク（供給 → 流出）', pin.toFixed(2) + ' → ' + pout.toFixed(2), 'm³/s');
     if (ref) h += tile('比較との流出土砂量の差', ((sOut - ref.sOutAt(sim.t)) >= 0 ? '+' : '') + Math.round(sOut - ref.sOutAt(sim.t)).toLocaleString(), 'm³');
     $('tiles').innerHTML = h;
-    var by = sim.storageByDam(), rows = '<tr><th>区間</th><th>位置 [m]</th><th>堤高 [m]</th><th>水通し幅 [m]</th><th>堆砂量 [m³]</th><th>満砂時の目安 [m³]</th><th>充填率</th></tr>';
+    var by = sim.storageByDam(), rows = '<tr><th>区間</th><th>位置 [m]</th><th>堤高 [m]</th><th>水通し幅 [m]</th><th>形式</th><th>堆砂量 [m³]</th><th>満砂時の目安 [m³]</th><th>充填率</th></tr>';
     sim.dams.forEach(function (D, q) {
       // 目安：元河床勾配 I、堆砂勾配 I/2 のくさび（幅は堰堤位置の川幅で一様と仮定）
-      var len = D.H / (sim.I / 2), up = q > 0 ? D.x - sim.dams[q - 1].x : D.x; var cap;
+      var Iloc = sim.Ix ? sim.Ix[Math.max(0, D.i - 1)] : sim.I, len = D.H / (Iloc / 2), up = q > 0 ? D.x - sim.dams[q - 1].x : D.x; var cap;
       if (len <= up) cap = 0.5 * D.H * len * sim.Bx[D.i]; else { var hu = D.H * (1 - up / len); cap = 0.5 * (D.H + hu) * up * sim.Bx[D.i]; }
-      rows += '<tr><td>堰堤 ' + (q + 1) + ' の上流</td><td>' + D.x.toFixed(0) + '</td><td>' + D.H.toFixed(1) + '</td><td>' + (D.b >= sim.Bx[D.i] - 1e-6 ? '全幅' : D.b.toFixed(0)) + '</td><td>' + Math.round(by[q]).toLocaleString() + '</td><td>' + Math.round(cap).toLocaleString() + '</td><td>' + (by[q] / cap * 100).toFixed(0) + '%</td></tr>';
+      rows += '<tr><td>堰堤 ' + (q + 1) + ' の上流</td><td>' + D.x.toFixed(0) + '</td><td>' + D.H.toFixed(1) + '</td><td>' + (D.b >= sim.Bx[D.i] - 1e-6 ? '全幅' : D.b.toFixed(0)) + '</td><td>' + damTypeLabel(D) + '</td><td>' + Math.round(by[q]).toLocaleString() + '</td><td>' + Math.round(cap).toLocaleString() + '</td><td>' + (by[q] / cap * 100).toFixed(0) + '%</td></tr>';
     });
-    rows += '<tr><td>' + (sim.dams.length ? '最下流の堰堤より下流' : '全区間') + '</td><td>–</td><td>–</td><td>–</td><td>' + Math.round(by[by.length - 1]).toLocaleString() + '</td><td>–</td><td>–</td></tr>';
+    rows += '<tr><td>' + (sim.dams.length ? '最下流の堰堤より下流' : '全区間') + '</td><td>–</td><td>–</td><td>–</td><td>–</td><td>' + Math.round(by[by.length - 1]).toLocaleString() + '</td><td>–</td><td>–</td></tr>';
     $('damres').innerHTML = rows;
     var st = sim.phase === 'spinup' ? '助走計算中（水だけを流して流れを立ち上げています）' : sim.phase === 'done' ? '計算終了' : (running ? '計算中' : '停止中');
     $('status').textContent = st + '　ステップ ' + sim.nstep.toLocaleString() + '　Δt ' + sim.dt.toFixed(3) + ' s' + (spd ? '　' + spd.toFixed(0) + ' ステップ/秒' : '');
@@ -1281,8 +1376,14 @@
     T3.skirt = new THREE.Mesh(sg, new THREE.MeshLambertMaterial({ color: 0x6f6252, side: THREE.DoubleSide })); grp.add(T3.skirt);
     T3.ring = []; for (i = 0; i < nx; i++) T3.ring.push(i); for (j = 1; j < ny; j++) T3.ring.push(j * nx + nx - 1); for (i = nx - 2; i >= 0; i--) T3.ring.push((ny - 1) * nx + i); for (j = ny - 2; j >= 1; j--) T3.ring.push(j * nx);
     // 堰堤（コンクリート）
-    var dg = new THREE.BufferGeometry(); T3.damSegs = [];
-    sim.dams.forEach(function (D) { damSegs(D).forEach(function (g) { T3.damSegs.push({ D: D, g: g }); }); });
+    var dg = new THREE.BufferGeometry(); T3.damSegs = []; T3.steelSegs = [];
+    sim.dams.forEach(function (D) { damSegs(D).forEach(function (g) { (g.steel ? T3.steelSegs : T3.damSegs).push({ D: D, g: g }); }); });
+    var sgm = new THREE.BufferGeometry();
+    sgm.setAttribute('position', new THREE.BufferAttribute(new Float32Array(Math.max(1, T3.steelSegs.length) * 24 * 3), 3));
+    var si2 = new Uint32Array(Math.max(1, T3.steelSegs.length) * 36), F2 = [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10, 11], [12, 13, 14, 15], [16, 17, 18, 19], [20, 21, 22, 23]];
+    T3.steelSegs.forEach(function (c, q) { F2.forEach(function (f, m) { si2.set([q * 24 + f[0], q * 24 + f[1], q * 24 + f[2], q * 24 + f[0], q * 24 + f[2], q * 24 + f[3]], q * 36 + m * 6); }); });
+    sgm.setIndex(new THREE.BufferAttribute(si2, 1));
+    T3.steel = new THREE.Mesh(sgm, new THREE.MeshLambertMaterial({ color: 0x55606c, side: THREE.DoubleSide })); grp.add(T3.steel);
     dg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(T3.damSegs.length * 24 * 3), 3));
     var di = new Uint32Array(T3.damSegs.length * 36), F = [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10, 11], [12, 13, 14, 15], [16, 17, 18, 19], [20, 21, 22, 23]];
     T3.damSegs.forEach(function (c, q) { F.forEach(function (f, m) { di.set([q * 24 + f[0], q * 24 + f[1], q * 24 + f[2], q * 24 + f[0], q * 24 + f[2], q * 24 + f[3]], q * 36 + m * 6); }); });
@@ -1345,6 +1446,17 @@
       T3.skirt.geometry.attributes.position.needsUpdate = true; T3.skirt.geometry.computeVertexNormals();
       var dp = T3.dam.geometry.attributes.position.array, hw = dx * 0.5;
       var X0d = sim.Lx / 2, Z0d = sim.Ly / 2;
+      var fillSeg = function (arr, sg, q) {
+        var D = sg.D, g = sg.g, top = (g.top - zmid) * vex, bot = ((g.bot != null ? g.bot : D.zlow - sim.P.erodDepth - 0.5) - zmid) * vex, ht = g.steel ? Math.min(dx * 0.25, 0.4) : dx * (g.spill ? 0.2 : 0.42);
+        var cor = [[g.s0, -ht], [g.s0, ht], [g.s1, ht], [g.s1, -ht]].map(function (u) {
+          var x = D.cx + D.nx * u[0] + D.tx * u[1], y = D.cy + D.ny * u[0] + D.ty * u[1]; return [x - X0d, Z0d - y];
+        });
+        var P8 = [[cor[0][0], bot, cor[0][1]], [cor[1][0], bot, cor[1][1]], [cor[2][0], bot, cor[2][1]], [cor[3][0], bot, cor[3][1]],
+          [cor[0][0], top, cor[0][1]], [cor[1][0], top, cor[1][1]], [cor[2][0], top, cor[2][1]], [cor[3][0], top, cor[3][1]]];
+        var Fq = [[4, 7, 6, 5], [0, 1, 2, 3], [0, 4, 5, 1], [3, 2, 6, 7], [0, 3, 7, 4], [1, 5, 6, 2]];
+        Fq.forEach(function (f, m) { f.forEach(function (vi, n) { arr.set(P8[vi], (q * 24 + m * 4 + n) * 3); }); });
+      };
+      if (T3.steelSegs.length) { var spa = T3.steel.geometry.attributes.position.array; T3.steelSegs.forEach(function (sg, q) { fillSeg(spa, sg, q); }); T3.steel.geometry.attributes.position.needsUpdate = true; T3.steel.geometry.computeVertexNormals(); }
       T3.damSegs.forEach(function (sg, q) {
         var D = sg.D, g = sg.g, top = (g.top - zmid) * vex, bot = (D.zlow - zmid - sim.P.erodDepth - 0.5) * vex, ht = dx * (g.spill ? 0.2 : 0.42);
         var cor = [[g.s0, -ht], [g.s0, ht], [g.s1, ht], [g.s1, -ht]].map(function (u) {   // (堰堤軸方向 s, 流下方向 a)
@@ -1478,7 +1590,7 @@
       if (sim) refresh(true); return;
     }
     $('xs_x').max = sim.Lx; $('xs_x').step = sim.dx; if (xsX == null || xsX > sim.Lx) xsX = Math.round(sim.Lx * 0.55); $('xs_x').value = xsX;
-    $('gridinfo').textContent = '格子 ' + sim.nx + ' × ' + sim.ny + '（' + sim.N.toLocaleString() + ' セル、幅 ' + sim.dx + ' m）　粒径階 ' + sim.K + '　堰堤 ' + sim.dams.length + ' 基' + (sim.fromCSV ? '　CSV 地形（平均勾配 1/' + (1 / sim.I).toFixed(0) + '）' : '') + (sim.I > 0.1 + 1e-9 ? '　注意：勾配 1/' + (1 / sim.I).toFixed(0) + ' は掃流砂の式の適用範囲（1/10 程度より緩い）を超えます。' : '') + (sim.warn.length ? '　注意：' + sim.warn.join(' ') : '');
+    $('gridinfo').textContent = '格子 ' + sim.nx + ' × ' + sim.ny + '（' + sim.N.toLocaleString() + ' セル、幅 ' + sim.dx + ' m）　粒径階 ' + sim.K + '　堰堤 ' + sim.dams.length + ' 基' + (sim.fromCSV ? '　CSV 地形（平均勾配 1/' + (1 / sim.I).toFixed(0) + '）' : '') + (sim.I > 0.1 + 1e-9 && sim.P.transport !== 'debris' ? '　注意：勾配 1/' + (1 / sim.I).toFixed(0) + ' は掃流砂の式の適用範囲（1/10 程度より緩い）を超えます。' : '') + (sim.warn.length ? '　注意：' + sim.warn.join(' ') : '');
     if (P.prefill > 0) $('gridinfo').textContent += '　はじめから満砂（比 ' + P.prefill + '）';
     // 文献の式の適用範囲から外れる設定の注意
     var nag = (P.sec && (P.sec.bed || P.sec.mom)) || (P.bank && P.bank.collapse === 'hasegawa' && P.bank.erodH > 0);
@@ -1487,7 +1599,7 @@
     damRangeNote();
     var src = $('g_src').value, tkey = src + '|' + (src === 'csv' ? textHash($('csv_text').value) + $('csv_cs').value + $('csv_tr').checked + $('csv_flip').checked + $('csv_I').value
       : src === 'survey' ? textHash($('sv_xs').value + '#' + $('sv_long').value) + $('sv_align').value + $('sv_wall').value
-      : JSON.stringify([P.L, P.B, P.slope, P.crossSlope, P.widthTable, P.bend, P.valley, P.seed, P.sideGrad])) + '|' + sim.dx;
+      : JSON.stringify([P.L, P.B, P.slope, P.slopeTable, P.crossSlope, P.widthTable, P.bend, P.valley, P.seed, P.sideGrad])) + '|' + sim.dx;
     if (apply.tkey && apply.tkey !== tkey && ref) { ref = null; $('saveref').textContent = '比較用に保存'; }   // 別の地形の「比較」を重ねない
     apply.tkey = tkey; $('file_note').hidden = true;
     var dimKey = sim.Lx + 'x' + sim.Ly;
@@ -1599,6 +1711,14 @@
   $('w_add').onclick = function () { var L = num('g_L', 400), B = num('g_B', 50), n = $('wtab').tBodies[0].rows.length; $('wtab').tBodies[0].appendChild(wRow(n ? [Math.round(L / 2), B] : [0, B])); };
   $('w_ex').onclick = function () { var L = num('g_L', 400), B = num('g_B', 50); setW([[0, B], [Math.round(L * 0.35), B], [Math.round(L * 0.5), Math.round(B * 0.4)], [Math.round(L * 0.6), Math.round(B * 0.4)], [Math.round(L * 0.75), Math.round(B * 1.4)], [L, Math.round(B * 1.4)]]); };
   $('w_clr').onclick = function () { setW([]); };
+  $('i_add').onclick = function () { var L = num('g_L', 400), I = num('g_I', 20), n = $('itab').tBodies[0].rows.length; $('itab').tBodies[0].appendChild(iRow([Math.round(L * (n ? 0.6 : 0.4) / 10) * 10, Math.round(I * (n ? 1.5 : 2))])); };
+  $('i_ex1').onclick = function () { var L = num('g_L', 400), I = num('g_I', 20); setI([[Math.round(L * 0.45 / 10) * 10, Math.round(I * 3)]]); };
+  $('i_ex2').onclick = function () { var L = num('g_L', 400), I = num('g_I', 20); setI([[Math.round(L * 0.3 / 10) * 10, Math.round(I * 2)], [Math.round(L * 0.65 / 10) * 10, Math.round(I * 4)]]); };
+  $('i_clr').onclick = function () { setI([]); };
+  $('t_add').onclick = function () { var L = num('g_L', 400), B = num('g_B', 50); $('ttab').tBodies[0].appendChild(tRow({ x: Math.round(L / 2 / 10) * 10, side: 'L', B: Math.max(4, Math.round(B / 5)), I: 6, r: 0.3, rs: 1, lag: 0 })); };
+  $('t_ex').onclick = function () { var L = num('g_L', 400), B = num('g_B', 50), db = $('h_mode').value === 'debris'; setT([{ x: Math.round(L * 0.45 / 10) * 10, side: 'L', B: Math.max(4, Math.round(B / 5)), I: db ? 3 : 5, r: 0.4, rs: db ? 0.4 : 1.5, lag: db ? 60 : 0 }]); };
+  $('t_clr').onclick = function () { setT([]); };
+  $('gw_on').onchange = gwSwitch;
   $('gr_add').onclick = function () { if ($('grtab').tBodies[0].rows.length < 6) $('grtab').tBodies[0].appendChild(grRow({ d: 0.3, bed: 0, feed: 0 })); };
   $('pre_low').onclick = function () { var L = curL(), a = []; for (var x = 60; x < L - 50; x += 45) a.push({ x: x, H: 1.2, b: 0 }); setDams(a); };
   $('pre_high').onclick = function () { var L = curL(), B = num('g_B', 50); setDams([{ x: Math.round(L * 0.82), H: 8, b: Math.round(B * 0.4) }]); };

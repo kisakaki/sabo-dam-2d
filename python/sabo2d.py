@@ -81,6 +81,10 @@ def default_params():
         'seed': 1,             # 乱数の種
         'erodDepth': 3.0,      # 侵食可能深 [m]
         'sideCells': 5,        # 谷壁のセル数（片側）
+        # 支川：{'x': 合流点, 'side': 'L'|'R', 'B': 幅, 'I': 勾配 1/n, 'len': 計算区間に入れる長さ, 'r': 流量比, 'rs': 土砂量比, 'lag': 遅れ [s]}
+        'tribs': [],
+        # 伏流（河床への浸透と地下水の流れ。Darcy 則・Dupuit 近似）。k = 0 なら粒度から Kozeny–Carman 式
+        'gw': {'on': False, 'k': 0.0, 'kMax': 0.05, 's0': 0.0},
         'sideGrad': 0.8,       # 谷壁の勾配
         # 平面形：{'mode': 'none'|'sine'|'table', 'amp', 'wl', 'x0', 'x1', 'table': [[x, 横ずれ, 川幅(省略可)], ...]}
         'bend': {'mode': 'none'},
@@ -105,7 +109,7 @@ def default_params():
         'porosity': 0.4,
         'sg': 2.65,
         'tcMethod': 'atm',     # 'atm' 芦田・高橋・水山 | 'iwagaki' 岩垣 | 'const' 一定値 tauCm
-        'hiding': 'atm',       # 'atm' | 'egiazaroff'
+        'hiding': 'egiazaroff',  # 'egiazaroff'（選択的な輸送） | 'atm'（全粒径が同じ割合で動く）
         'tauCm': 0.05,
         'reposeDeg': 35.0,     # 流砂の勾配項の上限角 [deg]
         # ---- 側岸侵食
@@ -120,7 +124,11 @@ def default_params():
                 'Nstar': 11.5,   # 式14の係数 N*
                 'hrMax': 0.05},  # h/r の上限（弱い曲率を前提とする式のため）
         # ---- 流砂の計算法：'eq' 平衡流砂量（芦田・道上式）| 'noneq' 侵食・堆積速度式（高橋・里深 1999）
-        'transport': 'eq',
+        'transport': 'eq',     # 'eq' 平衡流砂量 | 'noneq' 侵食・堆積速度式 | 'debris' 土石流（高橋の式）
+        # 土石流（高橋 2007。Kanako 2D と同じ形の式）
+        'debris': {'de': 0.0007, 'dd': 0.05, 'tanPhi': 0.7, 'rho': 1000.0, 'Vmin': 0.1, 'manningFloor': True},
+        # 透過型堰堤の共通設定（部材の幅、閉塞の判定 l ≤ beta·d95、閉塞する濃度、通過粒径 d < l/alpha、閉塞後の開口率）
+        'openDam': {'w': 0.5, 'beta': 1.5, 'Cblk': 0.2, 'alpha': 1.0, 'phiBlock': 0.05},
         'noneq': {'de': 0.6, 'dd': 0.6, 'hEdge': 0.0, 'fe': 2.0, 'fd': 10.0},
         # ---- 巨礫（動かない礫）を水みちの両岸に置く（高橋・里深・奥村 1996）
         'boulders': {'L': 0.0, 'mode': 'parallel', 'size': 1},
@@ -132,7 +140,9 @@ def default_params():
         'gravK': 1.0,
         # ---- ハイドログラフ
         'hydro': {'mode': 'tri', 'Qbase': 10.0, 'Qpeak': 60.0, 'tPeak': 3600.0, 'duration': 10800.0,
-                  'Cs': 0.005, 'table': []},   # table: [[t(s), Q, Qs(省略可)], ...]
+                  'Cs': 0.005, 'table': [],    # table: [[t(s), Q, Qs(省略可)], ...]
+                  # mode 'debris'：基底流量に三角形の土石流の波（t0 から立ち上がり tRise、減衰 tFall、濃度 Cd）を重ねる。Iup：流入点より上流の勾配 1/n
+                  't0': 60.0, 'tRise': 30.0, 'tFall': 120.0, 'Cd': 0.4, 'Iup': 0.0},
         # ---- 堰堤
         'dams': [],            # [{'x': 位置, 'H': 堤高, 'b': 水通し幅（0 で全幅）}]
         'wingHeight': 1.5,
@@ -325,6 +335,9 @@ class Sim:
         dams_in = P.get('dams') or []
         maxH = max([D['H'] for D in dams_in] + [0])
         self.warn = []
+        self.tribs = []
+        if T is not None and P.get('tribs'):
+            self.warn.append('支川は、数値で指定した地形でだけ使えます（CSV の地形では使いません）。')
         VL = P.get('valley') or {}
         wallMax = max(VL.get('wallH', 0) if VL.get('wallH', 0) > 0 else 6, maxH + P['wingHeight'] + 3)
         self.hL = self.hR = None
@@ -365,8 +378,15 @@ class Sim:
             ns = max(1, int(P['sideCells']))
             if VL.get('wallH', 0) > 0:
                 ns = max(ns, math.ceil(wallMax / max(0.2, P['sideGrad']) / dx) + 1)
-            ny = _jround((ymax - ymin) / dx) + 2 * ns
-            yc = ns * dx + (yo - ymin)
+            nsL = nsR = ns         # 支川があれば、その側の谷壁の外側を支川の長さだけ広げる
+            for tb in (P.get('tribs') or []):
+                nn = math.ceil(max(10, tb.get('len') or 40) / dx) + 1
+                if tb.get('side') == 'R':
+                    nsR = max(nsR, nn)
+                else:
+                    nsL = max(nsL, nn)
+            ny = _jround((ymax - ymin) / dx) + nsL + nsR
+            yc = nsR * dx + (yo - ymin)
         self.nx, self.ny, self.ns = nx, ny, ns
         N = self.N = nx * ny
         self.Lx = nx * dx; self.Ly = ny * dx
@@ -404,6 +424,8 @@ class Sim:
 
         colmin = np.zeros(nx)
         self.shaped = False
+        self.Ix = np.zeros(nx)          # 各列の基準の縦断勾配（勾配の表があれば区間ごと）
+        self.zbAt = None
         if T is not None:
             floorH = P['floorH'] if P['floorH'] > 0 else 3
             z = _sample_terrain(T, XX, YY, self.Ly)
@@ -416,6 +438,9 @@ class Sim:
             bb = np.polyfit(X, colmin, 1)[0]
             self.trB = bb; self.trA = float(np.mean(colmin) - bb * X.mean())
             self.I = max(1e-3, -bb)
+            self.Ix[:] = self.I
+            trA_, trB_ = self.trA, self.trB
+            self.zbAt = lambda x: trA_ + trB_ * x
             if bb > 0:
                 self.warn.append('読み込んだ地形は下流ほど高くなっています。流下方向を確認してください。')
             M = T.get('mask')
@@ -434,8 +459,34 @@ class Sim:
             zfix = np.where(fl, np.where(fixedEnd, z, z - P['erodDepth']), z)
             Bx[:] = np.maximum(1, fl.sum(axis=0)) * dx
         else:
-            I0 = self.I = P['slope']
+            # 縦断：勾配の表（位置 x から先の勾配 1/n）があれば、区間ごとの勾配をつないだ折れ線にする
+            st = sorted([list(r) for r in (P.get('slopeTable') or []) if np.isfinite(r[0]) and r[1] > 0], key=lambda r: r[0])
+            Lx_ = self.Lx
+            if st and st[0][0] > 0:
+                st.insert(0, [0.0, 1.0 / P['slope']])
+            brk = [max(0.0, min(Lx_, r[0])) for r in st] + [Lx_]
+
+            def zbAt(x):
+                if not st:
+                    return (Lx_ - x) * P['slope']
+                xa = max(0.0, min(Lx_, x)); zz_ = 0.0
+                for q2 in range(len(st)):
+                    a0, b0 = brk[q2], brk[q2 + 1]
+                    if b0 <= xa:
+                        continue
+                    zz_ += (b0 - max(a0, xa)) / st[q2][1]
+                return zz_
+
+            def segI(x):
+                v = P['slope']
+                for r in st:
+                    if x >= r[0] - 1e-9:
+                        v = 1.0 / r[1]
+                return v
+            self.zbAt = zbAt
+            I0 = self.I = max(1e-4, zbAt(0) / Lx_) if st else P['slope']
             self.trA = self.Lx * I0; self.trB = -I0
+            self.Ix[:] = [segI(x) for x in X] if st else P['slope']
             chD = max(0.0, VL.get('chD', 0) or 0); relief = max(0.0, VL.get('relief', 0) or 0)
             wR = max(0.0, VL.get('wallRough', 0) or 0)
             fans = [f for f in (VL.get('fans') or []) if np.isfinite(f[0]) and f[2] > 0 and f[3] > 0]
@@ -456,7 +507,7 @@ class Sim:
                     ych = (cs_[b_ + 1] - cs_[a_]) / (b_ - a_ + 1)
             self.ych = ych
             cs0 = P['crossSlope']
-            zc = (self.Lx - X) * I0
+            zc = np.array([zbAt(x) for x in X]) if st else (self.Lx - X) * I0
 
             def plane(o):          # 谷底の面（澪筋へ向かう横断勾配）。o は (ny, nx)
                 return zc[None, :] + cs0 * np.abs(o - ych[None, :])
@@ -489,6 +540,38 @@ class Sim:
                 hit = (rr < RR) & (zf > z)
                 self.bare |= hit & (kind == 1)
                 z = np.where(hit, zf, z)
+            # 支川：谷壁を切り込んだ水路（勾配 I）を、計算区間の側方の端から本川の谷底の縁までつなぐ
+            TR = [tb for tb in (P.get('tribs') or []) if np.isfinite(tb.get('x', np.nan)) and (tb.get('B') or 0) > 0 and (tb.get('I') or 0) > 0]
+            for tb in TR:
+                sdT = -1 if tb.get('side') == 'R' else 1; It = 1.0 / tb['I']
+                ti0 = max(2, _jround((tb['x'] - tb['B'] / 2) / dx)); ti1 = min(nx - 3, _jround((tb['x'] + tb['B'] / 2) / dx) - 1)
+                ti1 = max(ti1, ti0)
+                inC = []
+                for i in range(ti0, ti1 + 1):
+                    eoT = hL[i] if sdT > 0 else -hR[i]
+                    zEdge = zc[i] + cs0 * abs(eoT - ych[i])
+                    offT = (Y - yc[i]) * cosT[i]
+                    dist = offT - hL[i] if sdT > 0 else -hR[i] - offT
+                    m = dist > 0
+                    z[m, i] = zEdge + dist[m] * It; kind[m, i] = 0; fl[m, i] = True; self.bare[m, i] = False
+                    jb = ny - 1 if sdT > 0 else 0
+                    if kind[jb, i] == 0:
+                        inC.append(jb * nx + i)
+                ext_ = 30.0; xa_ = ti0 * dx; xb_ = (ti1 + 1) * dx
+                for i in range(max(0, math.floor((xa_ - ext_) / dx)), min(nx - 1, math.ceil((xb_ + ext_) / dx)) + 1):
+                    if ti0 <= i <= ti1:
+                        continue
+                    xi_ = (i + 0.5) * dx; lat = xa_ - xi_ if xi_ < xa_ else xi_ - xb_
+                    offW = (Y - yc[i]) * cosT[i]
+                    distW = offW - hL[i] if sdT > 0 else -hR[i] - offW
+                    eo_ = hL[i] if sdT > 0 else -hR[i]
+                    ztb = zc[i] + cs0 * abs(eo_ - ych[i]) + distW * It + np.minimum(1.5, distW * 0.5) + 0.5 * lat
+                    m = (kind[:, i] == 1) & (distW > 0) & (z[:, i] < ztb)
+                    z[m, i] = ztb[m]
+                if inC:
+                    self.tribs.append(dict(x=tb['x'], side=sdT, I=It, B=(ti1 - ti0 + 1) * dx, r=tb.get('r') or 0.0,
+                                           rs=tb['rs'] if (tb.get('rs') is not None and tb['rs'] >= 0) else (tb.get('r') or 0.0),
+                                           lag=tb.get('lag') or 0.0, cells=np.array(inC), q=0.0, v=0.0, Q=0.0, Qs=0.0))
             zfix = np.where(kind == 0, np.where(fixedEnd, z, z - P['erodDepth']), z)
             colmin = zc.copy()
             if self.shaped:
@@ -497,6 +580,7 @@ class Sim:
 
         # ---- 堰堤（河道の中心線に直角＝両岸に直角）
         self.dams = []
+        self.openC = np.zeros((ny, nx), dtype=np.int16)    # 透過型堰堤の開口のセル（堰堤の番号 + 1）
         noSl = np.zeros((ny, nx), dtype=bool)
         if T is not None:
             win = max(3, _jround(15 / dx * 2))
@@ -520,7 +604,7 @@ class Sim:
             i1 = min(nx - 1, idd + 1); i0 = max(0, idd - 1)
             th = math.radians(D['ang']) if fin('ang') else math.atan2(ycs[i1] - ycs[i0], (i1 - i0) * dx)
             tx, ty = math.cos(th), math.sin(th); nxv, nyv = -ty, tx
-            zbase = colmin[idd] if T is not None else (self.Lx - cx) * I
+            zbase = colmin[idd] if T is not None else self.zbAt(cx)
             crest = D['zc'] if fin('zc') else zbase + D['H']; wingTop = crest + P['wingHeight']
             zbase = crest - D['H']
             b = D.get('b', 0) or 0
@@ -548,11 +632,42 @@ class Sim:
             spc = cells & inSp
             sv_ = sl_[cells]; sp_ = sl_[spc]
             spMin, spMax = (sp_.min(), sp_.max()) if sp_.size else (0.0, 0.0)
+            zlow_ = float(z[cells].min())
+            # ---- 透過型：水通しの中に開口を開ける（開口のセルは開口の底の高さの移動床）
+            OD = P.get('openDam') or {}; typ = D.get('type') or 'closed'; op = None
+            if typ != 'closed':
+                lw = D['l'] if (D.get('l') or 0) > 0 else 1.0; wm = OD.get('w') or 0.5; nO = max(1, _jround(D.get('n') or 1))
+                zo = zbase + max(0.0, min(D['H'] - 0.1, D.get('hb') or 0.0)); sc0 = 0.5 * (spMin + spMax)
+                if typ == 'slit':
+                    nO = 1; wz = lw
+                elif typ == 'mslit':
+                    wz = nO * lw + (nO - 1) * wm
+                else:
+                    wz = spMax - spMin + dx
+                ocm = spc & (np.abs(sl_ - sc0) <= wz / 2 + 1e-9)
+                if not ocm.any() and spc.any():      # 開口が格子より狭いときは、水通しの中心に最も近いセルを 1 つ開ける
+                    fi = np.flatnonzero(spc); dd_ = np.abs(sl_.ravel()[fi] - sc0)
+                    ocm = np.zeros_like(spc); ocm.ravel()[fi[int(np.argmin(dd_))]] = True
+                if ocm.any():
+                    cover = ocm.sum() * dx / max(1, _jround(thick * 2 / dx))
+                    if typ in ('slit', 'mslit'):
+                        phiW = min(1.0, nO * lw / max(cover, 1e-9)); phiS = phiW
+                    else:
+                        fr1 = lw / (lw + wm); phiW = fr1 * fr1 if typ == 'grid' else fr1; phiS = fr1
+                    z = np.where(ocm, zo, z); zfix = np.where(ocm, zo, zfix); kind = np.where(ocm, 0, kind).astype(np.uint8)
+                    fl = fl | ocm; self.openC[ocm] = len(self.dams) + 1
+                    cells = cells & ~ocm; spc = spc & ~ocm
+                    zs0 = sc0 - wz / 2 if typ in ('slit', 'mslit') else spMin - dx / 2
+                    zs1 = sc0 + wz / 2 if typ in ('slit', 'mslit') else spMax + dx / 2
+                    op = dict(type=typ, l=lw, n=nO, w=wm, zo=zo, cells=np.flatnonzero(ocm), phiW=phiW, phiS=phiS, blocked=False,
+                              tBlock=None, beta=D['beta'] if (D.get('beta') or 0) > 0 else (OD.get('beta') or 1.5), s0=zs0, s1=zs1, hb=zo - zbase,
+                              Cblk=None, d95=None)
             self.dams.append(dict(i=idd, x=cx, cx=cx, cy=cy, th=th, tx=tx, ty=ty, nx=nxv, ny=nyv, ext=ext, thick=thick,
-                                  H=D['H'], b=bn, crest=crest, wingTop=wingTop, zbase=zbase, zlow=float(z[cells].min()),
+                                  H=D['H'], b=bn, crest=crest, wingTop=wingTop, zbase=zbase, zlow=zlow_,
                                   cells=cells, spill=spc, sMin=sv_.min() - dx / 2, sMax=sv_.max() + dx / 2,
-                                  spMin=spMin - dx / 2, spMax=spMax + dx / 2))
+                                  spMin=spMin - dx / 2, spMax=spMax + dx / 2, type=typ if op else 'closed', op=op, hb=D.get('hb') or 0.0))
         nd = len(self.dams)
+        self.hasOpen = any(Dd['op'] is not None for Dd in self.dams)
         region = np.full((ny, nx), nd, dtype=np.int16)
         done = np.zeros((ny, nx), dtype=bool)
         for q, Dq in enumerate(self.dams):
@@ -568,7 +683,7 @@ class Sim:
             for q, Dq in enumerate(self.dams):
                 m = (region == q) & (kind != 2)
                 upd = -((XX - Dq['cx']) * Dq['tx'] + (YY - Dq['cy']) * Dq['ty'])
-                tq = Dq['crest'] + upd * I * P['prefill']
+                tq = Dq['crest'] + upd * self.Ix[max(0, Dq['i'] - 1)] * P['prefill']
                 if relF > 0:
                     tq = tq + relF * 0.6 * vn2(XX / 14, YY / 8, P['seed'] * 13 + 9) * np.minimum(1, upd / 6)
                 zt = np.where(m & (upd >= 0), tq, zt)
@@ -666,11 +781,23 @@ class Sim:
                 m = kind == 0
                 h = np.where(m, hn[None, :], 0.0); qx = np.where(m, q0[None, :], 0.0)
         if nd:   # 堰堤の上流を天端まで湛水させておく
-            cr = np.array([D['crest'] for D in self.dams] + [-np.inf])[region]
-            m = (region < nd) & (kind != 2) & (z < cr) & (cr - z > h)
+            cr = np.array([(-np.inf if D['op'] is not None else D['crest']) for D in self.dams] + [-np.inf])[region]   # 透過型の上流は湛水させない
+            m = (region < nd) & (kind != 2) & (self.openC == 0) & (z < cr) & (cr - z > h)
             h = np.where(m, cr - z, h); qx = np.where(m, 0.0, qx); qy = np.where(m, 0.0, qy)
         self.h, self.qx, self.qy = h, qx, qy
 
+        # 支川の流入セル
+        self.tribIn = np.zeros(N, dtype=np.int16)
+        for q_, tb in enumerate(self.tribs):
+            self.tribIn[tb['cells']] = q_ + 1
+        # 伏流：河床（堆積層）の中の水 W [m]。水に浸かったセルは飽和、乾いたセルは飽和度 s0
+        GW0 = P.get('gw') or {}
+        self.W = np.zeros((ny, nx)); self.kgw = np.zeros((ny, nx)); self.gwOut = 0.0
+        if GW0.get('on'):
+            Tc = np.maximum(0.0, self.z - self.zfix)
+            self.W = np.where(self.kind == 0, P['porosity'] * Tc * np.where(self.h > 1e-3, 1.0, min(1.0, max(0.0, GW0.get('s0') or 0.0))), 0.0)
+        self.W0 = float(self.W.sum()) * dx * dx
+        self.hOld = np.zeros((ny, nx)); self.dfC = np.zeros((ny, nx)); self.dfD = np.zeros((ny, nx))
         # ---- 時刻・収支
         self.t = 0.0; self.th = 0.0; self.nstep = 0; self.dt = 0.01
         self.phase = 'spinup' if Q0 > 0.01 else 'run'
@@ -693,8 +820,17 @@ class Sim:
             return H['table'][-1][0]
         return H['duration']
 
+    def waveQ(self, t):
+        """土石流の一波（三角形）の流量 [m3/s]（混合物）"""
+        H = self.P['hydro']; a = t - (H.get('t0') or 0.0); r = max(1.0, H.get('tRise') or 30.0); f = max(1.0, H.get('tFall') or 120.0)
+        if a <= 0 or a >= r + f:
+            return 0.0
+        return (H['Qpeak'] - H['Qbase']) * (a / r if a < r else 1 - (a - r) / f)
+
     def Qat(self, t):
         H = self.P['hydro']
+        if H['mode'] == 'debris':
+            return H['Qbase'] + self.waveQ(t)
         if H['mode'] == 'table' and len(H.get('table') or []) > 1:
             return max(0.0, _interp_tab(H['table'], t, 1))
         if H['mode'] == 'const':
@@ -713,6 +849,8 @@ class Sim:
         tab = H.get('table') or []
         if H['mode'] == 'table' and len(tab) > 1 and len(tab[0]) > 2 and np.isfinite(tab[0][2]):
             return max(0.0, _interp_tab(tab, t, 2))
+        if H['mode'] == 'debris':
+            return (H.get('Cd') or 0.0) * self.waveQ(t) + H['Cs'] * H['Qbase']
         return H['Cs'] * self.Qat(t)
 
     # ------------------------------------------------------------ 1 ステップ
@@ -725,11 +863,24 @@ class Sim:
 
         # ---- 流入境界（上流端の谷底セルに流量を配分。水深の 5/3 乗で重み付け）
         Q = self.Qat(self.t); self.Qin = Q
-        sqI = math.sqrt(max(self.I, 1e-4)); nman = P['manning']
+        nman = P['manning']
         w = np.where(self.fl[:, 0], (h[:, 0] + 0.05) ** (5 / 3), 0.0)
         qin = Q * w / w.sum() / dx if w.sum() > 0 else np.zeros(ny)
-        uin = np.where(qin > 0, qin / np.maximum(qin * nman / sqI, 1e-30) ** 0.6, 0.0)
+        dbIn = P.get('transport') == 'debris'
+        Cin0 = min(0.9 * (1 - P['porosity']), self.QsAt(self.t) / Q) if (dbIn and Q > 0) else 0.0
+        Hd = P['hydro']; Iu = 1.0 / Hd['Iup'] if (Hd.get('Iup') or 0) > 0 else self.Ix[0]
+        if dbIn:
+            uin = np.array([qj / self.debris_depth(qj, Cin0, Iu) if qj > 0 else 0.0 for qj in qin])
+        else:
+            uin = np.where(qin > 0, qin / np.maximum(qin * nman / math.sqrt(max(Iu, 1e-4)), 1e-30) ** 0.6, 0.0)
         self.qin, self.uin = qin, uin
+        # 支川の流入（本川の流量の r 倍、lag 秒遅れ）
+        QtSum = 0.0
+        for tb in self.tribs:
+            tl = max(0.0, self.t - tb['lag']); Qt = tb['r'] * self.Qat(tl)
+            tb['Q'] = Qt; tb['q'] = Qt / (len(tb['cells']) * dx); QtSum += Qt
+            Ct = min(0.9 * (1 - P['porosity']), tb['rs'] * self.QsAt(tl) / Qt) if (dbIn and Qt > 0 and self.phase == 'run') else 0.0
+            tb['v'] = (tb['q'] / self.debris_depth(tb['q'], Ct, tb['I']) if dbIn else tb['q'] / (tb['q'] * nman / math.sqrt(tb['I'])) ** 0.6) if tb['q'] > 0 else 0.0
 
         # ---- 2次流：流線の曲率（前のステップの面の流束から求める）
         SEC = P.get('sec') or {}
@@ -750,7 +901,7 @@ class Sim:
             dhx[:, 1:-1] = np.where(okx, _minmod(h[:, 1:-1] - h[:, :-2], h[:, 2:] - h[:, 1:-1]), 0.0)
             dex[:, 1:-1] = np.where(okx, _minmod(eta[:, 1:-1] - eta[:, :-2], eta[:, 2:] - eta[:, 1:-1]), 0.0)
             oke = ok[:, -1] & (h[:, -2] > HS)            # 下流端：初期勾配で続く仮想セル
-            dex[:, -1] = np.where(oke, _minmod(eta[:, -1] - eta[:, -2], -self.I * dx), 0.0)
+            dex[:, -1] = np.where(oke, _minmod(eta[:, -1] - eta[:, -2], -self.Ix[-1] * dx), 0.0)
             oky = ok[1:-1, :] & (h[:-2, :] > HS) & (h[2:, :] > HS)
             dhy[1:-1, :] = np.where(oky, _minmod(h[1:-1, :] - h[:-2, :], h[2:, :] - h[1:-1, :]), 0.0)
             dey[1:-1, :] = np.where(oky, _minmod(eta[1:-1, :] - eta[:-2, :], eta[2:, :] - eta[1:-1, :]), 0.0)
@@ -822,6 +973,10 @@ class Sim:
             ry[1:ny] = np.where(GyM[1:ny] > 0, sc[:-1], sc[1:])
             GyM *= ry; GyU *= ry; GyV *= ry
 
+        # ---- 土石流：濃度と代表粒径（抵抗則に使う）
+        dbr = P.get('transport') == 'debris'
+        if dbr:
+            self.hOld = h.copy(); self._debris_params()
         # ---- 更新（勾配項・流入・摩擦）
         hn = h - cf * (FxM[:, 1:] - FxM[:, :-1] + GyM[1:] - GyM[:-1])
         qxn = qx - cf * ((FxU[:, 1:] + FxCL[:, 1:]) - (FxU[:, :-1] + FxCR[:, :-1]) + GyU[1:] - GyU[:-1])
@@ -845,19 +1000,49 @@ class Sim:
             qyn = qyn - np.where(msk, cf * ((sE - sW) - (tN - tS)), 0.0)
         hn[:, 0] += np.where(qin > 0, cf * qin, 0.0)
         qxn[:, 0] += np.where(qin > 0, cf * qin * uin, 0.0)
+        for tb in self.tribs:
+            jj_, ii_ = np.divmod(tb['cells'], nx)
+            hn[jj_, ii_] += cf * tb['q']; qyn[jj_, ii_] -= cf * tb['q'] * tb['v'] * tb['side']
         hn = np.maximum(hn, 0.0)
         wetn = hn > HDRY
         hs = np.where(wetn, hn, 1.0)
         Vv = np.sqrt(qxn * qxn + qyn * qyn)
-        fr = 0.5 * (1 + np.sqrt(1 + 4 * dt * g * self.n2 * Vv / (hs * hs * np.cbrt(hs))))
+        frX = 4 * dt * g * self.n2 * Vv / (hs * hs * np.cbrt(hs))
+        if dbr:
+            # 高橋の抵抗則：石礫型（C ≥ 0.4C*）Ψ = d²/{8 h² (C + (1−C)ρ/σ)((C*/C)^(1/3) − 1)²}、乱流型 Ψ = d²/(0.49 h²)
+            DB = P.get('debris') or {}; Cst_ = 1 - P['porosity']; rhoS = 1000 * P['sg']; rhoW = DB.get('rho') or 1000.0
+            Cd_ = np.minimum(self.dfC, 0.98 * Cst_); dd_ = self.dfD; use = self.dfC >= 0.01
+            Cds = np.where(use, Cd_, 0.5 * Cst_)
+            X_ = np.cbrt(Cst_ / Cds) - 1
+            psi = np.where(Cds >= 0.4 * Cst_, dd_ * dd_ / (8 * hs * hs * (Cds + (1 - Cds) * rhoW / rhoS) * X_ * X_), dd_ * dd_ / (0.49 * hs * hs))
+            frD = 4 * dt * psi * Vv / (hs * hs)
+            frX = np.where(use, np.maximum(frX, frD) if DB.get('manningFloor', True) is not False else frD, frX)
+        if self.hasOpen:
+            # 透過型堰堤の開口：多孔板の損失係数（Idelchik）ζ = {(1 + 0.707√(1−φ) − φ)/φ}²。天端より上を流れる分は損失なし
+            phiB = (P.get('openDam') or {}).get('phiBlock') or 0.05
+            oc = self.openC > 0
+            for q_, Dq in enumerate(self.dams):
+                op = Dq['op']
+                if op is None:
+                    continue
+                jj_, ii_ = np.divmod(op['cells'], nx)
+                ph = phiB if op['blocked'] else op['phiW']
+                hq = hs[jj_, ii_]; Hs_ = z[jj_, ii_] + hq
+                hsub = np.maximum(0.0, np.minimum(Hs_, Dq['crest']) - z[jj_, ii_]); hov = np.maximum(0.0, Hs_ - Dq['crest'])
+                pe = (ph * hsub + hov) / hq
+                pe2 = np.maximum(pe, 1e-3); zt_ = (1 + 0.707 * np.sqrt(np.maximum(0.0, 1 - pe2)) - pe2) / pe2
+                add = np.where(pe < 1, 4 * dt * (zt_ * zt_ / (2 * dx * hq)) * Vv[jj_, ii_], 0.0)
+                frX[jj_, ii_] = frX[jj_, ii_] + add
+        fr = 0.5 * (1 + np.sqrt(1 + frX))
         self.h = hn
         self.qx = np.where(wetn, qxn / fr, 0.0)
         self.qy = np.where(wetn, qyn / fr, 0.0)
         self.u, self.v = u, v
         self.FxM, self.GyM = FxM, GyM
         self.Qout = FxM[:, nx].sum() * dx
-        self.Vwin += Q * dt; self.Vwout += self.Qout * dt
+        self.Vwin += (Q + QtSum) * dt; self.Vwout += self.Qout * dt
         self.th += dt; self.nstep += 1
+        gwOn_ = bool((P.get('gw') or {}).get('on'))
 
         # ---- 助走計算（水だけを流して流れを立ち上げる）
         if self.phase == 'spinup':
@@ -865,7 +1050,10 @@ class Sim:
             tmin = 0.5 * self.Lx / self.Uref; tmax = 3 * self.Lx / self.Uref
             if (self.spinT > tmin and abs(self.Qout - Q) < 0.08 * Q) or self.spinT > tmax:
                 self.phase = 'run'; self.Vwin = 0.0; self.Vwout = 0.0; self.Vw0 = self.water_volume()
+                self.W0 = self.ground_water(); self.gwOut = 0.0
                 self.snapshot()
+            if gwOn_:
+                self._gw_step(dt)
             return
         if self.phase == 'done':
             return
@@ -873,8 +1061,10 @@ class Sim:
         # ---- 河床変動
         if self.t == 0 and not self.snaps:
             self.snapshot()             # 出水の開始時の状態
-        dtm = dt * max(1.0, P['morfac'])
+        dtm = dt * (1.0 if P.get('transport') == 'debris' else max(1.0, P['morfac']))   # 土石流は加速しない
         self._morph(dtm)
+        if gwOn_:
+            self._gw_step(dt)        # 伏流は流れの時間刻みで（加速しない）
         self.t += dtm
         if self.t >= self._nextSample:
             S = self.series
@@ -925,7 +1115,7 @@ class Sim:
         zr = np.empty_like(z); zr[:, :-1] = z[:, 1:]; zr[:, -1] = z[:, -1]
         al = np.zeros_like(nd); al[:, 1:] = nd[:, :-1]
         ar = np.zeros_like(nd); ar[:, :-1] = nd[:, 1:]
-        gx = np.where(al & ar, (zr - zl) / (2 * dx), np.where(al, (z - zl) / dx, np.where(ar, (zr - z) / dx, -self.I)))
+        gx = np.where(al & ar, (zr - zl) / (2 * dx), np.where(al, (z - zl) / dx, np.where(ar, (zr - z) / dx, -self.Ix[None, :])))
         zd = np.empty_like(z); zd[1:] = z[:-1]; zd[0] = z[0]
         zu = np.empty_like(z); zu[:-1] = z[1:]; zu[-1] = z[-1]
         ad = np.zeros_like(nd); ad[1:] = nd[:-1]
@@ -947,7 +1137,9 @@ class Sim:
     # ------------------------------------------------------------ 河床変動 1 ステップ
     def _morph(self, dtm):
         self.dzs = np.zeros((self.ny, self.nx))
-        if self.P.get('transport') == 'noneq':
+        if self.P.get('transport') == 'debris':
+            self._morph_debris(dtm)
+        elif self.P.get('transport') == 'noneq':
             nsub = max(1, math.ceil(dtm / max(self.dt, 1e-6) - 1e-9))
             for _ in range(nsub):
                 self._noneq_step(dtm / nsub)
@@ -1032,10 +1224,13 @@ class Sim:
         gg = np.where(aL[..., None], gk[:-1], 0) + np.where(aR[..., None], gk[1:], 0)
         SFy[1:ny] = np.where((self.fixedC[:-1] | self.fixedC[1:])[..., None], 0.0, fa - 0.5 * gg * S[..., None])
 
+        if self.hasOpen:
+            self._check_block(qb=(qbx, qby)); self._open_filter(SFx, SFy)
         # ---- 粒径別の持ち出し制限（交換層内の量を超えない）
         cf = dtm / ((1 - P['porosity']) * dx)
         outv = cf * (np.maximum(SFx[:, 1:], 0) - np.minimum(SFx[:, :-1], 0) + np.maximum(SFy[1:], 0) - np.minimum(SFy[:-1], 0))
-        scS = np.where(outv > A, np.where(outv > 0, A / np.where(outv > 0, outv, 1), 0.0), 1.0)
+        with np.errstate(over='ignore', divide='ignore', invalid='ignore'):   # 選ばれない側の割り算の警告を出さない
+            scS = np.where(outv > A, np.where(outv > 0, A / np.where(outv > 0, outv, 1), 0.0), 1.0)
         if (scS < 1).any():
             self.nLimS += 1
             r = np.ones_like(SFx)
@@ -1070,6 +1265,7 @@ class Sim:
             self._fix_layers(chg)
         self.QsOut = out_k.sum() * dx
         self.sedOut += self.QsOut * dtm
+        self._trib_feed(dtm, True)
 
     def _noneq_step(self, dts):
         """侵食・堆積速度式による非平衡の河床変動（高橋・里深 1999、高橋・中川・里深・奥村・安本 1998）
@@ -1154,6 +1350,8 @@ class Sim:
         wl = wet[:-1]; wr = wet[1:]
         vf = np.where(wl & wr, 0.5 * (tv[:-1] + tv[1:]), np.where(wl, np.maximum(0, tv[:-1]), np.where(wr, np.minimum(0, tv[1:]), 0.0)))
         SFy[1:ny] = vf[..., None] * np.where((vf > 0)[..., None], Cc[:-1], Cc[1:])
+        if self.hasOpen:
+            self._check_block(Cc=Cc); self._open_filter(SFx, SFy)
         outv = cf * (np.maximum(SFx[:, 1:], 0) - np.minimum(SFx[:, :-1], 0) + np.maximum(SFy[1:], 0) - np.minimum(SFy[:-1], 0))
         scS = np.where(outv > Cc + 1e-15, np.where(outv > 0, Cc / np.where(outv > 0, outv, 1), 0.0), 1.0)
         if (scS < 1).any():
@@ -1169,6 +1367,354 @@ class Sim:
         self.Cc = np.maximum(Cn, 0.0).reshape(-1, K)
         self.QsOut = out_k.sum() * dx
         self.sedOut += self.QsOut * dts
+        self._trib_feed(dts, False)
+
+    # ------------------------------------------------------------ 透過型堰堤（開口を通る土砂と閉塞）
+    def _open_filter(self, SFx, SFy):
+        """開口のセルの面を通る流砂量に通過率 f_k を掛ける（閉塞後 0、d_k ≥ l/α の礫も 0、それ以外は開口率 φs）"""
+        nx, K, d = self.nx, self.K, self.d
+        al = (self.P.get('openDam') or {}).get('alpha') or 1.0
+        for Dq in self.dams:
+            op = Dq['op']
+            if op is None:
+                continue
+            fK = np.array([0.0 if op['blocked'] else (op['phiS'] if d[k] * al < op['l'] else 0.0) for k in range(K)])
+            jj, ii = np.divmod(op['cells'], nx)
+            fx = set(); fy = set()
+            for j_, i_ in zip(jj, ii):
+                fx.add((j_, i_)); fx.add((j_, i_ + 1)); fy.add((j_, i_)); fy.add((j_ + 1, i_))
+            for (j_, i_) in fx:
+                SFx[j_, i_, :] *= fK
+            for (j_, i_) in fy:
+                SFy[j_, i_, :] *= fK
+
+    def _check_block(self, qb=None, Cc=None):
+        """閉塞の判定：開口のすぐ上流の流れの土砂濃度（流砂量 ÷ 流量）が Cblk 以上で、流れている土砂の d95 に対し l ≤ β d95 なら閉塞"""
+        nx, ny, K, dx = self.nx, self.ny, self.K, self.dx
+        h = self.h.ravel(); kind = self.kind.ravel(); openC = self.openC.ravel()
+        FxM = self.FxM.ravel(); GyM = self.GyM.ravel()
+        OD = self.P.get('openDam') or {}; Cb = OD.get('Cblk') or 0.2
+        ord_ = np.argsort(self.d, kind='stable'); d = self.d
+        if qb is not None:
+            qbx = qb[0].reshape(-1, K); qby = qb[1].reshape(-1, K)
+        else:
+            Ccf = Cc.reshape(-1, K)
+        for Dq in self.dams:
+            op = Dq['op']
+            if op is None or op['blocked']:
+                continue
+            sS = 0.0; sQ = 0.0; tk = [0.0] * K
+            for c0 in op['cells']:
+                i0 = c0 % nx; j0 = c0 // nx
+                for nb in (c0 - 1 if i0 > 0 else -1, c0 + 1 if i0 < nx - 1 else -1, c0 - nx if j0 > 0 else -1, c0 + nx if j0 < ny - 1 else -1):
+                    if nb < 0 or openC[nb] or kind[nb] != 0 or h[nb] < 0.02:
+                        continue
+                    ib = nb % nx; jb = nb // nx
+                    if ((ib + 0.5) * dx - Dq['cx']) * Dq['tx'] + ((jb + 0.5) * dx - Dq['cy']) * Dq['ty'] >= 0:
+                        continue
+                    fw = jb * (nx + 1) + ib
+                    uu = 0.5 * (FxM[fw] + FxM[fw + 1]) / h[nb]; vv = 0.5 * (GyM[nb] + GyM[nb + nx]) / h[nb]; V = math.sqrt(uu * uu + vv * vv)
+                    sQ += h[nb] * V
+                    for k in range(K):
+                        qk = Ccf[nb, k] * V if qb is None else math.sqrt(qbx[nb, k] * qbx[nb, k] + qby[nb, k] * qby[nb, k])
+                        tk[k] += qk; sS += qk
+            if not sQ > 1e-9 or sS / sQ < Cb:
+                continue
+            cum = 0.0; d95 = d[ord_[K - 1]]
+            for k in range(K):
+                cum += tk[ord_[k]]
+                if cum >= 0.95 * sS:
+                    d95 = d[ord_[k]]; break
+            if op['l'] <= op['beta'] * d95:
+                op['blocked'] = True; op['tBlock'] = self.t; op['Cblk'] = sS / sQ; op['d95'] = d95
+
+    # ------------------------------------------------------------ 支川からの給砂
+    def _trib_feed(self, dtm, bulk):
+        """本川の供給土砂量の rs 倍（lag 秒遅れ）。bulk：河床に置く（平衡流砂量）、そうでなければ流れの中へ"""
+        if not self.tribs or self.phase != 'run':
+            return
+        K, dx, lam = self.K, self.dx, 1 - self.P['porosity']
+        for tb in self.tribs:
+            Qs = tb['rs'] * self.QsAt(max(0.0, self.t - tb['lag']))
+            if self.P.get('transport') == 'debris' and Qs > 0.9 * lam * tb['Q']:
+                Qs = 0.9 * lam * tb['Q']       # 混合物の濃度は 0.9C* まで
+            tb['Qs'] = Qs
+            if not Qs > 0:
+                continue
+            self.sedIn += Qs * dtm
+            per = Qs * dtm / (len(tb['cells']) * dx * dx)
+            if bulk:
+                zf = self.z.ravel(); dzf = self.dzs.ravel()
+                for c in tb['cells']:
+                    self.A[c] += per / lam * self.ff; zf[c] += per / lam; dzf[c] += per / lam
+                self._fix_layers(np.array(tb['cells']))
+            else:
+                for c in tb['cells']:
+                    self.Cc[c] += per * self.ff
+
+    # ------------------------------------------------------------ 伏流（河床への浸透・地下水の流れ・湧出）
+    def balance(self):
+        """土砂と水の体積収支の誤差 [m3]（土砂は実質体積。流れの中の土砂・伏流の水も数える）"""
+        P = self.P; lam = 1 - P['porosity']; a2 = self.dx * self.dx; tr = P.get('transport')
+        sw = self.sediment_in_water() if tr in ('noneq', 'debris') else 0.0
+        eb = (self.sedIn - self.sedOut) - lam * self.storage() - sw
+        hs = float(self.h.sum()) * a2
+        if tr == 'debris' and (P.get('gw') or {}).get('on'):
+            ew = (hs - sw + self.ground_water()) - (self.Vw0 + self.W0 + (self.Vwin - self.sedIn) - (self.Vwout - self.sedOut) - self.gwOut)
+        elif tr == 'debris':
+            ew = (hs + self.storage()) - (self.Vw0 + self.Vwin - self.Vwout)
+        else:
+            ew = (hs + self.ground_water()) - (self.Vw0 + self.W0 + self.Vwin - self.Vwout - self.gwOut)
+        return eb, ew
+
+    def ground_water(self):
+        return float(self.W.sum()) * self.dx * self.dx
+
+    def _gw_step(self, dt):
+        """浸透：水に浸かったセルで、堆積層の空隙が残っていれば単位動水勾配で k の速さ。地下水：飽和厚 b = W/n、水頭 zfix + b の差で
+        Darcy 流（Dupuit 近似）。湧出：W が空隙量 n(z − zfix) を超えた分は地表へ。k は指定がなければ Kozeny–Carman 式"""
+        P = self.P; GW = P.get('gw') or {}; nx, ny, dx, K = self.nx, self.ny, self.dx, self.K
+        n = P['porosity']; Cst = 1 - n; HD = 1e-3; kMax = GW.get('kMax') or 0.05
+        h = self.h; z = self.z; zfix = self.zfix; W = self.W
+        mov = self.kind == 0
+        A = self.A.reshape(ny, nx, K)
+        if (GW.get('k') or 0) > 0:
+            kk = np.full((ny, nx), float(GW['k']))
+        else:
+            kc0 = G / 1e-6 * n * n * n / ((1 - n) * (1 - n)) / 180
+            sA = np.zeros((ny, nx)); sh = np.zeros((ny, nx))
+            for k in range(K):
+                sA = sA + A[:, :, k]; sh = sh + A[:, :, k] / self.d[k]
+            dh = np.where(sh > 0, sA / np.where(sh > 0, sh, 1.0), self.dm0)
+            kk = kc0 * dh * dh
+        kg = np.where(mov, np.minimum(kk, kMax), 0.0)
+        self.kgw = kg
+        Wm = n * np.maximum(0.0, z - zfix)
+        ex = mov & (W > Wm)
+        h = np.where(ex, h + (W - Wm), h); W = np.where(ex, Wm, W)
+        hh = h
+        av = hh - HD
+        if P.get('transport') == 'debris':
+            S = self.Cc.reshape(ny, nx, K).sum(axis=2)
+            av = np.minimum(av, hh - S / (0.98 * Cst))
+        f = np.minimum(np.minimum(kg * dt, Wm - W), av)
+        inf = mov & (hh > HD) & (W < Wm) & (f > 0)
+        f = np.where(inf, f, 0.0)
+        r = np.where(inf, (hh - f) / np.where(hh > 0, hh, 1.0), 1.0)
+        self.qx = np.where(inf, self.qx * r, self.qx); self.qy = np.where(inf, self.qy * r, self.qy)
+        h = np.where(inf, hh - f, hh); W = W + f
+        b = np.where(mov, W / n, 0.0); bmax = float(b.max()) if b.size else 0.0; kmx = float(kg.max()) if kg.size else 0.0
+        dtg = 0.2 * n * dx * dx / (kmx * bmax) if kmx * bmax > 0 else dt
+        ns = min(50, max(1, math.ceil(dt / dtg))); dts = dt / ns
+        Ib = self.Ix[nx - 1]
+        for _ in range(ns):
+            Hg = zfix + W / n
+            dW = np.zeros((ny, nx))
+            # x 方向の面（c と c+1）
+            okx = mov[:, :-1] & mov[:, 1:]
+            dH = Hg[:, :-1] - Hg[:, 1:]
+            upW = np.where(dH > 0, W[:, :-1], W[:, 1:])
+            ka, kb = kg[:, :-1], kg[:, 1:]
+            kf = np.where((ka > 0) & (kb > 0), 2 * ka * kb / np.where(ka + kb > 0, ka + kb, 1.0), 0.0)
+            volx = kf * (upW / n) * dH / dx * dts / dx
+            capx = 0.25 * upW; volx = np.clip(volx, -capx, capx); volx = np.where(okx & (dH != 0), volx, 0.0)
+            oky = mov[:-1] & mov[1:]
+            dHy = Hg[:-1] - Hg[1:]
+            upWy = np.where(dHy > 0, W[:-1], W[1:])
+            ka, kb = kg[:-1], kg[1:]
+            kfy = np.where((ka > 0) & (kb > 0), 2 * ka * kb / np.where(ka + kb > 0, ka + kb, 1.0), 0.0)
+            voly = kfy * (upWy / n) * dHy / dx * dts / dx
+            capy = 0.25 * upWy; voly = np.clip(voly, -capy, capy); voly = np.where(oky & (dHy != 0), voly, 0.0)
+            # ブラウザ版と同じ順に足す（南の面、西の面、東の面、北の面、下流端）
+            dW[1:, :] = dW[1:, :] + voly
+            dW[:, 1:] = dW[:, 1:] + volx
+            dW[:, :-1] = dW[:, :-1] - volx
+            dW[:-1, :] = dW[:-1, :] - voly
+            vo = np.where(mov[:, -1], kg[:, -1] * (W[:, -1] / n) * Ib * dts / dx, 0.0)
+            vo = np.minimum(vo, 0.25 * W[:, -1])
+            dW[:, -1] = dW[:, -1] - vo
+            for j_ in range(ny):
+                if mov[j_, -1]:
+                    self.gwOut += vo[j_] * dx * dx
+            W = W + dW
+        Wm2 = n * np.maximum(0.0, z - zfix)
+        ex2 = mov & (W > Wm2)
+        h = np.where(ex2, h + (W - Wm2), h); W = np.where(ex2, Wm2, W)
+        self.h = h; self.W = W
+
+    # ------------------------------------------------------------ 土石流（高橋 2007。Kanako 2D と同じ形の式）
+    def cinf_t(self, t, h, d):
+        """平衡濃度 C∞（tanθ は水面勾配）。配列でも可"""
+        P = self.P; DB = P.get('debris') or {}; Cst = 1 - P['porosity']; tp = DB.get('tanPhi') or 0.7
+        rho = DB.get('rho') or 1000.0; sig = 1000 * P['sg']
+        t = np.asarray(t, dtype=float); h = np.asarray(h, dtype=float); d = np.asarray(d, dtype=float)
+        tt = np.where(t > 0, np.minimum(t, tp - 1e-9), 1e-9)
+        c1 = rho * tt / ((sig - rho) * (tp - tt))
+        sgr = sig / rho
+        ts = h * tt / ((sgr - 1) * np.where(d > 0, d, 1.0)); tc = 0.04 * 10 ** (1.72 * tt)
+        st = sig * tt / (sig - rho); a2 = 2 * (0.425 - st) / (1 - st)
+        tsS = np.where(ts > 0, ts, 1.0); a2S = np.where(a2 > 0, a2, 0.0)
+        Cb = (1 + 5 * tt) * tt / (sgr - 1) * (1 - a2S * tc / tsS) * (1 - np.sqrt(np.maximum(0.0, a2S * tc / tsS)))
+        Cb = np.where((ts > tc) & (a2 > 0), Cb, 0.0)
+        C = np.where(tt > 0.138, c1, np.where(tt > 0.03, 6.7 * c1 * c1, Cb))
+        C = np.where(C < 0, 0.0, np.where(C > 0.9 * Cst, 0.9 * Cst, C))
+        C = np.where(t >= tp, 0.9 * Cst, C)
+        return np.where(t > 0, C, 0.0)
+
+    def _debris_params(self):
+        """各セルの流れの土砂濃度と代表粒径（流れている土砂の平均粒径。なければ河床表層の値）"""
+        nx, ny, K = self.nx, self.ny, self.K; Cst = 1 - self.P['porosity']
+        Cc = self.Cc.reshape(ny, nx, K); S = np.zeros((ny, nx)); Sd = np.zeros((ny, nx))
+        for k in range(K):
+            S = S + Cc[:, :, k]; Sd = Sd + Cc[:, :, k] * self.d[k]
+        h = self.h
+        self.dfC = np.where(h > 1e-3, np.minimum(0.98 * Cst, S / np.where(h > 1e-3, h, 1.0)), 0.0)
+        dm = self.surface_dm()
+        self.dfD = np.where(S > 1e-9, Sd / np.where(S > 1e-9, S, 1.0), np.where(np.isfinite(dm), dm, self.dm0))
+
+    def debris_depth(self, q, C, I):
+        """流入する土石流の等流水深（単位幅流量 q、濃度 C、勾配 I）"""
+        P = self.P; DB = P.get('debris') or {}; Cst = 1 - P['porosity']; rhoS = 1000 * P['sg']; rhoW = DB.get('rho') or 1000.0
+        nman = P['manning']; sn = I / math.sqrt(1 + I * I); mfl = DB.get('manningFloor', True) is not False
+        dd = 0.0
+        for k in range(self.K):
+            dd += self.ff[k] * self.d[k]
+        Cd = min(C, 0.98 * Cst)
+
+        def vel(hh):
+            Vm = hh ** (2 / 3) * math.sqrt(max(I, 1e-4)) / nman
+            if Cd < 0.01:
+                return Vm
+            if Cd >= 0.4 * Cst:
+                X = (Cst / Cd) ** (1 / 3) - 1; psi = dd * dd / (8 * hh * hh * (Cd + (1 - Cd) * rhoW / rhoS) * X * X)
+            else:
+                psi = dd * dd / (0.49 * hh * hh)
+            Vd = math.sqrt(G * hh * sn / psi)
+            return min(Vd, Vm) if mfl else Vd
+        lo, hi = 1e-4, 50.0
+        for _ in range(60):
+            mid = math.sqrt(lo * hi)
+            if mid * vel(mid) > q:
+                hi = mid
+            else:
+                lo = mid
+        return math.sqrt(lo * hi)
+
+    def _morph_debris(self, dt):
+        """混合物の流束で土砂を運び（風上）、高橋の侵食・堆積速度式で河床と交換する"""
+        P = self.P; DB = P.get('debris') or {}; nx, ny, K, dx = self.nx, self.ny, self.K, self.dx
+        Cst = 1 - P['porosity']; HSED = 0.02
+        de = DB.get('de') or 0.0007; dd = DB.get('dd') or 0.05; Vmin = DB.get('Vmin') if DB.get('Vmin') is not None else 0.1
+        gwOn = bool((P.get('gw') or {}).get('on'))
+        h = self.h; hO = self.hOld; FxM = self.FxM; GyM = self.GyM
+        Cc = self.Cc.reshape(ny, nx, K).copy()
+        # ---- 1. 移流（面の混合物流束 × 風上セルの濃度）
+        SFx = np.zeros((ny, nx + 1, K)); SFy = np.zeros((ny + 1, nx, K))
+        F = FxM[:, 1:nx]
+        cuL = F > 0
+        huF = np.where(cuL, hO[:, :-1], hO[:, 1:])
+        CcU = np.where(cuL[..., None], Cc[:, :-1], Cc[:, 1:])
+        SFx[:, 1:nx] = np.where((huF >= 1e-6)[..., None], F[..., None] * CcU / np.where(huF >= 1e-6, huF, 1.0)[..., None], 0.0)
+        Fe = FxM[:, nx]; okE = (Fe > 0) & (hO[:, -1] >= 1e-6)
+        SFx[:, nx] = np.where(okE[:, None], Fe[:, None] * Cc[:, -1] / np.where(okE, hO[:, -1], 1.0)[:, None], 0.0)
+        Gf = GyM[1:ny]
+        cuS = Gf > 0
+        hu = np.where(cuS, hO[:-1], hO[1:])
+        CcV = np.where(cuS[..., None], Cc[:-1], Cc[1:])
+        SFy[1:ny] = np.where((hu >= 1e-6)[..., None], Gf[..., None] * CcV / np.where(hu >= 1e-6, hu, 1.0)[..., None], 0.0)
+        if self.hasOpen:
+            self._check_block(Cc=Cc); self._open_filter(SFx, SFy)
+        cf = dt / dx
+        outv = cf * (np.maximum(SFx[:, 1:], 0) - np.minimum(SFx[:, :-1], 0) + np.maximum(SFy[1:], 0) - np.minimum(SFy[:-1], 0))
+        scS = np.where(outv > Cc + 1e-15, np.where(outv > 0, Cc / np.where(outv > 0, outv, 1), 0.0), 1.0)
+        if (scS < 1).any():
+            r = np.ones_like(SFx)
+            r[:, 1:] = np.where(SFx[:, 1:] > 0, scS, np.concatenate([scS[:, 1:], np.ones((ny, 1, K))], axis=1))
+            SFx *= r
+            ry = np.ones_like(SFy); ry[1:ny] = np.where(SFy[1:ny] > 0, scS[:-1], scS[1:]); SFy *= ry
+        Qs = self.QsAt(self.t) if self.phase == 'run' else 0.0; Qw = self.Qin
+        self.QsIn = Qs; self.sedIn += Qs * dt
+        Cin = Qs / Qw if (Qs > 0 and Qw > 0) else 0.0
+        out_k = SFx[:, nx].sum(axis=0)
+        self.sedOutK += out_k * dx * dt
+        Cn = Cc - cf * (SFx[:, 1:] - SFx[:, :-1] + SFy[1:] - SFy[:-1])
+        if Cin > 0:
+            Cn[:, 0, :] += np.where(self.qin > 0, cf * Cin * self.qin, 0.0)[:, None] * self.ff[None, :]
+        Cc = np.maximum(Cn, 0.0)
+        self.QsOut = out_k.sum() * dx; self.sedOut += out_k.sum() * dx * dt
+        self.Cc = Cc.reshape(-1, K)
+        self._trib_feed(dt, False)
+        Cc = self.Cc.reshape(ny, nx, K)
+        # ---- 2. 河床との交換
+        z = self.z; zfix = self.zfix; A = self.A.reshape(ny, nx, K); W = self.W
+        eta = z + h
+        S = np.zeros((ny, nx))
+        for k in range(K):
+            S = S + Cc[:, :, k]
+        dry = h < HSED
+        # 乾いたら、流れの中の土砂はその場に堆積させる
+        drp = dry & (S > 0)
+        dz0 = np.where(drp, S / Cst, 0.0)
+        Anew = A + np.where(drp[..., None], Cc / Cst, 0.0)
+        Ccn = np.where(drp[..., None], 0.0, Cc)
+        zn = z + dz0; dzs = dz0.copy()
+        if gwOn:
+            pw0 = np.minimum((1 - Cst) * dz0, np.maximum(0.0, h - S))
+            Wn = W + np.where(drp, pw0, 0.0); hn = np.where(drp, np.maximum(0.0, h - S - pw0), h)
+        else:
+            Wn = W.copy(); hn = np.where(drp, np.maximum(0.0, h - dz0), h)
+        act = ~dry & ~self.fixedC
+        hs = np.where(act, h, 1.0)
+        fw = FxM; uu = 0.5 * (fw[:, :-1] + fw[:, 1:]) / hs; vv = 0.5 * (GyM[:-1] + GyM[1:]) / hs; V = np.sqrt(uu * uu + vv * vv)
+        wet = ~dry
+        wl = np.zeros_like(wet); wl[:, 1:] = wet[:, :-1]; wr = np.zeros_like(wet); wr[:, :-1] = wet[:, 1:]
+        ws = np.zeros_like(wet); ws[1:] = wet[:-1]; wn = np.zeros_like(wet); wn[:-1] = wet[1:]
+        eL = np.zeros_like(eta); eL[:, 1:] = eta[:, :-1]; eR = np.zeros_like(eta); eR[:, :-1] = eta[:, 1:]
+        eS = np.zeros_like(eta); eS[1:] = eta[:-1]; eN = np.zeros_like(eta); eN[:-1] = eta[1:]
+        gx = np.where(wl & wr, (eR - eL) / (2 * dx), np.where(wl, (eta - eL) / dx, np.where(wr, (eR - eta) / dx, -self.Ix[None, :])))
+        gy = np.where(ws & wn, (eN - eS) / (2 * dx), np.where(ws, (eta - eS) / dx, np.where(wn, (eN - eta) / dx, 0.0)))
+        tq = np.where(V > 1e-6, -(gx * uu + gy * vv) / np.where(V > 1e-6, V, 1.0), 0.0)
+        C = S / hs
+        As = np.zeros((ny, nx)); dmB = np.zeros((ny, nx))
+        for k in range(K):
+            As = As + A[:, :, k]; dmB = dmB + A[:, :, k] * self.d[k]
+        dRep = np.where(C > 1e-6, self.dfD, np.where(As > 1e-9, dmB / np.where(As > 1e-9, As, 1.0), self.dm0))
+        dRep = np.where(dRep > 0, dRep, self.dm0)
+        Ci = self.cinf_t(tq, hs, dRep)
+        # 侵食
+        ero = act & (C < Ci) & (As >= 1e-9)
+        dB = dmB / np.where(As > 1e-9, As, 1.0)
+        dzE = de * (Ci - C) / (Cst - Ci) * hs * V / np.where(dB > 0, dB, 1.0) * dt
+        dzE = np.minimum(dzE, (Ci * hs - S) / (Cst - Ci)); dzE = np.minimum(dzE, As)
+        dzE = np.minimum(dzE, np.maximum(0.0, z - zfix))
+        ero &= dzE > 0
+        dzE = np.where(ero, dzE, 0.0)
+        frac = np.where(ero[..., None], A / np.where(As > 0, As, 1.0)[..., None], 0.0)
+        e = dzE[..., None] * frac
+        # 堆積
+        dep = act & (C > Ci) & (S > 0) & ~ero
+        dzD = dd * (C - Ci) / Cst * np.maximum(V, Vmin) * dt
+        dzD = np.minimum(dzD, (S - Ci * hs) / (Cst - Ci)); dzD = np.minimum(dzD, S / Cst)
+        dep &= dzD > 0
+        dzD = np.where(dep, dzD, 0.0)
+        gq = dzD[..., None] * np.where(dep[..., None], Cc / np.where(S > 0, S, 1.0)[..., None], 0.0)
+        Anew = np.where(ero[..., None], A - e, np.where(dep[..., None], A + gq, Anew))
+        Ccn = np.where(ero[..., None], Cc + Cst * e, np.where(dep[..., None], np.maximum(0.0, Cc - Cst * gq), Ccn))
+        if gwOn:
+            Tq = z - zfix; bq = W / (1 - Cst)
+            win = (1 - Cst) * np.maximum(0.0, np.minimum(dzE, bq - (Tq - dzE)))
+            pw = np.minimum((1 - Cst) * dzD, np.maximum(0.0, h - S))
+            Wn = np.where(ero, W - win, np.where(dep, W + pw, Wn))
+            hn = np.where(ero, h + Cst * dzE + win, np.where(dep, h - Cst * dzD - pw, hn))
+        else:
+            hn = np.where(ero, h + dzE, np.where(dep, h - dzD, hn))
+        zn = np.where(ero, z - dzE, np.where(dep, z + dzD, zn))
+        dzs = np.where(ero, -dzE, np.where(dep, dzD, dzs))
+        self.A = Anew.reshape(-1, K); self.Cc = Ccn.reshape(-1, K)
+        self.z = zn; self.h = hn; self.W = Wn; self.dzs = self.dzs + dzs
+        chg = np.flatnonzero((drp | ero | dep).ravel())
+        if chg.size:
+            self._fix_layers(chg)
 
     # ------------------------------------------------------------ 2次流（長田・細田・村本・Rahman 1996）
     def _curvature(self):
@@ -1452,6 +1998,10 @@ class Sim:
             out.append({'x': round(D['x'], 3), 'H': D['H'], 'b': round(max(0.0, D['spMax'] - D['spMin']), 3),
                         'ang': round(math.degrees(D['th']), 4), 'y': round(float(D['cy']), 4), 'zc': round(float(D['crest']), 3),
                         'len': round(2 * max(abs(D['sMin']), abs(D['sMax'])), 2), 'so': round((D['spMin'] + D['spMax']) / 2, 4)})
+            if D.get('op') is not None:
+                op = D['op']; out[-1].update(type=op['type'], l=op['l'], n=op['n'])
+                if op['hb'] > 0:
+                    out[-1]['hb'] = round(float(op['hb']), 3)
         return out
 
     def continue_params(self):
@@ -1494,7 +2044,10 @@ class Sim:
             f.write('# 計算後の河床（出水の時刻 %.1f 分）　1行目が左岸側、左の列が上流　格子間隔 %g m\n' % (self.t / 60, self.dx))
             f.write('# floorH=%g\n' % fh)
             for d in self.dams_fixed():
-                f.write('# dam ' + ' '.join('%s=%s' % (k, repr(float(d[k]))) for k in ('x', 'H', 'b', 'ang', 'y', 'zc', 'len', 'so')) + '\n')
+                extra = ''
+                if d.get('type') and d['type'] != 'closed':
+                    extra = ' ty=%d l=%s n=%d' % (_DCODE[d['type']], repr(float(d['l'])), int(d['n'])) + (' hb=%s' % repr(float(d['hb'])) if d.get('hb') else '')
+                f.write('# dam ' + ' '.join('%s=%s' % (k, repr(float(d[k]))) for k in ('x', 'H', 'b', 'ang', 'y', 'zc', 'len', 'so')) + extra + '\n')
             mask = (self.kind == 0) | ((self.kind == 2) & self.fl)       # 谷底の印（1 が谷底）
             for j in range(self.ny - 1, -1, -1):
                 f.write('# floor ' + ''.join('1' if v else '0' for v in mask[j]) + '\n')
@@ -1587,9 +2140,8 @@ def run(sim, until=None, max_steps=10 ** 8, report=True, every=30.0, callback=No
         sb = sim.storage_by_dam()
         print('終了：ステップ %d、%.0f 秒。供給土砂 %.0f m3、流出土砂 %.0f m3（実質体積）、区間内の堆積 %+.0f m3（空隙込み）'
               % (sim.nstep, time.time() - t0, sim.sedIn, sim.sedOut, sim.storage()))
-        print('  土砂の体積収支の誤差 %.1e m3、水の体積収支の誤差 %.1e m3'
-              % ((sim.sedIn - sim.sedOut) / (1 - sim.P['porosity']) - sim.storage(),
-                 sim.Vw0 + sim.Vwin - sim.Vwout - sim.water_volume()))
+        eb, ew = sim.balance()
+        print('  土砂の体積収支の誤差 %.1e m3、水の体積収支の誤差 %.1e m3' % (eb, ew))
     return sim
 
 
@@ -1653,6 +2205,8 @@ def read_grid(path, cs=2.0, transpose=False, flip=False):
         m = _re.match(r'\s*#\s*dam\s+(.*)$', ln, _re.I)
         if m:
             d = {k: float(v) for k, v in _re.findall(r'(\w+)=(-?[\d.eE+-]+)', m.group(1))}
+            if 'ty' in d and 0 <= int(d['ty']) < len(_DNAME):
+                d['type'] = _DNAME[int(d.pop('ty'))]
             if 'x' in d and d.get('H', 0) > 0:
                 dams.append(d)
         f = _re.match(r'\s*#\s*floorH=(-?[\d.]+)', ln, _re.I)
@@ -2028,14 +2582,36 @@ def plot_all(sim, path=None, x_section=None):
 # =============================================================================
 # コマンドライン
 # =============================================================================
+_DNAME = ['closed', 'slit', 'mslit', 'grid', 'sslit']          # 堰堤の形式（CSV の ty= の番号）
+_DCODE = {k: i for i, k in enumerate(_DNAME)}
+
+
 def _parse_dams(s):
     out = []
     for tok in s.split(','):
         tok = tok.strip()
         if not tok:
             continue
-        a = [float(v) for v in tok.split(':')]
-        out.append({'x': a[0], 'H': a[1], 'b': a[2] if len(a) > 2 else 0.0})
+        a = tok.split(':')
+        D = {'x': float(a[0]), 'H': float(a[1]), 'b': float(a[2]) if len(a) > 2 else 0.0}
+        if len(a) > 3 and a[3] and a[3] != 'closed':     # 形式：slit / mslit / grid / sslit、開口幅 l、開口数 n
+            D['type'] = a[3]; D['l'] = float(a[4]) if len(a) > 4 else 1.0; D['n'] = int(float(a[5])) if len(a) > 5 else 1
+        out.append(D)
+    return out
+
+
+def _parse_pairs(s):
+    return [[float(v) for v in tok.split(':')] for tok in s.split(',') if tok.strip()]
+
+
+def _parse_tribs(s):
+    out = []
+    for tok in s.split(','):
+        a = tok.strip().split(':')
+        if len(a) < 4:
+            continue
+        out.append({'x': float(a[0]), 'side': 'R' if a[1].upper().startswith('R') else 'L', 'B': float(a[2]), 'I': float(a[3]), 'len': 40.0,
+                    'r': float(a[4]) if len(a) > 4 else 0.3, 'rs': float(a[5]) if len(a) > 5 else 1.0, 'lag': float(a[6]) if len(a) > 6 else 0.0})
     return out
 
 
@@ -2050,7 +2626,18 @@ def main(argv=None):
     ap.add_argument('--long', help='縦断 CSV（x, z）')
     ap.add_argument('--align', choices=['thalweg', 'left', 'center'], default='thalweg')
     ap.add_argument('--floor', type=float, help='読み込んだ地形で谷底とみなす高さ [m]（既定 3。bed_csv の CSV はファイルの値）')
-    ap.add_argument('--dams', help='堰堤 "x:堤高:水通し幅,..."（水通し幅 0 で全幅）')
+    ap.add_argument('--dams', help='堰堤 "x:堤高:水通し幅[:形式:開口幅:開口数],..."（水通し幅 0 で全幅。形式は slit / mslit / grid / sslit）')
+    ap.add_argument('--slope-table', help='勾配の屈折 "x:n,x:n,..."（その位置から下流を勾配 1/n にする）')
+    ap.add_argument('--tribs', help='支川 "x:L|R:幅:n:流量比:土砂量比:遅れ秒,..."（勾配は 1/n）')
+    ap.add_argument('--gw', action='store_true', help='伏流（河床への浸透と地下水の流れ）を計算する')
+    ap.add_argument('--gw-k', type=float, help='透水係数 [m/s]（省略時は粒度から Kozeny–Carman 式）')
+    ap.add_argument('--debris', action='store_true', help='土石流の一波を流す（高橋の式。流砂モデルも土石流になる）')
+    ap.add_argument('--debris-peak', type=float, default=100.0, help='土石流のピーク流量 [m3/s]（混合物）')
+    ap.add_argument('--debris-c', type=float, default=0.4, help='土石流の土砂濃度（容積）')
+    ap.add_argument('--debris-rise', type=float, default=30.0, help='立ち上がり時間 [s]')
+    ap.add_argument('--debris-fall', type=float, default=120.0, help='減衰時間 [s]')
+    ap.add_argument('--debris-iup', type=float, default=0.0, help='流入点より上流の勾配 1/n（0 で上流端の勾配）')
+    ap.add_argument('--debris-minutes', type=float, default=10.0, help='土石流の計算時間 [分]')
     ap.add_argument('--fill', type=float, help='はじめから満砂にする（堆砂勾配と元の勾配の比。0 で空）')
     ap.add_argument('--dx', type=float, help='格子幅 [m]')
     ap.add_argument('--qpeak', type=float, help='ピーク流量 [m3/s]')
@@ -2083,6 +2670,12 @@ def main(argv=None):
         use_terrain(P, T, a.floor if a.floor is not None else None)
     if a.dams is not None:
         P['dams'] = _parse_dams(a.dams)
+    if a.slope_table:
+        P['slopeTable'] = _parse_pairs(a.slope_table)
+    if a.tribs:
+        P['tribs'] = _parse_tribs(a.tribs)
+    if a.gw:
+        P['gw'] = {'on': True, 'k': a.gw_k or 0.0, 'kMax': 0.05, 's0': 0.0}
     if a.fill is not None:
         P['prefill'] = a.fill
     H = P['hydro']
@@ -2092,6 +2685,10 @@ def main(argv=None):
         H['Qbase'] = a.qbase
     if a.minutes:
         H['duration'] = a.minutes * 60; H['tPeak'] = a.minutes * 20
+    if a.debris:
+        H.update(mode='debris', Qbase=a.qbase or 1.0, Qpeak=a.debris_peak, t0=30.0, tRise=a.debris_rise, tFall=a.debris_fall,
+                 Cd=a.debris_c, Iup=a.debris_iup, Cs=0.0, duration=a.debris_minutes * 60)
+        P['transport'] = 'debris'
     if getattr(a, 'cs_feed', None) is not None:
         H['Cs'] = a.cs_feed / 100
     if a.morfac:

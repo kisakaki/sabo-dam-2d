@@ -221,6 +221,42 @@ for q in s.snaps[1:]:
 ax.axhline(0, color='0.6', lw=0.8)
 ax.set_xlabel('流下方向の距離 x [m]'); ax.set_ylabel('平均河床変動量 [m]'); ax.legend(ncol=4, fontsize=8)
 plt.tight_layout(); plt.show()""")
+md("""## 15. 土石流の一波・勾配の屈折・透過型堰堤・支川・伏流
+
+勾配 1/4 から 1/12 へ屈折する渓流に、土石流の一波（ピーク 120 m³/s、濃度 0.35）を流します。左岸の急な支川（勾配 1/3）からも、30 秒遅れて土石流が入ります。屈折点の下流に、不透過型と鋼製格子型（純間隔 0.6 m）の堰堤を置いて比べます。
+
+- `P['hydro']['mode'] = 'debris'`：基底流量に三角形の土石流の波（`t0`, `tRise`, `tFall`, 濃度 `Cd`、流入点より上流の勾配 `Iup`）を重ねる。流砂モデルは `P['transport'] = 'debris'`（高橋の式：侵食・堆積速度式、平衡濃度、石礫型・乱流型の抵抗則）
+- `P['slopeTable'] = [[x, n], ...]`：位置 x から下流を勾配 1/n にする（勾配の屈折）
+- 堰堤の `type`：`'slit'`（スリット）、`'mslit'`（複数スリット、開口数 `n`）、`'grid'`（鋼製格子型）、`'sslit'`（鋼製スリット型）。開口幅 `l`。共通設定は `P['openDam']`（部材の幅 `w`、閉塞の判定 l ≤ `beta`·d95、閉塞が起きる濃度 `Cblk`）
+- `P['tribs']`：支川（合流点 x、岸、幅、勾配 1/n、流量比、土砂量比、遅れ）
+- `P['gw']`：伏流（浸透と地下水の流れ。透水係数は粒度から Kozeny–Carman 式）
+
+**適用条件**：土石流の式は代表粒径 1 つの式で、粒径別の分級は扱いません。閉塞の判定（β = 1.5 は土石流対策技術指針（案）2000、濃度のしきい値は本プログラムの仮定）は簡易なモデルです。""")
+code("""def debris_case(dam_type):
+    P = default_params()
+    P.update(L=400, B=20, slope=1 / 4, dx=2.0, transport='debris')
+    P['slopeTable'] = [[220, 12]]
+    P['valley'] = {'chD': 0, 'chW': 0, 'chWl': 0, 'relief': 0.0, 'wallH': 6, 'wallRough': 0, 'fans': []}
+    P['grains'] = [{'d': 0.01, 'bed': 0.3, 'feed': 0.3}, {'d': 0.05, 'bed': 0.4, 'feed': 0.4}, {'d': 0.2, 'bed': 0.2, 'feed': 0.2}, {'d': 0.5, 'bed': 0.1, 'feed': 0.1}]
+    P['hydro'] = {'mode': 'debris', 'Qbase': 1, 'Qpeak': 120, 't0': 30, 'tRise': 20, 'tFall': 100, 'Cd': 0.35, 'Cs': 0, 'duration': 600, 'Iup': 4, 'table': []}
+    P['dams'] = [{'x': 260, 'H': 5, 'b': 0} if dam_type == 'closed' else {'x': 260, 'H': 5, 'b': 0, 'type': dam_type, 'l': 0.6}]
+    P['tribs'] = [{'x': 150, 'side': 'L', 'B': 8, 'I': 3, 'len': 40, 'r': 0.4, 'rs': 0.4, 'lag': 30}]
+    P['gw'] = {'on': True, 'k': 0, 'kMax': 0.05, 's0': 0}
+    return P
+
+dsims = {}
+for name, typ in [('不透過型', 'closed'), ('鋼製格子型（純間隔 0.6 m）', 'grid')]:
+    s = Sim(debris_case(typ))
+    while s.phase != 'done':
+        s.step()
+    op = s.dams[0]['op']
+    eb, ew = s.balance()
+    print('%s：流出土砂 %.0f m³、閉塞 %s、土砂の収支の誤差 %.1e m³、水 %.1e m³' % (name, s.sedOut, ('%.0f 秒' % op['tBlock']) if op and op['blocked'] else 'なし', eb, ew))
+    dsims[name] = s""")
+code("""fig, axs = plt.subplots(2, 1, figsize=(12, 6))
+for ax, (name, s) in zip(axs, dsims.items()):
+    plot_plan(s, ax=ax, var='dz', title=name)
+plt.tight_layout(); plt.show()""")
 nb.metadata['kernelspec'] = {'name': 'python3', 'display_name': 'Python 3', 'language': 'python'}
 nb.metadata['language_info'] = {'name': 'python'}
 nbf.write(nb, 'sabo2d.ipynb')

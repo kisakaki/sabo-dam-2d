@@ -112,13 +112,22 @@ table.res th,table.res td{white-space:nowrap}
 <div class="app">
   <aside class="side" id="side">
     <details open><summary>ハイドロ（水と土砂の供給）</summary><div class="body">
-      <div class="row"><label for="h_mode">波形</label><select id="h_mode"><option value="tri">三角形</option><option value="const">一定</option><option value="table">表で入力</option></select></div>
+      <div class="row"><label for="h_mode">波形</label><select id="h_mode"><option value="tri">三角形</option><option value="const">一定</option><option value="table">表で入力</option><option value="debris">土石流の一波</option></select></div>
       <div id="h_par" class="body" style="padding:0">
         <div class="row"><label for="h_qb">基底流量<span class="u">m³/s</span></label><input type="number" id="h_qb" step="1" min="0"></div>
         <div class="row"><label for="h_qp">ピーク流量<span class="u">m³/s</span></label><input type="number" id="h_qp" step="1" min="0"></div>
         <div class="row"><label for="h_tp">ピーク時刻<span class="u">分</span></label><input type="number" id="h_tp" step="5" min="1"></div>
         <div class="row"><label for="h_td">継続時間<span class="u">分</span></label><input type="number" id="h_td" step="10" min="5"></div>
         <div class="row"><label for="h_cs">供給土砂濃度 Qs/Q<span class="u">%</span></label><input type="number" id="h_cs" step="0.1" min="0"></div>
+      </div>
+      <div id="h_deb" class="body" style="padding:0" hidden>
+        <div class="row"><label for="hd_t0">波の到達時刻<span class="u">秒</span></label><input type="number" id="hd_t0" step="10" min="0"></div>
+        <div class="row"><label for="hd_tr">立ち上がり時間<span class="u">秒</span></label><input type="number" id="hd_tr" step="5" min="1"></div>
+        <div class="row"><label for="hd_tf">減衰時間<span class="u">秒</span></label><input type="number" id="hd_tf" step="10" min="1"></div>
+        <div class="row"><label for="hd_c">土砂濃度（容積）<span class="u">–</span></label><input type="number" id="hd_c" step="0.05" min="0" max="0.55"></div>
+        <div class="row"><label for="hd_iu">流入点より上流の勾配 1/<span class="u">0=自動</span></label><input type="number" id="hd_iu" step="1" min="0"></div>
+        <div class="row"><label for="hd_td">計算時間<span class="u">分</span></label><input type="number" id="hd_td" step="1" min="1"></div>
+        <p class="note">基底流量（清水）に、三角形の土石流の波（ピーク流量は混合物の流量）を重ねて上流端から流します。流入する土石流の流速と水深は、「流入点より上流の勾配」での等流（高橋の抵抗則）から決めます。流砂モデルは自動で「土石流」になり、河床変動は加速しません。供給土砂の粒度は「粒径と河床材料」の「供給」の割合です。</p>
       </div>
       <div id="h_tab" hidden>
         <p class="note">1行に「時刻[分], 流量[m³/s], 土砂量[m³/s]」。土砂量は実質体積。3列目を省くと濃度から計算します。</p>
@@ -149,6 +158,16 @@ table.res th,table.res td{white-space:nowrap}
         <p class="note">変化点の間は直線でつなぎます。行があるときは上の「川幅」より優先します。行がなければ一様です。</p>
       </div></details>
       <div class="row"><label for="g_I">縦断勾配 1/<span class="u">–</span></label><input type="number" id="g_I" step="1" min="3"></div>
+      <details style="border:0;padding:0"><summary style="font-weight:500">勾配を途中で変える（屈折）</summary><div class="body">
+        <table class="ed" id="itab"><thead><tr><th>ここから先 x [m]</th><th>勾配 1/n</th><th></th></tr></thead><tbody></tbody></table>
+        <div class="btns"><button class="sm" id="i_add">＋ 屈折点を追加</button><button class="sm" id="i_ex1">例：急→緩</button><button class="sm" id="i_ex2">例：3段</button><button class="sm" id="i_clr">一様に戻す</button></div>
+        <p class="note">各行の位置から下流へ、その勾配で続けます（次の行の位置で折れます）。最初の行より上流は上の「縦断勾配」です。行がなければ一様です。急勾配から緩勾配への屈折点は土砂がたまりやすく、土石流の堆積や扇状地の形成を調べるときに使えます。</p>
+      </div></details>
+      <details style="border:0;padding:0"><summary style="font-weight:500">支川の合流</summary><div class="body">
+        <div style="overflow-x:auto"><table class="ed" id="ttab"><thead><tr><th>合流点 x [m]</th><th>岸</th><th>幅 [m]</th><th>勾配 1/n</th><th>流量比</th><th>土砂量比</th><th>遅れ [秒]</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="btns"><button class="sm" id="t_add">＋ 支川を追加</button><button class="sm" id="t_ex">例：左岸の急な支川</button><button class="sm" id="t_clr">なし</button></div>
+        <p class="note">支川は谷壁を切り込んだ水路として作り、計算区間の側方の端から流し込みます（谷壁の外側を約 40 m 広げます）。流量と供給土砂量は、本川（上流端）の値に比を掛け、遅れの分だけずらします。土石流の一波のときは、支川からも同じ形の土石流が入ります。勾配の急な支川から土砂が出ると、合流点に沖積錐ができ、流路の首振り（流れの向きが堆積で変わる）が起きます。数値で指定した地形でだけ使えます。</p>
+      </div></details>
       <div class="row"><label for="g_S">横断勾配（中央へ）<span class="u">%</span></label><input type="number" id="g_S" step="0.5" min="0"></div>
       <div class="row"><label for="b_mode">平面形</label><select id="b_mode"><option value="none">直線</option><option value="sine">正弦波の蛇行</option><option value="table">中心線と川幅を表で入力（湾曲・狭窄）</option></select></div>
       <div id="b_sine" class="body" style="padding:0" hidden>
@@ -216,11 +235,21 @@ table.res th,table.res td{white-space:nowrap}
     <details open><summary>堰堤の諸元</summary><div class="body">
       <div class="btns"><button class="sm" id="pre_low">低ダム群</button><button class="sm" id="pre_high">高ダム1基</button><button class="sm" id="pre_none">堰堤なし</button></div>
       <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="d_adv">向き・中心・天端標高・堤長も指定する</label>
-      <div style="overflow-x:auto"><table class="ed simple" id="damtab"><thead><tr><th>位置 x [m]</th><th>堤高 [m]</th><th>水通し幅 [m]</th><th class="adv">回転角 [°]</th><th class="adv">中心 y [m]</th><th class="adv">天端標高 [m]</th><th class="adv">堤長 [m]</th><th></th></tr></thead><tbody></tbody></table></div>
+      <div style="overflow-x:auto"><table class="ed simple" id="damtab"><thead><tr><th>位置 x [m]</th><th>堤高 [m]</th><th>水通し幅 [m]</th><th>形式</th><th>開口幅 l [m]</th><th>開口数</th><th class="adv">回転角 [°]</th><th class="adv">中心 y [m]</th><th class="adv">天端標高 [m]</th><th class="adv">堤長 [m]</th><th></th></tr></thead><tbody></tbody></table></div>
       <div class="btns"><button class="sm" id="dam_add">＋ 1基追加</button><button class="sm" id="dam_fix" title="自動で決まった向きなどを表に書き込みます">いまの堰堤を表に固定</button></div>
       <p class="note" id="dam_adv_note" hidden>空欄は自動（向きは河道の中心線に直角、中心は谷の中心、天端標高は河床＋堤高、堤長は両岸の谷壁まで）。回転角は、x 軸に直角な向きから反時計回りに測った角度で、±80° まで。中心 y と天端標高は、平面図・横断図の座標と標高です。天端標高を入れると、堤高は袖の高さと水通しの深さの目安にだけ使います。</p>
       <p class="note" id="dam_note" hidden style="color:var(--err,#b3261e)"></p>
       <p class="note">位置は上流端からの距離（堰堤の中心）。堰堤は河道の中心線に直角、つまり両岸に直角に置きます。水通し幅 0 は全幅越流（水平な天端）。</p>
+      <details style="border:0;padding:0"><summary style="font-weight:500">透過型（スリット・鋼製）の設定と閉塞</summary><div class="body">
+        <div class="row"><label for="od_w">部材の幅・スリット間の柱の幅<span class="u">m</span></label><input type="number" id="od_w" step="0.1" min="0.05"></div>
+        <div class="row"><label for="od_b">閉塞の判定 l ≤ β d95 の β</label><input type="number" id="od_b" step="0.1" min="0.5" max="5"></div>
+        <div class="row"><label for="od_c">閉塞が起きる土砂濃度<span class="u">–</span></label><input type="number" id="od_c" step="0.05" min="0.01" max="0.6"></div>
+        <div class="row"><label for="od_a">礫が通れる大きさ d &lt; l/α の α</label><input type="number" id="od_a" step="0.1" min="0.5" max="3"></div>
+        <div class="row"><label for="od_p">閉塞後の開口率（水だけ通る）</label><input type="number" id="od_p" step="0.01" min="0.001" max="0.5"></div>
+        <p class="note">形式：<b>不透過</b>（従来）、<b>スリット</b>（幅 l の切り欠き 1 本）、<b>複数スリット</b>（幅 l を柱の幅 w で開口数だけ並べる）、<b>鋼製格子型</b>（縦・横の部材の純間隔 l）、<b>鋼製スリット型</b>（縦の部材だけ、純間隔 l）。鋼製は水通しの全幅が開口です。開口の底は堤の基礎の高さです。</p>
+        <p class="note">計算方法：開口のセルは開口の底の高さの河床とし、水は多孔板の損失係数（Idelchik）ζ = {(1 + 0.707√(1−φ) − φ)/φ}² の損失水頭 ζV²/2g を受けて通ります。φ は開口率（鋼製格子型 {l/(l+w)}²、鋼製スリット型 l/(l+w)、スリットは開口幅 ÷ セル幅）。天端より上を流れる分は損失を受けません。土砂は開口率 l/(l+w) の割合で通り、粒径 d ≥ l/α の礫は通れずに手前に堆積します（粒径別のふるい分け）。</p>
+        <p class="note">閉塞：開口のすぐ上流の流れの土砂濃度（流砂量 ÷ 流量）が「閉塞が起きる土砂濃度」以上で、流れている土砂の d95 に対して l ≤ β d95 のとき閉塞し、以後は不透過型として働きます（開口は水だけが少し通る）。β の既定 1.5 は土石流対策技術指針（案）（建設省 2000）の「純間隔は最大礫径の 1.5 倍以下」、2016 年の土石流・流木対策設計技術指針では 1.0 倍です。濃度のしきい値は本プログラムの仮定で、掃流（濃度が低い）では閉塞せず、土石流で閉塞する、という観察に合わせています。</p>
+      </div></details>
       <div class="row"><label for="d_wing">袖部の高さ<span class="u">m</span></label><input type="number" id="d_wing" step="0.5" min="0"></div>
       <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="d_fill">はじめから満砂にする（既設の堰堤）</label>
       <div class="row" id="d_fill_row" hidden><label for="d_fill_r">満砂の勾配（元の勾配に対する比）</label><input type="number" id="d_fill_r" step="0.1" min="0.05" max="1" value="0.5"></div>
@@ -241,20 +270,34 @@ table.res th,table.res td{white-space:nowrap}
       <div class="row"><label for="s_n">Manning の粗度係数 n</label><input type="number" id="s_n" step="0.005" min="0.01"></div>
       <div class="row"><label for="s_tcm">限界掃流力の式（平均粒径）</label><select id="s_tcm"><option value="atm">芦田・高橋・水山</option><option value="iwagaki">岩垣式</option><option value="const">一定値</option></select></div>
       <div class="row" id="s_tc_row" hidden><label for="s_tc">τ*c（一定値）</label><input type="number" id="s_tc" step="0.005" min="0.01"></div>
-      <div class="row"><label for="s_hid">粒径別の限界掃流力</label><select id="s_hid"><option value="atm">芦田・高橋・水山</option><option value="egiazaroff">修正 Egiazaroff</option></select></div>
+      <div class="row"><label for="s_hid">粒径別の限界掃流力</label><select id="s_hid"><option value="egiazaroff">修正 Egiazaroff（選択的な輸送）</option><option value="atm">芦田・高橋・水山（全粒径が同じ割合で動く）</option></select></div>
       <p class="note" id="s_tc_note"></p>
       <div class="row"><label for="s_por">空隙率 λ</label><input type="number" id="s_por" step="0.05" min="0.1" max="0.7"></div>
       <div class="row"><label for="s_rep">流砂の勾配項の上限角<span class="u">°</span></label><input type="number" id="s_rep" step="1" min="15" max="60"></div>
     </div></details>
 
     <details><summary>流砂モデル・側岸侵食</summary><div class="body">
-      <div class="row"><label for="s_tr">流砂量の求め方</label><select id="s_tr"><option value="eq">平衡流砂量（芦田・道上）</option><option value="noneq">侵食・堆積速度式（高橋・里深）</option></select></div>
+      <div class="row"><label for="s_tr">流砂量の求め方</label><select id="s_tr"><option value="eq">平衡流砂量（芦田・道上）</option><option value="noneq">侵食・堆積速度式（高橋・里深）</option><option value="debris">土石流（高橋の式）</option></select></div>
+      <div id="db_box" class="body" style="padding:0" hidden>
+        <div class="row"><label for="db_de">侵食速度係数 δe</label><input type="number" id="db_de" step="0.0001" min="0"></div>
+        <div class="row"><label for="db_dd">堆積速度係数 δd</label><input type="number" id="db_dd" step="0.01" min="0"></div>
+        <div class="row"><label for="db_tp">内部摩擦角 tanφ</label><input type="number" id="db_tp" step="0.05" min="0.3" max="1.2"></div>
+        <div class="row"><label for="db_rho">間隙流体の密度<span class="u">kg/m³</span></label><input type="number" id="db_rho" step="50" min="1000" max="1600"></div>
+        <p class="note">土石流（高橋 2007。Kanako 2D と同じ形の式）：混合物の水深 h、土砂濃度 C で計算します。侵食（C &lt; C∞）i = δe (C∞ − C)/(C* − C∞)·q/d、堆積（C ≥ C∞）i = δd (C∞ − C)/C*·V。平衡濃度 C∞ は水面勾配 tanθ で、tanθ &gt; 0.138 は石礫型 ρ tanθ/{(σ−ρ)(tanφ − tanθ)}、0.03〜0.138 は乱流型（その 2 乗の 6.7 倍）、0.03 以下は掃流の式。抵抗は石礫型（C ≥ 0.4C*）τ/ρ_T = d²u|V|/{8h²(C + (1−C)ρ/σ)((C*/C)^(1/3) − 1)²}、乱流型 d²u|V|/(0.49h²)、C &lt; 0.01 は Manning 式です。<b>適用条件と仮定</b>：代表粒径 d は流れている土砂（なければ河床表層）の平均粒径で、粒径別の挙動（土石流内の分級）は扱いません。抵抗は Manning 式の値を下限にし（相対水深の大きい乱流型で抵抗が小さくなりすぎないように）、堆積速度の流速には下限 0.1 m/s を設けています（止まりかけの流れでも堆積させるため）。これらは本プログラムの仮定です。δe = 0.0007、δd = 0.05 は Kanako などで使われる値です。</p>
+      </div>
       <div id="ne_box" hidden>
         <div class="row"><label for="ne_de">侵食係数 δe</label><input type="number" id="ne_de" step="0.1" min="0.01"></div>
         <div class="row"><label for="ne_dd">堆積係数 δd</label><input type="number" id="ne_dd" step="0.1" min="0.01"></div>
         <div class="row"><label for="ne_he">水際とみなす水深<span class="u">m、0＝自動</span></label><input type="number" id="ne_he" step="0.01" min="0"></div>
         <div class="row"><label for="ne_fe">水際の倍率（侵食／堆積）</label><span style="display:flex;gap:4px"><input type="number" id="ne_fe" step="0.5" min="1" style="width:4.5em"><input type="number" id="ne_fd" step="1" min="1" style="width:4.5em"></span></div>
         <p class="note">i_k = f_bk·δe(C∞−C)/C*·|u*−u*ck|（侵食）、f_0k·δd(C∞−C)/C*·|u*−u*ck|（堆積）。流れの中の土砂を運び、その場で平衡濃度 C∞ との差だけ侵食・堆積させます（非平衡）。高橋・里深（1999）は δe = δd = 0.6、水深 5 mm 以下で δe = 1.2・δd = 6.0（倍率 2 と 10）としています。水際とみなす水深の自動値は平均粒径の 2.5 倍です（同論文の 5 mm／2 mm の比）。<b>適用条件</b>：δe、δd と水際の倍率は水路実験に合わせた値です。現地の規模へは、水際の水深を粒径との比で移しています（本プログラムの仮定）。掃流砂の式なので、浮遊砂・土石流の濃度では使えません。</p>
+      </div>
+      <div class="row"><label for="gw_on">伏流（河床への浸透と地下水の流れ）</label><input type="checkbox" id="gw_on"></div>
+      <div id="gw_box" class="body" style="padding:0" hidden>
+        <div class="row"><label for="gw_k">透水係数<span class="u">m/s、0=粒度から</span></label><input type="number" id="gw_k" step="0.001" min="0"></div>
+        <div class="row"><label for="gw_kx">透水係数の上限<span class="u">m/s</span></label><input type="number" id="gw_kx" step="0.01" min="0.0001"></div>
+        <div class="row"><label for="gw_s0">乾いた堆積層の初期の飽和度<span class="u">0〜1</span></label><input type="number" id="gw_s0" step="0.1" min="0" max="1"></div>
+        <p class="note">水に浸かったセルでは、堆積層（侵食の下限より上）の空隙が満ちるまで、単位動水勾配で透水係数 k の速さで浸透します。堆積層の中の水は Darcy 則（Dupuit 近似）で水頭の低い方へ流れ、空隙からあふれた分は地表へ湧き出します。k は指定しなければ交換層の粒度から Kozeny–Carman 式 k = (g/ν)·n³/(1−n)²·d_h²/180（d_h は調和平均径）で求め、上限で頭打ちにします。土石流では間隙の水が抜けると濃度が上がり、堆積が進みます（扇状地での伏没・停止）。<b>適用条件</b>：鉛直方向の浸透は単位動水勾配（地下水面より上は不飽和）、水平方向は Dupuit 近似。礫が粗いと Darcy 則の範囲を超えるため、上限で抑えています。初期の地下水は、水に浸かったセルは飽和、乾いたセルは飽和度 s0 とします。</p>
       </div>
       <div class="row"><label for="bk_h">側岸として侵食できる高さ<span class="u">m</span></label><input type="number" id="bk_h" step="0.5" min="0"></div>
       <div class="row"><label for="bk_w">水中の安息角<span class="u">°</span></label><input type="number" id="bk_w" step="1" min="15" max="60"></div>
@@ -301,7 +344,7 @@ table.res th,table.res td{white-space:nowrap}
         <div class="opts">
           <label>表示 <select id="v_mode">
             <option value="real">写実</option><option value="bed">河床位（標高）</option><option value="bedrel">河床位（初期勾配を除く）</option><option value="depth">水深</option><option value="vel">流速</option>
-            <option value="dz">河床変動量</option><option value="dm">表層の平均粒径</option><option value="tau">無次元掃流力 τ*</option><option value="tcr">限界掃流力 τ*c（平均粒径）</option><option value="fr">フルード数</option>
+            <option value="dz">河床変動量</option><option value="dm">表層の平均粒径</option><option value="tau">無次元掃流力 τ*</option><option value="tcr">限界掃流力 τ*c（平均粒径）</option><option value="fr">フルード数</option><option value="conc">流れの土砂濃度</option><option value="gw">伏流（堆積層の飽和度）</option>
           </select></label>
           <label>高さ強調 <select id="v_vex"><option>1</option><option selected>2</option><option>3</option><option>5</option></select>倍</label>
           <label><input type="checkbox" id="v_cont"> 等高線</label>
@@ -387,14 +430,19 @@ table.res th,table.res td{white-space:nowrap}
             </ul></li>
           <li>粒径別の限界掃流力は次の2通りから選べます。
             <ul>
-              <li>芦田・高橋・水山の実験結果：混合砂礫では、各粒径の限界掃流力（次元のある値）が平均粒径の値とほぼ等しくなります。つまり u*ci = u*cm です。この結果は d/dm ≥ 0.4 で得られたものです。d/dm &lt; 0.4 でも同じ値としています。同論文の実験では、この範囲の細粒はさらに動きにくくなっていますが、式が示されていないためです。</li>
-              <li>Egiazaroff 式の芦田・道上修正：d/dm &lt; 0.4 では τ*ci = 0.85 τ*cm·dm/di です。</li>
+              <li>芦田・高橋・水山の実験結果：混合砂礫では、各粒径の限界掃流力（次元のある値）が平均粒径の値とほぼ等しくなります。つまり u*ci = u*cm です。この結果は d/dm ≥ 0.4 で得られたものです。d/dm &lt; 0.4 でも同じ値としています。同論文の実験では、この範囲の細粒はさらに動きにくくなっていますが、式が示されていないためです。<b>注意</b>：混合粒径の芦田・道上式は q_bi = 17 f_i u*e³/(sg)·(1 − u*ci²/u*²)(1 − u*ci/u*) で、粒径 d_i は約分されて消えます。粒径による動きやすさの違いは u*ci だけから生じるので、この設定ではどの粒径も河床の含有率どおりに動き、細粒の選択的な流出や粗粒化（アーマー化）は起きません。</li>
+              <li>Egiazaroff 式の芦田・道上修正（既定）：d/dm ≥ 0.4 では u*ci²/u*cm² = {log19/log(19 d/dm)}²·(d/dm)、d/dm &lt; 0.4 では τ*ci = 0.85 τ*cm·dm/di です。細粒は動きやすく粗粒は動きにくくなり、細粒の選択的な流出と表層の粗粒化が起きます。</li>
             </ul></li>
           <li>流砂の向きは流速の向きに、河床勾配による重力の効果を加えます。係数は長谷川の横断方向流砂量式の形 √(τ*c/(μs μk τ*)) を使い、勾配方向の拡散として等方的に与えています。</li>
           <li>粒度は交換層（平野）と多層の堆積層で追跡します。粗粒化（アーマー化）と、堆積した土砂の再侵食時の粒度を表現できます。</li>
           <li>安息角を超えた斜面は崩落させます。水に浸かった斜面は水中の安息角（既定 30°、高橋・里深・奥村 1996）、乾いた斜面は陸上の安息角（既定 50°）で判定します。重力項と合わせて、側岸侵食と流路の移動を表します。</li>
           <li>側岸侵食の拡張：谷壁の下部を侵食できる段丘・崖錐とする設定、水際の濡れたセルの侵食の一部を隣の乾いた側岸から削る設定（Delft3D の dry-cell erosion と同じ考え方）、動かない巨礫で流路を固定する設定（高橋・里深・奥村 1996）、長谷川の崩落モデル（側岸は根元の洗掘が溜まってから一度に崩れる。長田ら 1996）を選べます。</li>
           <li>湾曲部の2次流（長田ら 1996）：流線の曲率から、河床付近の流れを内岸へ向ける効果（流砂の向き）と、主流の運動量を外岸へ運ぶ分散項（Kalkwijk・de Vriend 1980）を加えられます。どちらも弱い曲率を前提とする式です。</li>
+          <li>勾配の屈折：「勾配を途中で変える」の表で、位置ごとに勾配を変えた折れ線の縦断にできます（多段の屈折も可）。</li>
+          <li>透過型堰堤：スリット（単・複）、鋼製格子型、鋼製スリット型を選べます。開口は多孔板の損失係数（Idelchik）で水を通し、粒径 d ≥ l/α の礫は通しません。閉塞は、流れの土砂濃度と l ≤ β d95（土石流対策技術指針（案）2000 の β = 1.5）で判定し、閉塞後は不透過型として働きます。</li>
+          <li>土石流の一波：高橋（2007）の式（Kanako 2D と同じ形）。混合物の水深と土砂濃度で、侵食・堆積速度式、水面勾配による平衡濃度（石礫型・乱流型・掃流）、石礫型・乱流型・Manning の抵抗則を使います。δe = 0.0007、δd = 0.05。</li>
+          <li>支川の合流：谷壁を切り込んだ支川の水路から流量と土砂を流し込みます。急な支川の土砂は合流点に沖積錐をつくり、堆積で流れの向きが変わる（首振り）様子を計算できます。</li>
+          <li>伏流：水に浸かった堆積層へ単位動水勾配で浸透し、堆積層の中を Darcy 則（Dupuit 近似）で流れ、空隙からあふれると湧き出します。透水係数は Kozeny–Carman 式で粒度から求めます（上限あり）。</li>
           <li>流砂量は、平衡流砂量（芦田・道上式）のほかに、高橋・里深（1999）と高橋ら（1998）の侵食・堆積速度式（非平衡）でも計算できます。流れの中の粒径別土砂濃度を運び、平衡濃度との差で侵食・堆積させます。水際の浅い所では係数を割り増して、水際の掃流力の過小評価を補います。</li>
           <li>堰堤は1セル幅の固定床です。天端、水通し、袖部を標高で与えます。固定床への段上がりが水深の半分を超える間は、掃流砂を通しません。</li>
         </ul>
@@ -422,6 +470,11 @@ table.res th,table.res td{white-space:nowrap}
           <li>Egiazaroff, I. V. (1965): Calculation of nonuniform sediment concentrations, J. Hydraul. Div., ASCE, 91(HY4), pp.225–247.</li>
           <li>平野宗夫（1971）：Armoring をともなう河床低下について，土木学会論文報告集，第195号，pp.55–65．</li>
           <li>長谷川和義（1981）：非平衡性を考慮した側岸侵食量式に関する研究，土木学会論文報告集，第316号，pp.37–50．</li>
+          <li>高橋保（2007）：Debris Flow: Mechanics, Prediction and Countermeasures, Taylor &amp; Francis．</li>
+          <li>Nakatani, K., Wada, T., Satofuka, Y., Mizuyama, T. (2008): Development of "Kanako 2D (Ver.2.00)," a user-friendly one- and two-dimensional debris flow simulator equipped with a graphical user interface, International Journal of Erosion Control Engineering, 1(2), pp.62–.</li>
+          <li>建設省河川局砂防部砂防課（2000）：土石流対策技術指針（案）．国土技術政策総合研究所（2016）：土石流・流木対策設計技術指針解説．</li>
+          <li>Idelchik, I. E.: Handbook of Hydraulic Resistance（多孔板・格子の損失係数）．</li>
+          <li>Carman, P. C. (1937): Fluid flow through granular beds, Transactions of the Institution of Chemical Engineers, 15, pp.150–166（Kozeny–Carman 式）．</li>
           <li>長田信寿・細田尚・村本嘉雄・Md. M. Rahman（1996）：側岸侵食を伴う河道変動の数値解析，京都大学防災研究所年報，第39号B-2，pp.415–428．</li>
           <li>長谷川和義（1983）：沖積蛇行の平面および河床形状と流れに関する水理学的研究，北海道大学学位論文．</li>
           <li>Kalkwijk, J. P. Th., de Vriend, H. J. (1980): Computation of the flow in shallow river bends, J. Hydraulic Research, 18(4), pp.327–342.</li>

@@ -13,7 +13,12 @@
 - 網状流路・砂州・アーマー化（交換層モデル）
 - 側岸侵食：段丘の側岸の侵食、水中・陸上の安息角、水際の乾いた側岸の侵食、巨礫による流路の固定、長谷川の崩落モデル
 - 湾曲部の2次流：流砂の向きの偏りと運動量の分散項（長田ら 1996）
-- 流砂は平衡流砂量（芦田・道上）か、侵食・堆積速度式（高橋・里深 1999）から選ぶ
+- 流砂は平衡流砂量（芦田・道上）、侵食・堆積速度式（高橋・里深 1999）、土石流（高橋 2007、Kanako 2D と同じ形）から選ぶ
+- 土石流の一波（基底流量＋三角形の波、土砂濃度、流入点より上流の勾配）を上流端から流せる
+- 透過型堰堤：スリット（1 本・複数）、鋼製格子型、鋼製スリット型。開口の損失と礫の通過、巨礫による閉塞
+- 支川の合流（勾配・流量・土砂を別に設定）。急な支川は沖積錐を作り、流路が振れる
+- 伏流（河床の間隙の水、Kozeny–Carman 式の透水係数）
+- 勾配の折れ点を何段でも入れられる
 - 堰堤の位置・堤高・水通し幅を自由に設定。向き・中心・天端標高・堤長も指定できる
 - 地形は 3 通り：数値で指定（川幅の変化・湾曲・狭窄・澪筋・支渓の扇状地）、横断・縦断の測量値、格子 CSV（DEM）
 - モデル渓流 2 つ（床固工群の渓流、狭窄部と広い堆砂域。写真の河道を参考にした架空の地形）
@@ -54,6 +59,8 @@ python sabo2d.py --preset A --minutes 60            # モデル渓流 A を 1 �
 python sabo2d.py --xs ../tools/test_cross_sections.csv --long ../tools/test_longitudinal.csv --dams "150:3:0,300:3:0"
 python sabo2d.py --preset B --noneq --bank-h 2 --dry-ero 0.5 --boulders 30   # 非平衡の流砂＋側岸侵食＋巨礫
 python sabo2d.py --preset A --bank-h 2 --collapse hasegawa --secondary --secondary-mom   # 長田ら（1996）の崩落モデルと2次流
+python sabo2d.py --preset A --debris --debris-peak 60 --slope-table "0:20,300:60" --dams "400:6:0:grid:0.8"   # 土石流の一波、勾配の折れ点、鋼製格子型
+python sabo2d.py --preset A --tribs "250:L:6:8:0.3:1:0" --gw   # 支川と伏流
 python sabo2d.py --preset A --snap-every 5          # 5 分ごとの結果を result/snapshots_long.csv と result/snapshots/ に書く
 python sabo2d.py --help
 ```
@@ -71,7 +78,10 @@ Jupyter では `python/sabo2d.ipynb` を開いて上から実行します。
 - 非平衡の流砂：高橋・里深（1999）、高橋ら（1998）の侵食・堆積速度式（選択）
 - 側岸侵食：高橋・里深・奥村（1996）の水中安息角と巨礫による流路の固定、長田ら（1996）の長谷川型崩落モデルと2次流、Delft3D の dry-cell erosion、XBeach の wetslp／dryslp の考え方
 - 文献の式の適用条件は [docs/model.md](docs/model.md) の表にまとめています
-- 浮遊砂・土石流は扱わない
+- 土石流：高橋（2007）の侵食・堆積速度式と抵抗則（Kanako 2D と同じ形）
+- 透過型堰堤：開口の損失（Idelchik）、閉塞（土石流対策技術指針（案）2000 など）
+- 伏流：Kozeny–Carman 式、Dupuit 近似
+- 浮遊砂・流木は扱わない
 
 詳しくは [docs/model.md](docs/model.md) にあります。
 
