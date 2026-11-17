@@ -904,10 +904,10 @@ class Sim:
         h = self.h; w = h > 1e-3; hs = np.where(w, h, 1.0)
         u = 0.5 * (self.FxM[:, :-1] + self.FxM[:, 1:]) / hs; v = 0.5 * (self.GyM[:-1] + self.GyM[1:]) / hs
         dm = np.where(self.kind == 0, self.surface_dm(), np.nan)
-        self.snaps.append({'t': self.t, 'dz': (self.z - self.z0).astype(np.float32), 'h': h.astype(np.float32),
+        self.snaps.append({'t': float(self.t), 'dz': (self.z - self.z0).astype(np.float32), 'h': h.astype(np.float32),
                            'V': np.where(w, np.sqrt(u * u + v * v), 0.0).astype(np.float32), 'dm': dm.astype(np.float32),
-                           'Qin': self.Qin, 'Qout': self.Qout, 'QsIn': self.QsIn, 'QsOut': self.QsOut,
-                           'sedIn': self.sedIn, 'sedOut': self.sedOut, 'stor': self.storage(), 'byDam': self.storage_by_dam().copy()})
+                           'Qin': float(self.Qin), 'Qout': float(self.Qout), 'QsIn': float(self.QsIn), 'QsOut': float(self.QsOut),
+                           'sedIn': float(self.sedIn), 'sedOut': float(self.sedOut), 'stor': float(self.storage()), 'byDam': self.storage_by_dam().copy()})
 
     def set_snap_every(self, sec):
         """記録の間隔を途中で変える（次の記録は新しい間隔の倍数の時刻）"""
