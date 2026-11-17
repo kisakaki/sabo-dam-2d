@@ -24,6 +24,10 @@
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 #damtab.simple .adv{display:none}
+.outrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;margin:4px 0 6px}
+.outrow>label{display:inline-block;width:auto;margin:0;flex:none}
+.outrow>input#o_ev{width:80px;flex:none;display:inline-block;margin:0}
+.outrow>.u{margin-right:10px}
 #damtab:not(.simple) input{min-width:4.2em}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:14px 40px}
@@ -352,6 +356,19 @@ table.res th,table.res td{white-space:nowrap}
     <div class="card">
       <div class="hd"><h2>堰堤ごとの堆砂量（空隙込み）</h2></div>
       <div class="scroll"><table class="res" id="damres"></table></div>
+    </div>
+
+    <div class="card">
+      <div class="hd"><h2>時間ごとの結果を書き出す</h2></div>
+      <div class="outrow">
+        <label for="o_ev">記録の間隔</label><input type="number" id="o_ev" step="1" min="0"><span class="u">分</span>
+        <button class="sm" id="o_long">縦長の CSV で保存</button>
+        <button class="sm" id="o_zip">時刻ごとの CSV をまとめて保存（zip）</button>
+      </div>
+      <p class="note" id="o_info"></p>
+      <p class="note">計算中、出水の時刻で「記録の間隔」ごとに、各セルの河床高・河床変動量・水深・流速・表層の平均粒径を残します（出水の開始時と終了時も残します）。間隔は計算の途中でも変えられ、次の記録から新しい間隔になります。0 にすると記録しません。</p>
+      <p class="note"><b>縦長の CSV</b>：1 行が 1 つの時刻・1 つのセル（移動床のセルだけ）。列は 時刻・x・y・河床高・河床変動量・水深・水位・流速・表層平均粒径。Excel のピボットや Python で時刻別・地点別に集計できます。<br><b>zip</b>：時刻ごとの行列 CSV（河床高・河床変動量・水深。1行目が左岸側、左の列が上流）、時刻別の縦断（最深河床高・平均河床高）、時系列の集計（流量・流砂量・堰堤ごとの堆砂量）。河床高の CSV には堰堤の諸元も書いてあるので、「格子の CSV」で読み込むと、その時刻の河床から計算をやり直せます。</p>
+      <p class="note" id="o_msg" hidden></p>
     </div>
 
     <div class="card">

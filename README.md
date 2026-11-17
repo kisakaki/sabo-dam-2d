@@ -19,6 +19,7 @@
 - モデル渓流 2 つ（床固工群の渓流、狭窄部と広い堆砂域。写真の河道を参考にした架空の地形）
 - 平面図・縦断図・横断図・鳥瞰図、流量と流砂量の時間変化、堰堤ごとの堆砂量
 - 計算後の河床から続けて計算。河床は堰堤の諸元ごと CSV に保存できる
+- 時間ごとの結果（河床高・河床変動量・水深・流速・表層平均粒径）を、指定した間隔で CSV に書き出せる
 
 ## ファイル
 
@@ -39,6 +40,7 @@
 2. 左の「河道地形」でモデル渓流を選ぶか、地形のファイルを読み込む。
 3. 「堰堤の諸元」に堰堤を入れる。
 4. 「適用して最初から」→「▶ 計算開始」。
+5. 時間ごとの結果は、下の「時間ごとの結果を書き出す」で間隔を決めて保存する（縦長の CSV 1 つ、または時刻ごとの CSV をまとめた zip）。
 
 地形 CSV の作り方は [docs/csv-guide.md](docs/csv-guide.md) を見てください。
 
@@ -52,12 +54,13 @@ python sabo2d.py --preset A --minutes 60            # モデル渓流 A を 1 �
 python sabo2d.py --xs ../tools/test_cross_sections.csv --long ../tools/test_longitudinal.csv --dams "150:3:0,300:3:0"
 python sabo2d.py --preset B --noneq --bank-h 2 --dry-ero 0.5 --boulders 30   # 非平衡の流砂＋側岸侵食＋巨礫
 python sabo2d.py --preset A --bank-h 2 --collapse hasegawa --secondary --secondary-mom   # 長田ら（1996）の崩落モデルと2次流
+python sabo2d.py --preset A --snap-every 5          # 5 分ごとの結果を result/snapshots_long.csv と result/snapshots/ に書く
 python sabo2d.py --help
 ```
 
 Jupyter では `python/sabo2d.ipynb` を開いて上から実行します。
 
-同じ条件なら、Python 版とブラウザ版は同じ地形・同じ計算結果になります（確認した差は 10⁻¹⁰ m 程度。斜面の崩落の処理順だけが異なります）。
+同じ条件なら、Python 版とブラウザ版は同じ地形・同じ計算になります。差は丸め誤差（数千ステップで 10⁻¹⁰ m 程度）だけですが、急勾配の網状流路を長時間計算すると、個々のセルではこの差が広がることがあります（モデル渓流 A の 3 時間の計算で、セルごとに最大 0.1 m 程度、堆砂量の合計で 1 % 未満）。
 
 ## 計算方法の要点
 

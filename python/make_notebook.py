@@ -198,6 +198,29 @@ code("""fig, axs = plt.subplots(3, 1, figsize=(12, 7.5))
 for ax, (name, s) in zip(axs, msims.items()):
     plot_plan(s, ax=ax, var='dz', title=name)
 plt.tight_layout(); plt.show()""")
+md("""## 14. 時間ごとの結果を取り出す
+
+計算中、出水の時刻で `P['snapEvery']` 秒ごと（既定 600 秒 = 10 分）に、各セルの河床変動量・水深・流速・表層の平均粒径を `sim.snaps` に残します（出水の開始時と終了時も残します）。途中で間隔を変えるときは `sim.set_snap_every(秒)`、記録しないときは `P['snapEvery'] = 0` です。
+
+- `sim.snapshots_long_csv(パス)`：縦長の CSV（1 行が 1 つの時刻・1 つの移動床セル。列は 時刻・x・y・河床高・河床変動量・水深・水位・流速・表層平均粒径）
+- `sim.write_snapshots(フォルダ)`：時刻ごとの行列 CSV（河床高・河床変動量・水深）、時刻別の縦断、時系列の集計。河床高の CSV はブラウザ版の「格子の CSV」でも読める
+
+コマンドラインでは `--snap-every 分` で間隔を指定し、`result/snapshots_long.csv` と `result/snapshots/` に書き出します。""")
+code("""s = msims['2次流あり（流砂の向き＋分散項）']
+print('記録した時刻 [分]：', [round(q['t'] / 60, 1) for q in s.snaps])
+s.snapshots_long_csv('snapshots_long.csv')
+s.write_snapshots('snapshots')
+print('書き出し：snapshots_long.csv、snapshots/')""")
+code("""# 時刻ごとの河床変動量の縦断（谷底セルの平均）
+fl = s.fl & (s.kind == 0)
+x = (np.arange(s.nx) + 0.5) * s.dx
+fig, ax = plt.subplots(figsize=(10, 3.5))
+for q in s.snaps[1:]:
+    dz = np.where(fl, q['dz'], np.nan)
+    ax.plot(x, np.nanmean(dz, axis=0), label='%.0f 分' % (q['t'] / 60))
+ax.axhline(0, color='0.6', lw=0.8)
+ax.set_xlabel('流下方向の距離 x [m]'); ax.set_ylabel('平均河床変動量 [m]'); ax.legend(ncol=4, fontsize=8)
+plt.tight_layout(); plt.show()""")
 nb.metadata['kernelspec'] = {'name': 'python3', 'display_name': 'Python 3', 'language': 'python'}
 nb.metadata['language_info'] = {'name': 'python'}
 nbf.write(nb, 'sabo2d.ipynb')

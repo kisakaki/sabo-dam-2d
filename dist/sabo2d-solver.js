@@ -101,6 +101,7 @@
       activeLayer: 0,    // 交換層厚 [m]（0 のとき自動：最大粒径）
       layerTh: 0.25,     // 堆積層 1 層の厚さ [m]
       morfac: 4,         // 河床変動の加速係数（1 = 加速なし）
+      snapEvery: 600,    // 時間ごとの結果を記録する間隔 [s]（出水の時刻）。0 で記録しない
       // ---- ハイドログラフ
       hydro: {
         mode: 'tri',     // 'const' | 'tri' | 'table'
@@ -634,6 +635,7 @@
     this.sedOutK = new Float64Array(K);
     this.nLimW = 0; this.nLimS = 0;
     this.series = { t: [], Qin: [], Qout: [], QsIn: [], QsOut: [], stor: [] };
+    this.snaps = []; this.snapFull = false; this._nextSnap = 0;   // 時間ごとの結果（記録は出水の開始から）
     this._nextSample = 0;
     this.Uref = Q0 > 0.01 ? Math.max(0.5, (Q0 / this.Bf) / Math.pow((Q0 / this.Bf) * P.manning / Math.sqrt(Math.max(I, 1e-4)), 0.6)) : 1;
   };
@@ -922,12 +924,14 @@
       var tmin = 0.5 * this.Lx / this.Uref, tmax = 3 * this.Lx / this.Uref;
       if ((this.spinT > tmin && Math.abs(this.Qout - Q) < 0.08 * Q) || this.spinT > tmax) {
         this.phase = 'run'; this.Vwin = 0; this.Vwout = 0; this.Vw0 = this.waterVolume();
+        this.snapshot();
       }
       return;
     }
     if (this.phase === 'done') return;
 
     // ---- 河床変動
+    if (this.t === 0 && !this.snaps.length) this.snapshot();   // 出水の開始時の状態
     var dtm = dt * Math.max(1, P.morfac);
     this.morph(dtm);
     this.t += dtm;
@@ -938,6 +942,35 @@
       this._nextSample = this.t + this.duration() / 400;
     }
     if (this.t >= this.duration()) this.phase = 'done';
+    var ev = +P.snapEvery || 0;
+    if (ev > 0 && (this.t >= this._nextSnap - 1e-9 || (this.phase === 'done' && this.snaps.length && this.snaps[this.snaps.length - 1].t < this.t))) this.snapshot();
+  };
+
+  // ---- 時間ごとの結果の記録 ---------------------------------------------------------
+  // 河床変動量・水深・流速・表層の平均粒径を 4 バイトの実数で残す（河床高は z0 + 河床変動量で戻す）
+  var SNAP_MAX = 25e6;   // 記録する値の総数の上限（約 100 MB）
+  Sim.prototype.snapshot = function () {
+    var ev = +this.P.snapEvery || 0;
+    if (!(ev > 0)) return;
+    this._nextSnap = (Math.floor(this.t / ev + 1e-9) + 1) * ev;
+    if (this.snaps.length && Math.abs(this.snaps[this.snaps.length - 1].t - this.t) < 1e-9) return;
+    var N = this.N, nx = this.nx;
+    if ((this.snaps.length + 1) * N * 4 > SNAP_MAX) { this.snapFull = true; return; }
+    var dz = new Float32Array(N), hh = new Float32Array(N), vv = new Float32Array(N), dm = new Float32Array(N);
+    var z = this.z, z0 = this.z0, h = this.h, FxM = this.FxM, GyM = this.GyM;
+    for (var c = 0; c < N; c++) {
+      dz[c] = z[c] - z0[c]; hh[c] = h[c];
+      if (h[c] > 1e-3) { var i = c % nx, j = (c - i) / nx, f = j * (nx + 1) + i, u = 0.5 * (FxM[f] + FxM[f + 1]) / h[c], v = 0.5 * (GyM[c] + GyM[c + nx]) / h[c]; vv[c] = Math.sqrt(u * u + v * v); }
+      dm[c] = this.kind[c] === 0 ? this.surfaceDm(c) : NaN;
+    }
+    this.snaps.push({ t: this.t, dz: dz, h: hh, V: vv, dm: dm, Qin: this.Qin, Qout: this.Qout, QsIn: this.QsIn, QsOut: this.QsOut,
+      sedIn: this.sedIn, sedOut: this.sedOut, stor: this.storage(), byDam: this.storageByDam() });
+  };
+  // 記録の間隔を途中で変える（次の記録は新しい間隔の倍数の時刻）
+  Sim.prototype.setSnapEvery = function (sec) {
+    this.P.snapEvery = sec > 0 ? sec : 0;
+    this._nextSnap = sec > 0 ? (Math.floor(this.t / sec + 1e-9) + 1) * sec : Infinity;
+    if (sec > 0 && this.phase !== 'spinup' && !this.snaps.length) this.snapshot();
   };
 
   // --------------------------------------------------------- 河床変動 1 ステップ

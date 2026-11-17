@@ -53,6 +53,7 @@ Jupyter Notebook からも、コマンドラインからも使える。
 """
 import copy
 import math
+import os
 import sys
 import time
 
@@ -126,6 +127,7 @@ def default_params():
         'activeLayer': 0.0,    # 交換層厚（0 のとき最大粒径）
         'layerTh': 0.25,
         'morfac': 4.0,         # 河床変動の加速係数
+        'snapEvery': 600.0,    # 時間ごとの結果を記録する間隔 [s]（出水の時刻）。0 で記録しない
         'gridDamp': 0.3,
         'gravK': 1.0,
         # ---- ハイドログラフ
@@ -678,6 +680,7 @@ class Sim:
         self.sedIn = 0.0; self.sedOut = 0.0; self.sedOutK = np.zeros(K)
         self.nLimW = 0; self.nLimS = 0
         self.series = {'t': [], 'Qin': [], 'Qout': [], 'QsIn': [], 'QsOut': [], 'stor': []}
+        self.snaps = []; self.snapFull = False; self._nextSnap = 0.0   # 時間ごとの結果（記録は出水の開始から）
         self._nextSample = 0.0
         self.Uref = max(0.5, (Q0 / self.Bf) / ((Q0 / self.Bf) * P['manning'] / math.sqrt(max(I, 1e-4))) ** 0.6) if Q0 > 0.01 else 1.0
         self.FxM = np.zeros((ny, nx + 1)); self.GyM = np.zeros((ny + 1, nx))
@@ -862,11 +865,14 @@ class Sim:
             tmin = 0.5 * self.Lx / self.Uref; tmax = 3 * self.Lx / self.Uref
             if (self.spinT > tmin and abs(self.Qout - Q) < 0.08 * Q) or self.spinT > tmax:
                 self.phase = 'run'; self.Vwin = 0.0; self.Vwout = 0.0; self.Vw0 = self.water_volume()
+                self.snapshot()
             return
         if self.phase == 'done':
             return
 
         # ---- 河床変動
+        if self.t == 0 and not self.snaps:
+            self.snapshot()             # 出水の開始時の状態
         dtm = dt * max(1.0, P['morfac'])
         self._morph(dtm)
         self.t += dtm
@@ -877,6 +883,38 @@ class Sim:
             self._nextSample = self.t + self.duration() / 400
         if self.t >= self.duration():
             self.phase = 'done'
+        ev = float(P.get('snapEvery') or 0)
+        if ev > 0 and (self.t >= self._nextSnap - 1e-9 or (self.phase == 'done' and self.snaps and self.snaps[-1]['t'] < self.t)):
+            self.snapshot()
+
+    # ------------------------------------------------------------ 時間ごとの結果の記録
+    SNAP_MAX = 25e6     # 記録する値の総数の上限（約 100 MB）
+
+    def snapshot(self):
+        """河床変動量・水深・流速・表層の平均粒径を 4 バイトの実数で残す（河床高は z0 + 河床変動量で戻す）"""
+        ev = float(self.P.get('snapEvery') or 0)
+        if not ev > 0:
+            return
+        self._nextSnap = (math.floor(self.t / ev + 1e-9) + 1) * ev
+        if self.snaps and abs(self.snaps[-1]['t'] - self.t) < 1e-9:
+            return
+        if (len(self.snaps) + 1) * self.N * 4 > self.SNAP_MAX:
+            self.snapFull = True
+            return
+        h = self.h; w = h > 1e-3; hs = np.where(w, h, 1.0)
+        u = 0.5 * (self.FxM[:, :-1] + self.FxM[:, 1:]) / hs; v = 0.5 * (self.GyM[:-1] + self.GyM[1:]) / hs
+        dm = np.where(self.kind == 0, self.surface_dm(), np.nan)
+        self.snaps.append({'t': self.t, 'dz': (self.z - self.z0).astype(np.float32), 'h': h.astype(np.float32),
+                           'V': np.where(w, np.sqrt(u * u + v * v), 0.0).astype(np.float32), 'dm': dm.astype(np.float32),
+                           'Qin': self.Qin, 'Qout': self.Qout, 'QsIn': self.QsIn, 'QsOut': self.QsOut,
+                           'sedIn': self.sedIn, 'sedOut': self.sedOut, 'stor': self.storage(), 'byDam': self.storage_by_dam().copy()})
+
+    def set_snap_every(self, sec):
+        """記録の間隔を途中で変える（次の記録は新しい間隔の倍数の時刻）"""
+        self.P['snapEvery'] = sec if sec > 0 else 0.0
+        self._nextSnap = (math.floor(self.t / sec + 1e-9) + 1) * sec if sec > 0 else float('inf')
+        if sec > 0 and self.phase != 'spinup' and not self.snaps:
+            self.snapshot()
 
     # ------------------------------------------------------------ 限界掃流力
     def _flow_slope(self, ux, uy):
@@ -1463,6 +1501,70 @@ class Sim:
             for j in range(self.ny - 1, -1, -1):
                 f.write(','.join('%.3f' % v for v in zz[j]) + '\n')
 
+    # ------------------------------------------------------------ 時間ごとの結果の書き出し
+    def _snap_label(self, t):
+        ev = float(self.P.get('snapEvery') or 600); w = len(str(int(round(self.duration() / 60))))
+        if abs(ev / 60 - round(ev / 60)) < 1e-9:
+            return str(int(round(t / 60))).zfill(w)
+        return '%.1f' % (t / 60)
+
+    def snapshots_long_csv(self, path):
+        """時間ごとの結果を縦長の CSV に書く（1 行が 1 つの時刻・1 つの移動床セル）"""
+        nx, ny, dx = self.nx, self.ny, self.dx
+        jj, ii = np.nonzero(self.kind == 0)
+        order = np.lexsort((jj, ii)); jj, ii = jj[order], ii[order]          # x の順、同じ x では y の順
+        with open(path, 'w', encoding='utf-8-sig', newline='\r\n') as f:
+            f.write('# 時間ごとの結果（記録の間隔 %g 分、格子間隔 %g m）。移動床のセルだけ\n' % ((self.P.get('snapEvery') or 0) / 60, dx))
+            f.write('# x：上流端からの流下方向の距離。y：右岸側の端からの距離（左岸側が正）。河床変動量は計算開始時の河床からの変化（＋が堆積）。水深 0 は乾いたセル\n')
+            f.write('時刻_分,x_m,y_m,河床高_m,河床変動量_m,水深_m,水位_m,流速_m/s,表層平均粒径_mm\n')
+            for sn in self.snaps:
+                tm = '%.2f' % (sn['t'] / 60)
+                dz = sn['dz'][jj, ii]; h = sn['h'][jj, ii]; V = sn['V'][jj, ii]; dm = sn['dm'][jj, ii]
+                z = self.z0[jj, ii] + dz
+                for k in range(len(jj)):
+                    hh = float(h[k]) if h[k] > 1e-3 else 0.0
+                    f.write('%s,%.2f,%.2f,%.3f,%.4f,%.3f,%s,%.3f,%s\n' % (tm, (ii[k] + 0.5) * dx, (jj[k] + 0.5) * dx, z[k], dz[k], hh,
+                            ('%.3f' % (z[k] + hh)) if hh > 0 else '', V[k] if hh > 0 else 0.0, ('%.2f' % (dm[k] * 1000)) if np.isfinite(dm[k]) else ''))
+
+    def write_snapshots(self, folder):
+        """時間ごとの結果をフォルダに書く（ブラウザ版の zip と同じ構成）"""
+        os.makedirs(folder, exist_ok=True)
+        for sub in ('河床高', '河床変動量', '水深'):
+            os.makedirs(os.path.join(folder, sub), exist_ok=True)
+        S = self.snaps; nd = len(self.dams)
+        with open(os.path.join(folder, '集計_時系列.csv'), 'w', encoding='utf-8-sig', newline='\r\n') as f:
+            f.write('# 時系列の集計。土砂量は実質体積、堆砂量は空隙込み（河床の上昇・低下の体積）\n')
+            f.write(','.join(['時刻_分', '流入流量_m3/s', '流出流量_m3/s', '流入土砂量_m3/s', '流出土砂量_m3/s', '累計流入土砂_m3', '累計流出土砂_m3', '堆砂量合計_m3']
+                             + ['堰堤%dの上流_m3' % (q + 1) for q in range(nd)] + ['最下流堰堤より下流_m3']) + '\n')
+            for sn in S:
+                f.write(','.join(['%.2f' % (sn['t'] / 60), '%.3f' % sn['Qin'], '%.3f' % sn['Qout'], '%.4e' % sn['QsIn'], '%.4e' % sn['QsOut'],
+                                  '%.2f' % sn['sedIn'], '%.2f' % sn['sedOut'], '%.2f' % sn['stor']] + ['%.2f' % v for v in sn['byDam'][:nd + 1]]) + '\n')
+        fl = self.fl & (self.kind == 0)
+        with open(os.path.join(folder, '縦断_時刻別.csv'), 'w', encoding='utf-8-sig', newline='\r\n') as f:
+            f.write('# 時刻別の縦断。谷底（移動床）のセルの最深値と平均値。堰堤の列は空欄\n')
+            f.write(','.join(['x_m'] + ['最深河床高_%s分' % self._snap_label(sn['t']) for sn in S] + ['平均河床高_%s分' % self._snap_label(sn['t']) for sn in S]) + '\n')
+            n = fl.sum(axis=0)
+            zs = [np.where(fl, self.z0 + sn['dz'], np.nan) for sn in S]
+            with np.errstate(invalid='ignore'):
+                mins = [np.nanmin(np.where(fl, z, np.inf), axis=0) for z in zs]; means = [np.nansum(z, axis=0) / np.maximum(n, 1) for z in zs]
+            for i in range(self.nx):
+                row = ['%.2f' % ((i + 0.5) * self.dx)] + [('%.3f' % m[i]) if n[i] else '' for m in mins] + [('%.3f' % m[i]) if n[i] else '' for m in means]
+                f.write(','.join(row) + '\n')
+        zsave, tsave = self.z, self.t
+        try:
+            for sn in S:
+                lb = self._snap_label(sn['t']); tm = sn['t'] / 60
+                self.z = self.z0 + sn['dz']; self.t = sn['t']
+                self.bed_csv(os.path.join(folder, '河床高', '河床高_%s分.csv' % lb))
+                for name, arr, fmt, ttl in (('河床変動量', sn['dz'], '%.4f', '河床変動量 [m]（出水の時刻 %.1f 分、＋が堆積）' % tm),
+                                            ('水深', np.where(sn['h'] > 1e-3, sn['h'], 0.0), '%.3f', '水深 [m]（出水の時刻 %.1f 分）' % tm)):
+                    with open(os.path.join(folder, name, '%s_%s分.csv' % (name, lb)), 'w', encoding='utf-8-sig', newline='\r\n') as f:
+                        f.write('# %s　1行目が左岸側、左の列が上流　格子間隔 %g m\n' % (ttl, self.dx))
+                        for j in range(self.ny - 1, -1, -1):
+                            f.write(','.join(fmt % v for v in arr[j]) + '\n')
+        finally:
+            self.z, self.t = zsave, tsave
+
 
 # =============================================================================
 # 計算を進める
@@ -1966,6 +2068,7 @@ def main(argv=None):
     ap.add_argument('--secondary-mom', action='store_true', help='2次流による運動量の分散項を加える（Kalkwijk・de Vriend 1980）')
     ap.add_argument('--boulders', type=float, help='岸に置く動かない巨礫の間隔 [m]（高橋・里深・奥村 1996。0 で置かない）')
     ap.add_argument('--boulder-mode', choices=['parallel', 'zigzag'], help='巨礫の並べ方（両岸で向かい合わせ／千鳥）')
+    ap.add_argument('--snap-every', type=float, help='時間ごとの結果を記録する間隔 [分]（出水の時刻。既定 10、0 で記録しない）')
     ap.add_argument('--out', default='result', help='図と CSV を書き出すフォルダ')
     a = ap.parse_args(argv)
     P = preset(a.preset)
@@ -2006,6 +2109,8 @@ def main(argv=None):
         B['reposeDry'] = a.repose_dry
     if a.collapse:
         B['collapse'] = a.collapse
+    if a.snap_every is not None:
+        P['snapEvery'] = a.snap_every * 60
     if a.secondary or a.secondary_mom:
         SC = P.setdefault('sec', {}); SC['bed'] = bool(a.secondary); SC['mom'] = bool(a.secondary_mom)
     if a.boulders is not None:
@@ -2023,6 +2128,10 @@ def main(argv=None):
     plot_all(sim, os.path.join(a.out, 'result.png'))
     sim.bed_csv(os.path.join(a.out, 'bed_after.csv'))
     print('書き出し：%s/result.png（図）、%s/bed_after.csv（計算後の河床。ブラウザ版の「格子の CSV」で読める）' % (a.out, a.out))
+    if sim.snaps:
+        sim.snapshots_long_csv(os.path.join(a.out, 'snapshots_long.csv'))
+        sim.write_snapshots(os.path.join(a.out, 'snapshots'))
+        print('時間ごとの結果（%d 回）：%s/snapshots_long.csv（縦長）、%s/snapshots/（時刻ごとの行列・縦断・集計）' % (len(sim.snaps), a.out, a.out))
 
 
 if __name__ == '__main__':
