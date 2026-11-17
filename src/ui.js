@@ -237,6 +237,7 @@
       '<td><input type="number" step="0.1" min="0" value="' + t.r + '" aria-label="流量比"></td>' +
       '<td><input type="number" step="0.1" min="0" value="' + t.rs + '" aria-label="土砂量比"></td>' +
       '<td><input type="number" step="10" min="0" value="' + (t.lag || 0) + '" aria-label="遅れ"></td>' +
+      '<td><input type="number" step="5" min="30" max="150" value="' + (isFinite(t.ang) ? t.ang : 90) + '" aria-label="合流角"></td>' +
       '<td><button class="x" aria-label="削除">×</button></td>';
     tr.querySelector('button').onclick = function () { tr.remove(); };
     return tr;
@@ -426,7 +427,7 @@
     Array.prototype.forEach.call($('ttab').tBodies[0].rows, function (tr) {
       var a = tr.querySelectorAll('input'), x = parseFloat(a[0].value), B = parseFloat(a[1].value), I = parseFloat(a[2].value);
       if (!(isFinite(x) && B > 0 && I > 0)) return;
-      p.tribs.push({ x: x, side: tr.querySelector('select').value, B: B, I: I, len: 40, r: Math.max(0, parseFloat(a[3].value) || 0), rs: Math.max(0, parseFloat(a[4].value) || 0), lag: Math.max(0, parseFloat(a[5].value) || 0) });
+      p.tribs.push({ x: x, side: tr.querySelector('select').value, B: B, I: I, len: 40, r: Math.max(0, parseFloat(a[3].value) || 0), rs: Math.max(0, parseFloat(a[4].value) || 0), lag: Math.max(0, parseFloat(a[5].value) || 0), ang: Math.max(30, Math.min(150, parseFloat(a[6].value) || 90)) });
     });
     p.noneq = { de: num('ne_de', 0.6, 0.001, 100), dd: num('ne_dd', 0.6, 0.001, 100), hEdge: num('ne_he', 0, 0, 10), fe: num('ne_fe', 2, 1, 100), fd: num('ne_fd', 10, 1, 1000) };
     p.bank = { erodH: num('bk_h', 0, 0, 100), reposeWet: num('bk_w', 30, 15, 60), reposeDry: num('bk_d', 50, 15, 80), dryEro: num('bk_e', 0, 0, 1), collapse: $('bk_cm').value };
@@ -1716,8 +1717,21 @@
   $('i_ex2').onclick = function () { var L = num('g_L', 400), I = num('g_I', 20); setI([[Math.round(L * 0.3 / 10) * 10, Math.round(I * 2)], [Math.round(L * 0.65 / 10) * 10, Math.round(I * 4)]]); };
   $('i_clr').onclick = function () { setI([]); };
   $('t_add').onclick = function () { var L = num('g_L', 400), B = num('g_B', 50); $('ttab').tBodies[0].appendChild(tRow({ x: Math.round(L / 2 / 10) * 10, side: 'L', B: Math.max(4, Math.round(B / 5)), I: 6, r: 0.3, rs: 1, lag: 0 })); };
-  $('t_ex').onclick = function () { var L = num('g_L', 400), B = num('g_B', 50), db = $('h_mode').value === 'debris'; setT([{ x: Math.round(L * 0.45 / 10) * 10, side: 'L', B: Math.max(4, Math.round(B / 5)), I: db ? 3 : 5, r: 0.4, rs: db ? 0.4 : 1.5, lag: db ? 60 : 0 }]); };
+  $('t_ex').onclick = function () { var L = num('g_L', 400), B = num('g_B', 50), db = $('h_mode').value === 'debris'; setT([{ x: Math.round(L * 0.45 / 10) * 10, side: 'L', B: Math.max(4, Math.round(B / 5)), I: db ? 3 : 5, r: 0.4, rs: db ? 0.4 : 1.5, lag: db ? 60 : 0, ang: 60 }]); };
   $('t_clr').onclick = function () { setT([]); };
+  // 左の条件設定欄の幅：右端をドラッグで変える（ダブルクリックで元に戻す）。幅はこのブラウザに覚える
+  (function () {
+    var app = document.querySelector('.app'), side = $('side'), grip = $('side_grip'), KEY = 'sabo2d.sideW';
+    if (!app || !grip) return;
+    function setW(w) { w = Math.max(280, Math.min(w, Math.max(320, window.innerWidth - 420))); app.style.setProperty('--sw', w + 'px'); return w; }
+    try { var w0 = parseFloat(localStorage.getItem(KEY)); if (w0 > 0) setW(w0); } catch (e) {}
+    var x0 = 0, wS = 0, wNow = 0;
+    function mv(e) { wNow = setW(wS + e.clientX - x0); }
+    function up() { document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); document.body.classList.remove('resizing'); try { localStorage.setItem(KEY, String(wNow)); } catch (e) {} window.dispatchEvent(new Event('resize')); }
+    grip.addEventListener('pointerdown', function (e) { e.preventDefault(); x0 = e.clientX; wS = wNow = side.getBoundingClientRect().width; document.body.classList.add('resizing'); document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up); });
+    grip.addEventListener('dblclick', function () { app.style.removeProperty('--sw'); try { localStorage.removeItem(KEY); } catch (e) {} window.dispatchEvent(new Event('resize')); });
+    grip.addEventListener('keydown', function (e) { if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return; e.preventDefault(); wNow = setW(side.getBoundingClientRect().width + (e.key === 'ArrowRight' ? 30 : -30)); try { localStorage.setItem(KEY, String(wNow)); } catch (er) {} window.dispatchEvent(new Event('resize')); });
+  })();
   $('gw_on').onchange = gwSwitch;
   $('gr_add').onclick = function () { if ($('grtab').tBodies[0].rows.length < 6) $('grtab').tBodies[0].appendChild(grRow({ d: 0.3, bed: 0, feed: 0 })); };
   $('pre_low').onclick = function () { var L = curL(), a = []; for (var x = 60; x < L - 50; x += 45) a.push({ x: x, H: 1.2, b: 0 }); setDams(a); };

@@ -16,7 +16,7 @@
 - 流砂は平衡流砂量（芦田・道上）、侵食・堆積速度式（高橋・里深 1999）、土石流（高橋 2007、Kanako 2D と同じ形）から選ぶ
 - 土石流の一波（基底流量＋三角形の波、土砂濃度、流入点より上流の勾配）を上流端から流せる
 - 透過型堰堤：スリット（1 本・複数）、鋼製格子型、鋼製スリット型。開口の損失と礫の通過、巨礫による閉塞
-- 支川の合流（勾配・流量・土砂を別に設定）。急な支川は沖積錐を作り、流路が振れる
+- 支川の合流（勾配・流量・土砂・合流角を別に設定）。急な支川は合流点に沖積錐を作る
 - 伏流（河床の間隙の水、Kozeny–Carman 式の透水係数）
 - 勾配の折れ点を何段でも入れられる
 - 堰堤の位置・堤高・水通し幅を自由に設定。向き・中心・天端標高・堤長も指定できる
@@ -60,7 +60,7 @@ python sabo2d.py --xs ../tools/test_cross_sections.csv --long ../tools/test_long
 python sabo2d.py --preset B --noneq --bank-h 2 --dry-ero 0.5 --boulders 30   # 非平衡の流砂＋側岸侵食＋巨礫
 python sabo2d.py --preset A --bank-h 2 --collapse hasegawa --secondary --secondary-mom   # 長田ら（1996）の崩落モデルと2次流
 python sabo2d.py --preset A --debris --debris-peak 60 --slope-table "0:20,300:60" --dams "400:6:0:grid:0.8"   # 土石流の一波、勾配の折れ点、鋼製格子型
-python sabo2d.py --preset A --tribs "250:L:6:8:0.3:1:0" --gw   # 支川と伏流
+python sabo2d.py --preset A --tribs "250:L:6:8:0.3:1:0:60" --gw   # 支川（合流角 60°）と伏流
 python sabo2d.py --preset A --snap-every 5          # 5 分ごとの結果を result/snapshots_long.csv と result/snapshots/ に書く
 python sabo2d.py --help
 ```

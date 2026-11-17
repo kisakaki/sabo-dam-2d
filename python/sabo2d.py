@@ -543,33 +543,34 @@ class Sim:
             # 支川：谷壁を切り込んだ水路（勾配 I）を、計算区間の側方の端から本川の谷底の縁までつなぐ
             TR = [tb for tb in (P.get('tribs') or []) if np.isfinite(tb.get('x', np.nan)) and (tb.get('B') or 0) > 0 and (tb.get('I') or 0) > 0]
             for tb in TR:
+                # 合流角 ang：本川の流下方向と支川の流下方向のなす角（90° で直角、小さいほど本川の下流向きに斜めに入る）
                 sdT = -1 if tb.get('side') == 'R' else 1; It = 1.0 / tb['I']
-                ti0 = max(2, _jround((tb['x'] - tb['B'] / 2) / dx)); ti1 = min(nx - 3, _jround((tb['x'] + tb['B'] / 2) / dx) - 1)
-                ti1 = max(ti1, ti0)
+                angD = tb.get('ang'); angD = 90.0 if angD is None or not np.isfinite(angD) else max(30.0, min(150.0, float(angD)))
+                aR = angD * math.pi / 180; sA = 1.0 if angD == 90 else math.sin(aR); cA = 0.0 if angD == 90 else math.cos(aR)
+                cot = cA / sA; hw = tb['B'] / 2; xj = tb['x']
+                jbT = ny - 1 if sdT > 0 else 0
                 inC = []
-                for i in range(ti0, ti1 + 1):
-                    eoT = hL[i] if sdT > 0 else -hR[i]
-                    zEdge = zc[i] + cs0 * abs(eoT - ych[i])
+                zE = np.array([zc[i] + cs0 * abs((hL[i] if sdT > 0 else -hR[i]) - ych[i]) for i in range(nx)])
+                for i in range(2, nx - 2):
                     offT = (Y - yc[i]) * cosT[i]
                     dist = offT - hL[i] if sdT > 0 else -hR[i] - offT
-                    m = dist > 0
-                    z[m, i] = zEdge + dist[m] * It; kind[m, i] = 0; fl[m, i] = True; self.bare[m, i] = False
-                    jb = ny - 1 if sdT > 0 else 0
-                    if kind[jb, i] == 0:
-                        inC.append(jb * nx + i)
-                ext_ = 30.0; xa_ = ti0 * dx; xb_ = (ti1 + 1) * dx
-                for i in range(max(0, math.floor((xa_ - ext_) / dx)), min(nx - 1, math.ceil((xb_ + ext_) / dx)) + 1):
-                    if ti0 <= i <= ti1:
-                        continue
-                    xi_ = (i + 0.5) * dx; lat = xa_ - xi_ if xi_ < xa_ else xi_ - xb_
-                    offW = (Y - yc[i]) * cosT[i]
-                    distW = offW - hL[i] if sdT > 0 else -hR[i] - offW
-                    eo_ = hL[i] if sdT > 0 else -hR[i]
-                    ztb = zc[i] + cs0 * abs(eo_ - ych[i]) + distW * It + np.minimum(1.5, distW * 0.5) + 0.5 * lat
-                    m = (kind[:, i] == 1) & (distW > 0) & (z[:, i] < ztb)
+                    xr = (i + 0.5) * dx - xj
+                    pp = xr * sA + dist * cA                    # 支川の中心線からの距離（中心線に直角）
+                    iw = np.clip(np.floor(((i + 0.5) * dx + dist * cot) / dx), 0, nx - 1).astype(int)
+                    zb = zE[iw] + dist / sA * It
+                    ch = (dist > 0) & (pp >= -hw) & (pp < hw)
+                    z[ch, i] = zb[ch]; kind[ch, i] = 0; fl[ch, i] = True; self.bare[ch, i] = False
+                    if ch[jbT]:
+                        inC.append(jbT * nx + i)
+                    # 支川の谷：支川の河床より低い谷壁を、水路から離れるほど高くなる V 字の谷（側壁の勾配 1:2）に盛る
+                    lat = np.abs(pp) - hw
+                    ztb = zb + np.minimum(1.5, dist * 0.5) + 0.5 * lat
+                    m = (dist > 0) & ~ch & (kind[:, i] == 1) & (lat < 30) & (z[:, i] < ztb)
                     z[m, i] = ztb[m]
+                if not inC:
+                    self.warn.append('支川（x = %g m）が計算区間の側方の端に届きません。合流角か位置を変えてください。' % tb['x'])
                 if inC:
-                    self.tribs.append(dict(x=tb['x'], side=sdT, I=It, B=(ti1 - ti0 + 1) * dx, r=tb.get('r') or 0.0,
+                    self.tribs.append(dict(x=tb['x'], side=sdT, I=It, B=tb['B'], ang=angD, sA=sA, cA=cA, r=tb.get('r') or 0.0,
                                            rs=tb['rs'] if (tb.get('rs') is not None and tb['rs'] >= 0) else (tb.get('r') or 0.0),
                                            lag=tb.get('lag') or 0.0, cells=np.array(inC), q=0.0, v=0.0, Q=0.0, Qs=0.0))
             zfix = np.where(kind == 0, np.where(fixedEnd, z, z - P['erodDepth']), z)
@@ -881,7 +882,8 @@ class Sim:
             tl = max(0.0, self.t - tb['lag']); Qt = tb['r'] * self.Qat(tl)
             tb['Q'] = Qt; tb['q'] = Qt / (len(tb['cells']) * dx); QtSum += Qt
             Ct = min(0.9 * (1 - P['porosity']), tb['rs'] * self.QsAt(tl) / Qt) if (dbIn and Qt > 0 and self.phase == 'run') else 0.0
-            tb['v'] = (tb['q'] / self.debris_depth(tb['q'], Ct, tb['I']) if dbIn else tb['q'] / (tb['q'] * nman / math.sqrt(tb['I'])) ** 0.6) if tb['q'] > 0 else 0.0
+            qw = tb['q'] * tb['sA']   # 支川の単位幅流量（斜めに入ると、端のセルの列は幅 B/sin になる）
+            tb['v'] = (qw / self.debris_depth(qw, Ct, tb['I']) if dbIn else qw / (qw * nman / math.sqrt(tb['I'])) ** 0.6) if qw > 0 else 0.0
 
         # ---- 2次流：流線の曲率（前のステップの面の流束から求める）
         SEC = P.get('sec') or {}
@@ -1003,7 +1005,7 @@ class Sim:
         qxn[:, 0] += np.where(qin > 0, cf * qin * uin, 0.0)
         for tb in self.tribs:
             jj_, ii_ = np.divmod(tb['cells'], nx)
-            hn[jj_, ii_] += cf * tb['q']; qyn[jj_, ii_] -= cf * tb['q'] * tb['v'] * tb['side']
+            hn[jj_, ii_] += cf * tb['q']; qyn[jj_, ii_] -= cf * tb['q'] * tb['v'] * tb['sA'] * tb['side']; qxn[jj_, ii_] += cf * tb['q'] * tb['v'] * tb['cA']
         hn = np.maximum(hn, 0.0)
         wetn = hn > HDRY
         hs = np.where(wetn, hn, 1.0)
@@ -1690,8 +1692,13 @@ class Sim:
         ws = np.zeros_like(wet); ws[1:] = wet[:-1]; wn = np.zeros_like(wet); wn[:-1] = wet[1:]
         eL = np.zeros_like(eta); eL[:, 1:] = eta[:, :-1]; eR = np.zeros_like(eta); eR[:, :-1] = eta[:, 1:]
         eS = np.zeros_like(eta); eS[1:] = eta[:-1]; eN = np.zeros_like(eta); eN[:-1] = eta[1:]
-        gx = np.where(wl & wr, (eR - eL) / (2 * dx), np.where(wl, (eta - eL) / dx, np.where(wr, (eR - eta) / dx, -self.Ix[None, :])))
-        gy = np.where(ws & wn, (eN - eS) / (2 * dx), np.where(ws, (eta - eS) / dx, np.where(wn, (eN - eta) / dx, 0.0)))
+        # 水面勾配は流れの下流側の片側差分（中心差分では 1 セルおきの凹凸が見えず、堆積面が市松模様になる）
+        gxF = np.where(wr, (eR - eta) / dx, np.where(wl, (eta - eL) / dx, -self.Ix[None, :]))
+        gxB = np.where(wl, (eta - eL) / dx, np.where(wr, (eR - eta) / dx, -self.Ix[None, :]))
+        gx = np.where(uu >= 0, gxF, gxB)
+        gyF = np.where(wn, (eN - eta) / dx, np.where(ws, (eta - eS) / dx, 0.0))
+        gyB = np.where(ws, (eta - eS) / dx, np.where(wn, (eN - eta) / dx, 0.0))
+        gy = np.where(vv >= 0, gyF, gyB)
         tq = np.where(V > 1e-6, -(gx * uu + gy * vv) / np.where(V > 1e-6, V, 1.0), 0.0)
         C = S / hs
         As = np.zeros((ny, nx)); dmB = np.zeros((ny, nx))
@@ -2633,7 +2640,8 @@ def _parse_tribs(s):
         if len(a) < 4:
             continue
         out.append({'x': float(a[0]), 'side': 'R' if a[1].upper().startswith('R') else 'L', 'B': float(a[2]), 'I': float(a[3]), 'len': 40.0,
-                    'r': float(a[4]) if len(a) > 4 else 0.3, 'rs': float(a[5]) if len(a) > 5 else 1.0, 'lag': float(a[6]) if len(a) > 6 else 0.0})
+                    'r': float(a[4]) if len(a) > 4 else 0.3, 'rs': float(a[5]) if len(a) > 5 else 1.0, 'lag': float(a[6]) if len(a) > 6 else 0.0,
+                    'ang': float(a[7]) if len(a) > 7 else 90.0})
     return out
 
 
@@ -2650,7 +2658,7 @@ def main(argv=None):
     ap.add_argument('--floor', type=float, help='読み込んだ地形で谷底とみなす高さ [m]（既定 3。bed_csv の CSV はファイルの値）')
     ap.add_argument('--dams', help='堰堤 "x:堤高:水通し幅[:形式:開口幅:開口数],..."（水通し幅 0 で全幅。形式は slit / mslit / grid / sslit）')
     ap.add_argument('--slope-table', help='勾配の屈折 "x:n,x:n,..."（その位置から下流を勾配 1/n にする）')
-    ap.add_argument('--tribs', help='支川 "x:L|R:幅:n:流量比:土砂量比:遅れ秒,..."（勾配は 1/n）')
+    ap.add_argument('--tribs', help='支川 "x:L|R:幅:n:流量比:土砂量比:遅れ秒:合流角度,..."（勾配は 1/n、合流角は度で 90 が直角）')
     ap.add_argument('--gw', action='store_true', help='伏流（河床への浸透と地下水の流れ）を計算する')
     ap.add_argument('--gw-k', type=float, help='透水係数 [m/s]（省略時は粒度から Kozeny–Carman 式）')
     ap.add_argument('--debris', action='store_true', help='土石流の一波を流す（高橋の式。流砂モデルも土石流になる）')

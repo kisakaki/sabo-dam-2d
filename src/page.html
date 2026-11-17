@@ -35,8 +35,14 @@ h1{font-size:20px;font-weight:700;margin:0;letter-spacing:.02em;text-wrap:balanc
 h2{font-size:13px;font-weight:700;margin:0;letter-spacing:.06em;color:var(--ink2)}
 .top{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px;margin-bottom:12px}
 .top p{margin:0;color:var(--ink2);font-size:13px}
-.app{display:grid;grid-template-columns:330px minmax(0,1fr);gap:14px;align-items:start}
-@media (max-width:900px){.app{grid-template-columns:minmax(0,1fr)}}
+.app{display:grid;grid-template-columns:var(--sw,330px) minmax(0,1fr);gap:14px;align-items:start}
+.side{position:relative}
+.grip{position:absolute;top:0;right:-11px;width:8px;height:100%;cursor:col-resize;z-index:5;border-radius:4px;touch-action:none}
+.grip::after{content:"";position:sticky;top:45vh;display:block;margin:0 auto;width:3px;height:44px;border-radius:2px;background:var(--line)}
+.grip:hover::after,.grip:focus-visible::after,body.resizing .grip::after{background:var(--accent)}
+body.resizing{cursor:col-resize;user-select:none}
+#ttab input,#ttab select,#itab input{min-width:4.6em}
+@media (max-width:900px){.app{grid-template-columns:minmax(0,1fr)!important}.grip{display:none}}
 .side{background:var(--panel);border:1px solid var(--line);border-radius:6px;min-width:0}
 .side details{border-bottom:1px solid var(--line);padding:0 12px}
 .side details:last-of-type{border-bottom:0}
@@ -111,6 +117,7 @@ table.res th,table.res td{white-space:nowrap}
 
 <div class="app">
   <aside class="side" id="side">
+    <div class="grip" id="side_grip" tabindex="0" role="separator" aria-orientation="vertical" aria-label="条件設定欄の幅（ドラッグか左右キーで変更、ダブルクリックで元に戻す）" title="ドラッグで幅を変える（ダブルクリックで元に戻す）"></div>
     <details open><summary>ハイドロ（水と土砂の供給）</summary><div class="body">
       <div class="row"><label for="h_mode">波形</label><select id="h_mode"><option value="tri">三角形</option><option value="const">一定</option><option value="table">表で入力</option><option value="debris">土石流の一波</option></select></div>
       <div id="h_par" class="body" style="padding:0">
@@ -164,9 +171,9 @@ table.res th,table.res td{white-space:nowrap}
         <p class="note">各行の位置から下流へ、その勾配で続けます（次の行の位置で折れます）。最初の行より上流は上の「縦断勾配」です。行がなければ一様です。急勾配から緩勾配への屈折点は土砂がたまりやすく、土石流の堆積や扇状地の形成を調べるときに使えます。</p>
       </div></details>
       <details style="border:0;padding:0"><summary style="font-weight:500">支川の合流</summary><div class="body">
-        <div style="overflow-x:auto"><table class="ed" id="ttab"><thead><tr><th>合流点 x [m]</th><th>岸</th><th>幅 [m]</th><th>勾配 1/n</th><th>流量比</th><th>土砂量比</th><th>遅れ [秒]</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div style="overflow-x:auto"><table class="ed" id="ttab"><thead><tr><th>合流点 x [m]</th><th>岸</th><th>幅 [m]</th><th>勾配 1/n</th><th>流量比</th><th>土砂量比</th><th>遅れ [秒]</th><th>合流角 [°]</th><th></th></tr></thead><tbody></tbody></table></div>
         <div class="btns"><button class="sm" id="t_add">＋ 支川を追加</button><button class="sm" id="t_ex">例：左岸の急な支川</button><button class="sm" id="t_clr">なし</button></div>
-        <p class="note">支川は谷壁を切り込んだ水路として作り、計算区間の側方の端から流し込みます（谷壁の外側を約 40 m 広げます）。流量と供給土砂量は、本川（上流端）の値に比を掛け、遅れの分だけずらします。土石流の一波のときは、支川からも同じ形の土石流が入ります。勾配の急な支川から土砂が出ると、合流点に沖積錐ができ、流路の首振り（流れの向きが堆積で変わる）が起きます。数値で指定した地形でだけ使えます。</p>
+        <p class="note">支川は谷壁を切り込んだ水路として作り、計算区間の側方の端から流し込みます（谷壁の外側を約 40 m 広げます）。流量と供給土砂量は、本川（上流端）の値に比を掛け、遅れの分だけずらします。合流角は本川の流下方向と支川の流下方向のなす角です（90° で直角、小さいほど下流向きに斜めに入る。30〜150°）。表が狭いときは、設定欄の右端をドラッグして広げてください。土石流の一波のときは、支川からも同じ形の土石流が入ります。勾配の急な支川から土砂が出ると、合流点に沖積錐ができ、本川の流れが対岸へ押されます。沖積錐の上で流路が左右に振れる（首振り）には、①土砂を何回かに分けて流す（ハイドロを「表で入力」にして、土石流と水だけの流れを交互に）、②合流角を 90° からずらして左右の対称を崩す、③格子を細かくして（1 m 程度）沖積錐の上に何本も流路が入るようにする、④本川の谷底を広くし、勾配を支川よりかなり緩くする、が効きます。数値で指定した地形でだけ使えます。</p>
       </div></details>
       <div class="row"><label for="g_S">横断勾配（中央へ）<span class="u">%</span></label><input type="number" id="g_S" step="0.5" min="0"></div>
       <div class="row"><label for="b_mode">平面形</label><select id="b_mode"><option value="none">直線</option><option value="sine">正弦波の蛇行</option><option value="table">中心線と川幅を表で入力（湾曲・狭窄）</option></select></div>

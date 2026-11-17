@@ -463,35 +463,26 @@
       this.tribs = [];
       var TR = (P.tribs || []).filter(function (tb) { return isFinite(tb.x) && tb.B > 0 && tb.I > 0; });
       for (q = 0; q < TR.length; q++) {
-        var tb = TR[q], sdT = tb.side === 'R' ? -1 : 1, It = 1 / tb.I, ti0 = Math.max(2, Math.round((tb.x - tb.B / 2) / dx)), ti1 = Math.min(nx - 3, Math.round((tb.x + tb.B / 2) / dx) - 1);
-        if (ti1 < ti0) ti1 = ti0;
-        var inC = [];
-        for (i = ti0; i <= ti1; i++) {
-          var eoT = sdT > 0 ? this.hL[i] : -this.hR[i], zEdge = plane(i, eoT), hiB = -1e30;
-          for (j = 0; j < ny; j++) {
-            c = j * nx + i;
-            var offT = ((j + 0.5) * dx - yc[i]) * cosT[i], dist = sdT > 0 ? offT - this.hL[i] : -this.hR[i] - offT;
-            if (dist <= 0) continue;
-            var zt_ = zEdge + dist * It;
-            z[c] = zt_; kind[c] = 0; fl[c] = 1; bare[c] = 0;
-            if (zt_ > hiB) hiB = zt_;
-          }
-          var jb = sdT > 0 ? ny - 1 : 0; if (kind[jb * nx + i] === 0) inC.push(jb * nx + i);
-        }
-        // 支川の谷：支川の河床より低い谷壁を、水路から離れるほど高くなる V 字の谷（側壁の勾配 1:2）に盛る
-        var ext_ = 30, xa_ = (ti0) * dx, xb_ = (ti1 + 1) * dx;
-        for (i = Math.max(0, Math.floor((xa_ - ext_) / dx)); i <= Math.min(nx - 1, Math.ceil((xb_ + ext_) / dx)); i++) {
-          if (i >= ti0 && i <= ti1) continue;
-          var xi_ = (i + 0.5) * dx, lat = xi_ < xa_ ? xa_ - xi_ : xi_ - xb_;
-          for (j = 0; j < ny; j++) {
-            c = j * nx + i; if (kind[c] !== 1) continue;
-            var offW = ((j + 0.5) * dx - yc[i]) * cosT[i], distW = sdT > 0 ? offW - this.hL[i] : -this.hR[i] - offW;
-            if (distW <= 0) continue;
-            var ztb = plane(i, sdT > 0 ? this.hL[i] : -this.hR[i]) + distW * It + Math.min(1.5, distW * 0.5) + 0.5 * lat;
-            if (z[c] < ztb) z[c] = ztb;
+        // 合流角 ang：本川の流下方向と支川の流下方向のなす角（90° で直角、小さいほど本川の下流向きに斜めに入る）
+        var tb = TR[q], sdT = tb.side === 'R' ? -1 : 1, It = 1 / tb.I, angD = isFinite(tb.ang) ? Math.max(30, Math.min(150, tb.ang)) : 90,
+          aR = angD * Math.PI / 180, sA = angD === 90 ? 1 : Math.sin(aR), cA = angD === 90 ? 0 : Math.cos(aR), cot = cA / sA, hw = tb.B / 2, xj = tb.x;
+        var inC = [], jbT = sdT > 0 ? ny - 1 : 0, zE = new Float64Array(nx);
+        for (i = 0; i < nx; i++) zE[i] = plane(i, sdT > 0 ? this.hL[i] : -this.hR[i]);
+        for (j = 0; j < ny; j++) for (i = 2; i < nx - 2; i++) {
+          c = j * nx + i;
+          var offT = ((j + 0.5) * dx - yc[i]) * cosT[i], dist = sdT > 0 ? offT - this.hL[i] : -this.hR[i] - offT;
+          if (dist <= 0) continue;
+          var xr = (i + 0.5) * dx - xj, pp = xr * sA + dist * cA;      // pp：支川の中心線からの距離（中心線に直角）
+          var iw = Math.max(0, Math.min(nx - 1, Math.floor(((i + 0.5) * dx + dist * cot) / dx))), zb = zE[iw] + dist / sA * It;
+          if (pp >= -hw && pp < hw) { z[c] = zb; kind[c] = 0; fl[c] = 1; bare[c] = 0; if (j === jbT) inC.push(c); }
+          else if (kind[c] === 1) {
+            // 支川の谷：支川の河床より低い谷壁を、水路から離れるほど高くなる V 字の谷（側壁の勾配 1:2）に盛る
+            var lat = Math.abs(pp) - hw;
+            if (lat < 30) { var ztb = zb + Math.min(1.5, dist * 0.5) + 0.5 * lat; if (z[c] < ztb) z[c] = ztb; }
           }
         }
-        if (inC.length) this.tribs.push({ x: tb.x, side: sdT, I: It, B: (ti1 - ti0 + 1) * dx, r: tb.r > 0 ? tb.r : 0, rs: tb.rs >= 0 ? tb.rs : (tb.r || 0), lag: tb.lag || 0, cells: inC, q: 0, v: 0, Q: 0, Qs: 0 });
+        if (!inC.length) (this.warn || (this.warn = [])).push('支川（x = ' + tb.x + ' m）が計算区間の側方の端に届きません。合流角か位置を変えてください。');
+        if (inC.length) this.tribs.push({ x: tb.x, side: sdT, I: It, B: tb.B, ang: angD, sA: sA, cA: cA, r: tb.r > 0 ? tb.r : 0, rs: tb.rs >= 0 ? tb.rs : (tb.r || 0), lag: tb.lag || 0, cells: inC, q: 0, v: 0, Q: 0, Qs: 0 });
       }
       for (i = 0; i < nx; i++) {
         var fixedE = (i < 2 || i >= nx - 2), mnc = 1e30;
@@ -840,7 +831,8 @@
       var tb = TRB[tq_], tl = Math.max(0, this.t - tb.lag), Qt = tb.r * this.Qat(tl);
       tb.Q = Qt; tb.q = Qt / (tb.cells.length * dx); QtSum += Qt;
       var Ct = dbIn && Qt > 0 && this.phase === 'run' ? Math.min(0.9 * (1 - P.porosity), tb.rs * this.QsAt(tl) / Qt) : 0;
-      tb.v = tb.q > 0 ? (dbIn ? tb.q / this.debrisDepth(tb.q, Ct, tb.I) : tb.q / Math.pow(tb.q * nman / Math.sqrt(tb.I), 0.6)) : 0;
+      var qw = tb.q * tb.sA;   // 支川の単位幅流量（斜めに入ると、端のセルの列は幅 B/sin になる）
+      tb.v = qw > 0 ? (dbIn ? qw / this.debrisDepth(qw, Ct, tb.I) : qw / Math.pow(qw * nman / Math.sqrt(tb.I), 0.6)) : 0;
     }
 
     // ---- 2次流：流線の曲率（前のステップの面の流束から求める）
@@ -1054,7 +1046,7 @@
           qyn -= cf * ((sE - sW) - (tN - tS));
         }
         if (i === 0 && qin[j] > 0) { hn += cf * qin[j]; qxn += cf * qin[j] * uin[j]; }
-        if (tribIn[c]) { var tbc = TRB[tribIn[c] - 1]; hn += cf * tbc.q; qyn -= cf * tbc.q * tbc.v * tbc.side; }
+        if (tribIn[c]) { var tbc = TRB[tribIn[c] - 1]; hn += cf * tbc.q; qyn -= cf * tbc.q * tbc.v * tbc.sA * tbc.side; qxn += cf * tbc.q * tbc.v * tbc.cA; }
         if (hn < 0) hn = 0;
         if (hn > HDRY) {
           // 摩擦項は陰的（|q| の2次方程式を解く）
@@ -1319,8 +1311,11 @@
       var tq = 0;
       if (V > 1e-6) {
         var wl = ic > 0 && wf[c - 1], wr = ic < nx - 1 && wf[c + 1], ws = jc > 0 && wf[c - nx], wn = jc < ny - 1 && wf[c + nx];
-        var gx = wl && wr ? (eta[c + 1] - eta[c - 1]) / (2 * dx) : wl ? (eta[c] - eta[c - 1]) / dx : wr ? (eta[c + 1] - eta[c]) / dx : -this.Ix[ic];
-        var gy = ws && wn ? (eta[c + nx] - eta[c - nx]) / (2 * dx) : ws ? (eta[c] - eta[c - nx]) / dx : wn ? (eta[c + nx] - eta[c]) / dx : 0;
+        // 流れの下流側の片側差分（中心差分では 1 セルおきの凹凸が見えず、堆積面が市松模様になる）
+        var gx = uu >= 0 ? (wr ? (eta[c + 1] - eta[c]) / dx : wl ? (eta[c] - eta[c - 1]) / dx : -this.Ix[ic])
+                         : (wl ? (eta[c] - eta[c - 1]) / dx : wr ? (eta[c + 1] - eta[c]) / dx : -this.Ix[ic]);
+        var gy = vv >= 0 ? (wn ? (eta[c + nx] - eta[c]) / dx : ws ? (eta[c] - eta[c - nx]) / dx : 0)
+                         : (ws ? (eta[c] - eta[c - nx]) / dx : wn ? (eta[c + nx] - eta[c]) / dx : 0);
         tq = -(gx * uu + gy * vv) / V;
       }
       var C = S / hh, As = 0, dmB = 0;
