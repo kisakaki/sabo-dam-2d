@@ -797,6 +797,7 @@ class Sim:
             Tc = np.maximum(0.0, self.z - self.zfix)
             self.W = np.where(self.kind == 0, P['porosity'] * Tc * np.where(self.h > 1e-3, 1.0, min(1.0, max(0.0, GW0.get('s0') or 0.0))), 0.0)
         self.W0 = float(self.W.sum()) * dx * dx
+        self.voidAir = 0.0   # 伏流なしの土石流で、堆積物の間隙を満たす水が足りなかった体積（空気）
         self.hOld = np.zeros((ny, nx)); self.dfC = np.zeros((ny, nx)); self.dfD = np.zeros((ny, nx))
         # ---- 時刻・収支
         self.t = 0.0; self.th = 0.0; self.nstep = 0; self.dt = 0.01
@@ -1050,7 +1051,7 @@ class Sim:
             tmin = 0.5 * self.Lx / self.Uref; tmax = 3 * self.Lx / self.Uref
             if (self.spinT > tmin and abs(self.Qout - Q) < 0.08 * Q) or self.spinT > tmax:
                 self.phase = 'run'; self.Vwin = 0.0; self.Vwout = 0.0; self.Vw0 = self.water_volume()
-                self.W0 = self.ground_water(); self.gwOut = 0.0
+                self.W0 = self.ground_water(); self.gwOut = 0.0; self.voidAir = 0.0
                 self.snapshot()
             if gwOn_:
                 self._gw_step(dt)
@@ -1388,6 +1389,22 @@ class Sim:
             for (j_, i_) in fy:
                 SFy[j_, i_, :] *= fK
 
+    def _hold_volume(self, dX, dY, cf):
+        """土石流：開口で止めた土砂の体積を、混合物の水深として上流側に残す（下流側へは水だけが通る）"""
+        h = self.h; ny, nx = h.shape
+        for j, i in zip(*np.nonzero(dX)):
+            if i < 1 or i >= nx:
+                continue
+            t = cf * dX[j, i]
+            t = min(t, h[j, i]) if t > 0 else -min(-t, h[j, i - 1])
+            h[j, i - 1] += t; h[j, i] -= t
+        for j, i in zip(*np.nonzero(dY)):
+            if j < 1 or j >= ny:
+                continue
+            t = cf * dY[j, i]
+            t = min(t, h[j, i]) if t > 0 else -min(-t, h[j - 1, i])
+            h[j - 1, i] += t; h[j, i] -= t
+
     def _check_block(self, qb=None, Cc=None):
         """閉塞の判定：開口のすぐ上流の流れの土砂濃度（流砂量 ÷ 流量）が Cblk 以上で、流れている土砂の d95 に対し l ≤ β d95 なら閉塞"""
         nx, ny, K, dx = self.nx, self.ny, self.K, self.dx
@@ -1462,7 +1479,7 @@ class Sim:
         if tr == 'debris' and (P.get('gw') or {}).get('on'):
             ew = (hs - sw + self.ground_water()) - (self.Vw0 + self.W0 + (self.Vwin - self.sedIn) - (self.Vwout - self.sedOut) - self.gwOut)
         elif tr == 'debris':
-            ew = (hs + self.storage()) - (self.Vw0 + self.Vwin - self.Vwout)
+            ew = (hs + self.storage() - self.voidAir) - (self.Vw0 + self.Vwin - self.Vwout)
         else:
             ew = (hs + self.ground_water()) - (self.Vw0 + self.W0 + self.Vwin - self.Vwout - self.gwOut)
         return eb, ew
@@ -1474,7 +1491,7 @@ class Sim:
         """浸透：水に浸かったセルで、堆積層の空隙が残っていれば単位動水勾配で k の速さ。地下水：飽和厚 b = W/n、水頭 zfix + b の差で
         Darcy 流（Dupuit 近似）。湧出：W が空隙量 n(z − zfix) を超えた分は地表へ。k は指定がなければ Kozeny–Carman 式"""
         P = self.P; GW = P.get('gw') or {}; nx, ny, dx, K = self.nx, self.ny, self.dx, self.K
-        n = P['porosity']; Cst = 1 - n; HD = 1e-3; kMax = GW.get('kMax') or 0.05
+        n = P['porosity']; Cst = 1 - n; HD = 5e-4; kMax = GW.get('kMax') or 0.05
         h = self.h; z = self.z; zfix = self.zfix; W = self.W
         mov = self.kind == 0
         A = self.A.reshape(ny, nx, K)
@@ -1622,9 +1639,11 @@ class Sim:
         hu = np.where(cuS, hO[:-1], hO[1:])
         CcV = np.where(cuS[..., None], Cc[:-1], Cc[1:])
         SFy[1:ny] = np.where((hu >= 1e-6)[..., None], Gf[..., None] * CcV / np.where(hu >= 1e-6, hu, 1.0)[..., None], 0.0)
-        if self.hasOpen:
-            self._check_block(Cc=Cc); self._open_filter(SFx, SFy)
         cf = dt / dx
+        if self.hasOpen:
+            sx0 = SFx.sum(axis=2); sy0 = SFy.sum(axis=2)
+            self._check_block(Cc=Cc); self._open_filter(SFx, SFy)
+            self._hold_volume(sx0 - SFx.sum(axis=2), sy0 - SFy.sum(axis=2), cf)
         outv = cf * (np.maximum(SFx[:, 1:], 0) - np.minimum(SFx[:, :-1], 0) + np.maximum(SFy[1:], 0) - np.minimum(SFy[:-1], 0))
         scS = np.where(outv > Cc + 1e-15, np.where(outv > 0, Cc / np.where(outv > 0, outv, 1), 0.0), 1.0)
         if (scS < 1).any():
@@ -1662,7 +1681,7 @@ class Sim:
             pw0 = np.minimum((1 - Cst) * dz0, np.maximum(0.0, h - S))
             Wn = W + np.where(drp, pw0, 0.0); hn = np.where(drp, np.maximum(0.0, h - S - pw0), h)
         else:
-            Wn = W.copy(); hn = np.where(drp, np.maximum(0.0, h - dz0), h)
+            Wn = W.copy(); hn = np.where(drp, h - dz0, h)
         act = ~dry & ~self.fixedC
         hs = np.where(act, h, 1.0)
         fw = FxM; uu = 0.5 * (fw[:, :-1] + fw[:, 1:]) / hs; vv = 0.5 * (GyM[:-1] + GyM[1:]) / hs; V = np.sqrt(uu * uu + vv * vv)
@@ -1708,6 +1727,9 @@ class Sim:
             hn = np.where(ero, h + Cst * dzE + win, np.where(dep, h - Cst * dzD - pw, hn))
         else:
             hn = np.where(ero, h + dzE, np.where(dep, h - dzD, hn))
+            ng = hn < 0
+            if ng.any():
+                self.voidAir -= float(hn[ng].sum()) * dx * dx; hn = np.where(ng, 0.0, hn)
         zn = np.where(ero, z - dzE, np.where(dep, z + dzD, zn))
         dzs = np.where(ero, -dzE, np.where(dep, dzD, dzs))
         self.A = Anew.reshape(-1, K); self.Cc = Ccn.reshape(-1, K)

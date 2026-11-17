@@ -1269,6 +1269,7 @@ table.res th,table.res td{white-space:nowrap}
     var GW0 = P.gw || {};
     if (GW0.on) for (c = 0; c < N; c++) if (kind[c] === 0) { var Tc = Math.max(0, z[c] - zfix[c]); this.W[c] = P.porosity * Tc * (h[c] > 1e-3 ? 1 : Math.max(0, Math.min(1, GW0.s0 || 0))); }
     this.W0 = 0; for (c = 0; c < N; c++) this.W0 += this.W[c]; this.W0 *= dx * dx;
+    this.voidAir = 0;   // 伏流なしの土石流で、堆積物の間隙を満たす水が足りなかった体積（空気）
     // ---- 時刻・収支
     this.t = 0;          // 出水の時刻（河床変動の時間軸） [s]
     this.th = 0;         // 流れの計算時間 [s]
@@ -1611,7 +1612,7 @@ table.res th,table.res td{white-space:nowrap}
       var tmin = 0.5 * this.Lx / this.Uref, tmax = 3 * this.Lx / this.Uref;
       if ((this.spinT > tmin && Math.abs(this.Qout - Q) < 0.08 * Q) || this.spinT > tmax) {
         this.phase = 'run'; this.Vwin = 0; this.Vwout = 0; this.Vw0 = this.waterVolume();
-        this.W0 = this.groundWater(); this.gwOut = 0;
+        this.W0 = this.groundWater(); this.gwOut = 0; this.voidAir = 0;
         this.snapshot();
       }
       if (gwOn_) this.gwStep(dt);
@@ -1691,6 +1692,22 @@ table.res th,table.res td{white-space:nowrap}
     }
     return C < 0 ? 0 : C > 0.9 * Cst ? 0.9 * Cst : C;
   };
+  // 土石流：開口で止めた土砂の体積を、混合物の水深として上流側に残す（下流側へは水だけが通る）
+  Sim.prototype.holdVolume = function (dX, dY, cf) {
+    var nx = this.nx, ny = this.ny, h = this.h, j, i, t, a, b;
+    for (j = 0; j < ny; j++) for (i = 1; i < nx; i++) {
+      if (dX[j * (nx + 1) + i] === 0) continue;
+      a = j * nx + i - 1; b = a + 1; t = cf * dX[j * (nx + 1) + i];
+      t = t > 0 ? Math.min(t, h[b]) : -Math.min(-t, h[a]);
+      h[a] += t; h[b] -= t;
+    }
+    for (j = 1; j < ny; j++) for (i = 0; i < nx; i++) {
+      if (dY[j * nx + i] === 0) continue;
+      b = j * nx + i; a = b - nx; t = cf * dY[b];
+      t = t > 0 ? Math.min(t, h[b]) : -Math.min(-t, h[a]);
+      h[a] += t; h[b] -= t;
+    }
+  };
   // 各セルの流れの土砂濃度と代表粒径（流れている土砂の平均粒径。土砂がなければ河床表層の値）
   Sim.prototype.debrisParams = function () {
     var N = this.N, K = this.K, h = this.h, Cc = this.Cc, d = this.d, dfC = this.dfC, dfD = this.dfD, Cst = 1 - this.P.porosity;
@@ -1753,8 +1770,16 @@ table.res th,table.res td{white-space:nowrap}
         for (k = 0; k < K; k++) SFy[fk + k] = Gf * Cc[cu * K + k] / hu;
       }
     }
-    if (this.hasOpen) { this.checkBlock(true); this.openFilter(SFx, SFy); }
     var cf = dt / dx, scS = this.scS, lim = false;
+    if (this.hasOpen) {
+      var nfx = ny * (nx + 1), nfy = (ny + 1) * nx, sx0 = new Float64Array(nfx), sy0 = new Float64Array(nfy), q_;
+      for (q_ = 0; q_ < nfx; q_++) for (k = 0; k < K; k++) sx0[q_] += SFx[q_ * K + k];
+      for (q_ = 0; q_ < nfy; q_++) for (k = 0; k < K; k++) sy0[q_] += SFy[q_ * K + k];
+      this.checkBlock(true); this.openFilter(SFx, SFy);
+      for (q_ = 0; q_ < nfx; q_++) for (k = 0; k < K; k++) sx0[q_] -= SFx[q_ * K + k];
+      for (q_ = 0; q_ < nfy; q_++) for (k = 0; k < K; k++) sy0[q_] -= SFy[q_ * K + k];
+      this.holdVolume(sx0, sy0, cf);
+    }
     for (j = 0; j < ny; j++) {
       row = j * nx; frow = j * (nx + 1);
       for (i = 0; i < nx; i++) {
@@ -1803,7 +1828,7 @@ table.res th,table.res td{white-space:nowrap}
           for (k = 0; k < K; k++) { A[ck + k] += Cc[ck + k] / Cst; Cc[ck + k] = 0; }
           z[c] += dz0; this.dzs[c] += dz0; this.fixLayers(c);
           if (gwOn) { var pw0 = Math.min((1 - Cst) * dz0, Math.max(0, hh - S)); this.W[c] += pw0; h[c] = Math.max(0, hh - S - pw0); }   // 間隙の水は手元の水の分だけ
-          else h[c] = Math.max(0, hh - dz0);
+          else { h[c] = hh - dz0; if (h[c] < 0) { this.voidAir -= h[c] * dx * dx; h[c] = 0; } }
         }
         continue;
       }
@@ -1845,7 +1870,7 @@ table.res th,table.res td{white-space:nowrap}
         for (k = 0; k < K; k++) { var gq = dz * Cc[ck + k] / S; A[ck + k] += gq; Cc[ck + k] -= Cst * gq; if (Cc[ck + k] < 0) Cc[ck + k] = 0; }
         z[c] += dz; this.dzs[c] += dz;
         if (gwOn) { var pw = Math.min((1 - Cst) * dz, Math.max(0, hh - S)); this.W[c] += pw; h[c] = hh - Cst * dz - pw; }   // 堆積物の間隙の水は河床の中へ
-        else h[c] -= dz;
+        else { h[c] = hh - dz; if (h[c] < 0) { this.voidAir -= h[c] * dx * dx; h[c] = 0; } }
       } else continue;
       this.fixLayers(c);
     }
@@ -2088,7 +2113,7 @@ table.res th,table.res td{white-space:nowrap}
   Sim.prototype.gwStep = function (dt) {
     var P = this.P, GW = P.gw || {}, N = this.N, nx = this.nx, ny = this.ny, dx = this.dx, K = this.K, n = P.porosity;
     var h = this.h, z = this.z, zfix = this.zfix, kind = this.kind, W = this.W, kg = this.kgw, A = this.A, d = this.d, qx = this.qx, qy = this.qy;
-    var Cst = 1 - n, dbr = P.transport === 'debris', Cc = this.Cc, kMax = GW.kMax > 0 ? GW.kMax : 0.05, HD = 1e-3, c, k, i, j;
+    var Cst = 1 - n, dbr = P.transport === 'debris', Cc = this.Cc, kMax = GW.kMax > 0 ? GW.kMax : 0.05, HD = 5e-4, c, k, i, j;   // 浸透で残す水深は流れの乾湿の境（1e-3）より小さくする（境目に止まると丸め誤差で乾湿が入れ替わる）
     var kc0 = G / 1e-6 * n * n * n / ((1 - n) * (1 - n)) / 180, bmax = 0, kmx = 0;
     for (c = 0; c < N; c++) {
       if (kind[c] !== 0) { kg[c] = 0; continue; }
