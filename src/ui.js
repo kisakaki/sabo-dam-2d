@@ -124,6 +124,7 @@
     S: { L: 400, B: 50, I: 20, S: 2, grad: 0.8, wing: 1.5, dx: 2, bend: null, V: {},
       dams: [60, 105, 150, 195, 240, 285, 330].map(function (x) { return { x: x, H: 1.2, b: 0 }; }) }
   };
+  function trSwitch() { $('ne_box').hidden = $('s_tr').value !== 'noneq'; }
   function fillSwitch() { $('d_fill_row').hidden = $('d_fill_note').hidden = !$('d_fill').checked; }
   function applyPreset(k) {
     var R = PRESETS[k]; if (!R) return;
@@ -152,6 +153,10 @@
     setValley(P.valley || {}, P.sideGrad);
     var tb = $('grtab').tBodies[0]; tb.innerHTML = ''; P.grains.forEach(function (g) { tb.appendChild(grRow(g)); });
     $('s_n').value = P.manning; $('s_tc').value = P.tauCm; $('s_tcm').value = P.tcMethod || 'atm'; $('s_hid').value = P.hiding || 'atm'; tcSwitch(); $('s_por').value = P.porosity; $('s_rep').value = P.reposeDeg;
+    var BK = P.bank || {}, NE = P.noneq || {}, BO = P.boulders || {};
+    $('s_tr').value = P.transport || 'eq'; $('ne_de').value = NE.de; $('ne_dd').value = NE.dd; $('ne_he').value = NE.hEdge; $('ne_fe').value = NE.fe; $('ne_fd').value = NE.fd;
+    $('bk_h').value = BK.erodH; $('bk_w').value = BK.reposeWet; $('bk_d').value = BK.reposeDry; $('bk_e').value = BK.dryEro;
+    $('bo_L').value = BO.L; $('bo_m').value = BO.mode || 'parallel'; $('bo_s').value = BO.size || 1; trSwitch();
     $('c_dx').value = String(P.dx); $('c_mf').value = P.morfac; $('c_ord').value = String(P.order);
     modeSwitch();
   }
@@ -236,6 +241,10 @@
     if (!p.grains.length) p.grains = S2.defaultParams().grains;
     p.grains.sort(function (a, b) { return a.d - b.d; });
     p.manning = num('s_n', 0.05, 0.01, 0.3); p.tauCm = num('s_tc', 0.05, 0.01, 0.2); p.tcMethod = $('s_tcm').value; p.hiding = $('s_hid').value; p.porosity = num('s_por', 0.4, 0.1, 0.7); p.reposeDeg = num('s_rep', 35, 15, 60);
+    p.transport = $('s_tr').value === 'noneq' ? 'noneq' : 'eq';
+    p.noneq = { de: num('ne_de', 0.6, 0.001, 100), dd: num('ne_dd', 0.6, 0.001, 100), hEdge: num('ne_he', 0, 0, 10), fe: num('ne_fe', 2, 1, 100), fd: num('ne_fd', 10, 1, 1000) };
+    p.bank = { erodH: num('bk_h', 0, 0, 100), reposeWet: num('bk_w', 30, 15, 60), reposeDry: num('bk_d', 50, 15, 80), dryEro: num('bk_e', 0, 0, 1) };
+    p.boulders = { L: num('bo_L', 0, 0, 10000), mode: $('bo_m').value, size: num('bo_s', 1, 1, 4) };
     p.morfac = num('c_mf', 4, 1, 50); p.order = +$('c_ord').value || 2;
     // 格子数の上限（ブラウザで動く範囲）
     var sideN = function () { return p.terrain ? 0 : Math.max(p.sideCells, p.valley.wallH > 0 ? Math.ceil(Math.max(p.valley.wallH, mxH + p.wingHeight + 3) / p.sideGrad / p.dx) + 1 : 0); };
@@ -498,6 +507,8 @@
     if (k === 2) { var s = 178 + n * 14; o[0] = s; o[1] = s - 2; o[2] = s - 9; return; }
     if (k === 1 && sim.bare && sim.bare[c] && sim.z[c] - sim.z0[c] < 0.02) { var tb = 0.9 + 0.2 * n; o[0] = 184 * tb; o[1] = 176 * tb; o[2] = 160 * tb; return; }   // 扇状地（裸地）
     if (k === 1 && sim.z[c] - sim.z0[c] < 0.02) { var t = hash(c * 3 + 1); o[0] = 46 + 30 * t + 8 * n; o[1] = 78 + 22 * t + 10 * n; o[2] = 42 + 12 * t; return; }   // 森林
+    if (sim.bankC && sim.bankC[c] && Math.abs(sim.z[c] - sim.z0[c]) < 0.05) { var t2 = hash(c * 3 + 1); o[0] = 52 + 30 * t2 + 8 * n; o[1] = 84 + 22 * t2 + 10 * n; o[2] = 44 + 12 * t2; return; }   // まだ削れていない側岸（段丘の森林）
+    if (sim.fixedC && sim.fixedC[c]) { var tq = 0.75 + 0.2 * n; o[0] = 92 * tq; o[1] = 88 * tq; o[2] = 82 * tq; return; }   // 巨礫
     var dm = sim.surfaceDm(c);
     if (dm !== dm) { o[0] = 96 + 16 * n; o[1] = 90 + 14 * n; o[2] = 84 + 12 * n; return; }
     var f = Math.log(dm / 0.004) / Math.log(0.15 / 0.004); f = f < 0 ? 0 : f > 1 ? 1 : f;
@@ -560,7 +571,7 @@
           PB.wr[c * 3] = wr + (245 - wr) * fo; PB.wr[c * 3 + 1] = wg + (247 - wg) * fo; PB.wr[c * 3 + 2] = wb + (246 - wb) * fo;
         }
         PB.k[c] = sim.kind[c] !== 2 && gstat(c, gs) ? coarse(gs[0]) : 0;
-        PB.vg[c] = sim.kind[c] === 1 && !(sim.bare && sim.bare[c]) && sim.z[c] - sim.z0[c] < 0.02 ? 1 : 0;
+        PB.vg[c] = (sim.kind[c] === 1 && !(sim.bare && sim.bare[c]) && sim.z[c] - sim.z0[c] < 0.02) || (sim.bankC && sim.bankC[c] && Math.abs(sim.z[c] - sim.z0[c]) < 0.05) ? 1 : 0;
       } else {
         PB.vg[c] = 0;
         var base = sim.kind[c] === 2 ? 150 : sim.kind[c] === 1 ? 108 : 128, v = value(mode, c);
@@ -1227,7 +1238,8 @@
     var X0 = sim.Lx / 2, Z0 = sim.Ly / 2, dens = Math.min(1, dx * dx / 16), nc = 0, nb = 0, ac = C.instanceMatrix.array, ab = Bm.instanceMatrix.array, cc = C.instanceColor.array, cb = Bm.instanceColor.array;
     for (var j = 1; j < ny - 1; j++) for (var i = 1; i < nx - 1; i++) {
       var c = j * nx + i;
-      if (kind[c] !== 1 || (bare && bare[c]) || z[c] - z0[c] > 0.02) continue;
+      var bankV = sim.bankC && sim.bankC[c] && Math.abs(z[c] - z0[c]) < 0.05;
+      if (!bankV && (kind[c] !== 1 || (bare && bare[c]) || z[c] - z0[c] > 0.02)) continue;
       // 谷底のすぐ脇（岸の際）は疎らにする
       var nearFloor = kind[c - 1] === 0 || kind[c + 1] === 0 || kind[c - nx] === 0 || kind[c + nx] === 0;
       var nt = dens * (nearFloor ? 0.45 : 1), cnt = Math.floor(nt + hash(c * 17 + 5));
@@ -1264,15 +1276,17 @@
       if (kind[c] === 2) continue; var ck = c * K, s = 0; for (k = 0; k < K; k++) s += A[ck + k]; if (s < 1e-6) continue;
       for (var q = 0; q < cls.length; q++) { k = cls[q]; var r = d[k] / 2 * S; tot += Math.min(8, A[ck + k] / s * cover * area / (Math.PI * r * r)); }
     }
-    var thin = tot > T3.RMAX ? T3.RMAX / tot : 1, n = 0, arr = R.instanceMatrix.array, col = R.instanceColor.array, RV = T3.RV;
+    var nbo = 0; if (sim.fixedC) for (c = 0; c < sim.N; c++) if (sim.fixedC[c]) nbo++;
+    var RM = Math.max(0, T3.RMAX - nbo);
+    var thin = tot > RM ? RM / tot : 1, n = 0, arr = R.instanceMatrix.array, col = R.instanceColor.array, RV = T3.RV;
     var X0 = sim.Lx / 2, Z0 = sim.Ly / 2;
-    for (j = 0; j < ny && n < T3.RMAX; j++) for (i = 0; i < nx && n < T3.RMAX; i++) {
+    for (j = 0; j < ny && n < RM; j++) for (i = 0; i < nx && n < RM; i++) {
       c = j * nx + i; if (kind[c] === 2) continue;
       var ck2 = c * K, s2 = 0; for (k = 0; k < K; k++) s2 += A[ck2 + k]; if (s2 < 1e-6) continue;
       for (var q2 = 0; q2 < cls.length; q2++) {
         k = cls[q2]; var rr = d[k] / 2 * S, ne = Math.min(8, A[ck2 + k] / s2 * cover * area / (Math.PI * rr * rr)) * thin;
         var cnt = Math.floor(ne + hash(c * 31 + k * 7));
-        for (var m = 0; m < cnt && n < T3.RMAX; m++) {
+        for (var m = 0; m < cnt && n < RM; m++) {
           var key = c * 53 + k * 11 + m * 3, ux = hash(key + 0.13), uz = hash(key + 0.71);
           var fx = i + ux - 0.5, fy = j + uz - 0.5; if (fx < 0) fx = 0; if (fy < 0) fy = 0; if (fx > nx - 1) fx = nx - 1; if (fy > ny - 1) fy = ny - 1;
           var i0 = Math.min(nx - 2, fx | 0), j0 = Math.min(ny - 2, fy | 0), tx = fx - i0, ty = fy - j0, b00 = (j0 * nx + i0) * 3;
@@ -1287,6 +1301,17 @@
           n++;
         }
       }
+    }
+    // 巨礫（動かない礫）：セルごとに大きな石を 1 つ
+    if (nbo) for (c = 0; c < sim.N && n < T3.RMAX; c++) {
+      if (!sim.fixedC[c]) continue;
+      var bi = c % nx, bj = (c - bi) / nx, bo = (bj * nx + bi) * 3, bsz = dx * (0.55 + 0.15 * hash(c + 0.3)), bv = RV[(c * 13) & 63], be = bv.e, bo16 = n * 16;
+      arr[bo16] = be[0] * bsz; arr[bo16 + 1] = be[1] * bsz * 0.8; arr[bo16 + 2] = be[2] * bsz; arr[bo16 + 3] = 0;
+      arr[bo16 + 4] = be[4] * bsz; arr[bo16 + 5] = be[5] * bsz * 0.8; arr[bo16 + 6] = be[6] * bsz; arr[bo16 + 7] = 0;
+      arr[bo16 + 8] = be[8] * bsz; arr[bo16 + 9] = be[9] * bsz * 0.8; arr[bo16 + 10] = be[10] * bsz; arr[bo16 + 11] = 0;
+      arr[bo16 + 12] = (bi + 0.5) * dx - X0; arr[bo16 + 13] = tp[bo + 1] + bsz * 0.25; arr[bo16 + 14] = Z0 - (bj + 0.5) * dx; arr[bo16 + 15] = 1;
+      var bt = 0.42 + 0.12 * hash(c + 0.8); col[n * 3] = bt; col[n * 3 + 1] = bt * 0.97; col[n * 3 + 2] = bt * 0.92;
+      n++;
     }
     R.count = n; R.instanceMatrix.needsUpdate = true; R.instanceColor.needsUpdate = true;
   }
@@ -1447,6 +1472,7 @@
   $('f_add').onclick = function () { var L = num('g_L', 400); $('ftab').tBodies[0].appendChild(fRow([Math.round(L / 2), 1, 30, 3])); };
   $('f_clr').onclick = function () { setF([]); };
   $('d_fill').onchange = fillSwitch;
+  $('s_tr').onchange = trSwitch;
   $('damtab').addEventListener('input', function () { presetDams = false; damRangeNote(); }); $('damtab').addEventListener('click', function (e) { if (e.target.tagName === 'BUTTON') presetDams = false; setTimeout(damRangeNote, 0); });
   ['pre_low', 'pre_high', 'pre_none', 'dam_add'].forEach(function (id) { $(id).addEventListener('click', function () { presetDams = false; setTimeout(damRangeNote, 0); }); });
   $('gen_go').addEventListener('click', function () { presetDams = false; });

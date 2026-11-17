@@ -111,15 +111,15 @@ print_dam_table(sim3)
 plot_plan(sim3, var='dz', title='2 回目の出水での河床変動量'); plt.show()""")
 md("""## 11. 測量値・格子 CSV を読み込む例
 
-配布したテスト CSV（`test_cross_sections.csv`、`test_longitudinal.csv`、`test_grid.csv`）は、リポジトリの tools フォルダにあります。
+配布したテスト CSV（`test_cross_sections.csv`、`test_longitudinal.csv`、`test_grid.csv`）をこのノートと同じフォルダに置いて実行します。
 `classify_csv` で、ファイルの種類（横断・縦断・格子）を確かめられます。""")
-code("""for f in ('../tools/test_cross_sections.csv', '../tools/test_longitudinal.csv', '../tools/test_grid.csv'):
+code("""for f in ('test_cross_sections.csv', 'test_longitudinal.csv', 'test_grid.csv'):
     try:
         print(f, '→', classify_csv(f))
     except FileNotFoundError:
         print(f, '：ファイルがありません')""")
-code("""# 横断・縦断の測量値から地形を作る（格子 CSV なら T = read_grid('../tools/test_grid.csv', cs=2.0)）
-T = read_survey('../tools/test_cross_sections.csv', '../tools/test_longitudinal.csv', dx=2.0, align='thalweg')
+code("""# 横断・縦断の測量値から地形を作る（格子 CSV なら T = read_grid('test_grid.csv', cs=2.0)）
+T = read_survey('test_cross_sections.csv', 'test_longitudinal.csv', dx=2.0, align='thalweg')
 P2 = use_terrain(default_params(), T, floorH=3.0)     # 谷底とみなす高さ floorH [m]
 P2['dx'] = 2.0
 P2['dams'] = [{'x': 150, 'H': 3.0, 'b': 0.0}, {'x': 300, 'H': 3.0, 'b': 0.0}]   # 位置は地形の最上流を 0 とした距離
@@ -131,6 +131,39 @@ code("""run(sim2)
 print_dam_table(sim2)
 plot_plan(sim2); plt.show()
 plot_profile(sim2, detrend=True); plt.show()""")
+md("""## 12. 側岸侵食の比べ方
+
+谷底いっぱいに流れる狭い水路（幅 10 m、勾配 1/40、流量 25 m³/s を 30 分）で、側岸を固定したときと、段丘の側岸を削れるようにしたときを比べます。
+
+- `P['bank']['erodH']`：谷底より上の壁を、この高さまで侵食できるようにする [m]
+- `P['bank']['reposeWet']`, `['reposeDry']`：水中・陸上の安息角 [度]（水中 30°：高橋ら 1996、陸上は XBeach・Delft3D の wetslp／dryslp と同じ考え方）
+- `P['bank']['dryEro']`：濡れたセルが削れたとき、隣の乾いた側岸を同時に削る割合（Delft3D の dry-cell erosion）
+- `P['transport'] = 'noneq'`：侵食・堆積速度式による非平衡の流砂（高橋・里深 1999、高橋ら 1998）
+- `P['boulders']`：岸に動かない巨礫を間隔 `L` [m] で置く（高橋・里深・奥村 1996）""")
+code("""def narrow_channel(bank, transport='eq'):
+    P = default_params()
+    P.update(L=240, B=10, slope=1 / 40, crossSlope=0.02, dx=1.0, sideCells=8, sideGrad=1.2, dams=[], morfac=4, transport=transport)
+    P['valley'] = {'chD': 0, 'chW': 0, 'chWl': 0, 'relief': 0.1, 'wallH': 3, 'wallRough': 0, 'fans': []}
+    P['bank'] = bank
+    P['hydro'] = {'mode': 'const', 'Qbase': 25, 'Qpeak': 25, 'tPeak': 0, 'duration': 1800, 'Cs': 0.0, 'table': []}
+    return P
+
+cases = {'側岸は固定': narrow_channel({'erodH': 0, 'reposeWet': 30, 'reposeDry': 50, 'dryEro': 0}),
+         '側岸を侵食（高さ 2 m）': narrow_channel({'erodH': 2, 'reposeWet': 30, 'reposeDry': 50, 'dryEro': 0.5})}
+sims = {}
+for name, P in cases.items():
+    s = Sim(P)
+    while s.phase != 'done':
+        s.step()
+    i0, i1 = int(60 / s.dx), int(200 / s.dx)
+    width = ((s.h[:, i0:i1] > 0.05).sum(axis=0) * s.dx).mean()
+    vb = ((s.z0 - s.z) * (s.bankC & (s.z < s.z0))).sum() * s.dx ** 2
+    print('%s：水面幅 %.1f m、側岸の侵食 %.0f m³' % (name, width, vb))
+    sims[name] = s""")
+code("""fig, axs = plt.subplots(2, 1, figsize=(12, 5))
+for ax, (name, s) in zip(axs, sims.items()):
+    plot_plan(s, ax=ax, var='dz', title=name)
+plt.tight_layout(); plt.show()""")
 nb.metadata['kernelspec'] = {'name': 'python3', 'display_name': 'Python 3', 'language': 'python'}
 nb.metadata['language_info'] = {'name': 'python'}
 nbf.write(nb, 'sabo2d.ipynb')

@@ -106,7 +106,17 @@ def default_params():
         'tcMethod': 'atm',     # 'atm' 芦田・高橋・水山 | 'iwagaki' 岩垣 | 'const' 一定値 tauCm
         'hiding': 'atm',       # 'atm' | 'egiazaroff'
         'tauCm': 0.05,
-        'reposeDeg': 35.0,
+        'reposeDeg': 35.0,     # 流砂の勾配項の上限角 [deg]
+        # ---- 側岸侵食
+        'bank': {'erodH': 0.0,       # 谷壁のうち谷底から erodH [m] までを侵食できる側岸にする（0 で固定床）
+                 'reposeWet': 30.0,  # 水中の安息角 [deg]（高橋・里深・奥村 1996 は 30°）
+                 'reposeDry': 50.0,  # 陸上の安息角 [deg]
+                 'dryEro': 0.0},     # 水際の濡れたセルの侵食のうち、隣の乾いた側岸から削る割合（0〜1）
+        # ---- 流砂の計算法：'eq' 平衡流砂量（芦田・道上式）| 'noneq' 侵食・堆積速度式（高橋・里深 1999）
+        'transport': 'eq',
+        'noneq': {'de': 0.6, 'dd': 0.6, 'hEdge': 0.0, 'fe': 2.0, 'fd': 10.0},
+        # ---- 巨礫（動かない礫）を水みちの両岸に置く（高橋・里深・奥村 1996）
+        'boulders': {'L': 0.0, 'mode': 'parallel', 'size': 1},
         'activeLayer': 0.0,    # 交換層厚（0 のとき最大粒径）
         'layerTh': 0.25,
         'morfac': 4.0,         # 河床変動の加速係数
@@ -560,6 +570,51 @@ class Sim:
             z = np.where(raise_, zt, z)
             colmin = np.where((kind == 0).any(axis=0), np.where(kind == 0, z, np.inf).min(axis=0), colmin)
             self.shaped = True
+        # ---- 侵食できる側岸：谷壁のうち、谷底の高さから erodH までの部分
+        BK = P.get('bank') or {}; eH = BK.get('erodH', 0) or 0
+        self.bankC = np.zeros((ny, nx), dtype=bool)
+        if eH > 0:
+            f0m = kind == 0
+            with np.errstate(invalid='ignore'):
+                fmax = np.where(f0m.any(axis=0), np.where(f0m, z, -np.inf).max(axis=0), np.nan)
+                fmin = np.where(f0m.any(axis=0), np.where(f0m, z, np.inf).min(axis=0), np.nan)
+            conv = (kind == 1) & np.isfinite(fmax)[None, :] & (z <= fmax[None, :] + eH)
+            kind = np.where(conv, 0, kind).astype(np.uint8)
+            self.bankC = conv
+            zfb = np.where(fixedEnd, z, np.minimum(z, fmin[None, :] - P['erodDepth']))
+            zfix = np.where(conv, zfb, zfix)
+        # ---- 巨礫
+        BL = P.get('boulders') or {}; bL = BL.get('L', 0) or 0
+        self.fixedC = np.zeros((ny, nx), dtype=bool); self.nBoulder = 0
+        if bL > 0:
+            bsz = max(1, min(4, int(BL.get('size', 1) or 1)))
+            useCh = (T is None) and (VL.get('chD', 0) or 0) > 0 and getattr(self, 'ych', None) is not None
+            if useCh:
+                meanB_ = Bx.mean(); chW2 = (VL['chW'] if VL.get('chW', 0) > 0 else 0.3 * meanB_) / 2
+
+            def edge_at(i_, side):
+                if useCh:
+                    yt = yc[i_] + (self.ych[i_] + side * chW2) / cosT[i_]; jj = _jround(yt / dx - 0.5)
+                    return jj if (0 <= jj < ny and kind[jj, i_] == 0) else -1
+                col = np.nonzero((kind[:, i_] == 0) & fl[:, i_])[0]
+                if not col.size:
+                    return -1
+                return int(col.max() if side > 0 else col.min())
+            for side in (-1, 1):
+                x0b = bL / 2 + (bL / 2 if (BL.get('mode') == 'zigzag' and side < 0) else 0)
+                xb = x0b
+                while xb < self.Lx - 3 * dx:
+                    ib = _jround(xb / dx - 0.5)
+                    if 3 <= ib <= nx - 4:
+                        jb = edge_at(ib, side)
+                        if jb >= 0:
+                            for di in range(bsz):
+                                for dj in range(bsz):
+                                    ii = ib + di - (bsz >> 1); jj2 = jb + side * dj
+                                    if 1 <= ii < nx - 1 and 0 <= jj2 < ny and kind[jj2, ii] == 0:
+                                        self.fixedC[jj2, ii] = True; zfix[jj2, ii] = z[jj2, ii]
+                    xb += bL
+            self.nBoulder = int(self.fixedC.sum())
         self.z, self.zfix, self.kind, self.fl, self.noSl, self.colmin = z, zfix, kind, fl, noSl, colmin
         self.zmid = float(z[fl].mean()) if fl.any() else 0.0
         self.zlo = float(z.min()); self.zhi = float(z.max())
@@ -569,7 +624,8 @@ class Sim:
         # ---- 土砂の層構造（A：交換層内の粒径別体積、SF：堆積層の粒径別割合）
         La, Ls = self.La, self.Ls
         maxH = max([D['H'] for D in self.dams] + [0])
-        NL = self.NL = min(80, math.ceil((P['erodDepth'] + maxH + 3) / Ls) + 2)
+        thMax = float((z - zfix).max())
+        NL = self.NL = min(100, max(math.ceil((P['erodDepth'] + maxH + 3) / Ls) + 2, math.ceil(thMax / Ls) + 2))
         zf = z.ravel(); zx = zfix.ravel()
         dl = zf - zx
         self.A = np.zeros((N, K))
@@ -583,6 +639,8 @@ class Sim:
         lay = np.arange(NL)[None, :] < nl[:, None]
         self.SF[lay] = self.f0.astype(np.float32)
         self.tcs = np.full((ny, nx), np.nan)
+        self.Cc = np.zeros((N, K))          # 侵食・堆積速度式：流れの中の粒径別土砂量 C_k h（実質体積の層厚） [m]
+        self.dzs = np.zeros((ny, nx))       # 1 回の河床変動計算での河床変化
 
         # ---- 初期の水
         h = np.zeros((ny, nx)); qx = np.zeros((ny, nx)); qy = np.zeros((ny, nx))
@@ -824,6 +882,18 @@ class Sim:
 
     # ------------------------------------------------------------ 河床変動 1 ステップ
     def _morph(self, dtm):
+        self.dzs = np.zeros((self.ny, self.nx))
+        if self.P.get('transport') == 'noneq':
+            nsub = max(1, math.ceil(dtm / max(self.dt, 1e-6) - 1e-9))
+            for _ in range(nsub):
+                self._noneq_step(dtm / nsub)
+        else:
+            self._morph_eq(dtm)
+        self._dry_bank_erosion()
+        self._collapse()
+
+    def _morph_eq(self, dtm):
+        """平衡流砂量（芦田・道上式）による河床変動"""
         P = self.P; nx, ny, K, dx = self.nx, self.ny, self.K, self.dx
         h, z, zfix = self.h, self.z, self.zfix
         A = self.A.reshape(ny, nx, K); d = self.d
@@ -839,7 +909,7 @@ class Sim:
         uu = 0.5 * (FxM[:, :-1] + FxM[:, 1:]) / hs
         vv = 0.5 * (GyM[:-1] + GyM[1:]) / hs
         V2 = uu * uu + vv * vv
-        base = (h >= HSED) & (As >= 1e-6) & (V2 >= 1e-4)
+        base = (h >= HSED) & (As >= 1e-6) & (V2 >= 1e-4) & ~self.fixedC     # 巨礫のセルは動かない
         V = np.sqrt(np.where(base, V2, 1.0))
         us2 = g * self.n2 * V2 / np.cbrt(hs)
         dm = np.where(base, (A * d).sum(axis=2) / np.where(As > 0, As, 1), self.dm0)
@@ -883,7 +953,7 @@ class Sim:
         qL = qbx[:, :-1]; qR = qbx[:, 1:]
         fa = np.where((aL & ~bLR)[..., None] & (qL > 0), qL, 0) + np.where((aR & ~bRL)[..., None] & (qR < 0), qR, 0)
         gg = np.where(aL[..., None], gk[:, :-1], 0) + np.where(aR[..., None], gk[:, 1:], 0)
-        SFx[:, 1:nx] = fa - 0.5 * gg * S[..., None]
+        SFx[:, 1:nx] = np.where((self.fixedC[:, :-1] | self.fixedC[:, 1:])[..., None], 0.0, fa - 0.5 * gg * S[..., None])
         SFx[:, nx] = np.where(act[:, -1][:, None] & (qbx[:, -1] > 0), qbx[:, -1], 0)       # 下流端：流出
         aL = act[:-1]; aR = act[1:]
         S = np.clip((z[1:] - z[:-1]) / dx, -tanPhi, tanPhi)
@@ -892,7 +962,7 @@ class Sim:
         qL = qby[:-1]; qR = qby[1:]
         fa = np.where((aL & ~bLR)[..., None] & (qL > 0), qL, 0) + np.where((aR & ~bRL)[..., None] & (qR < 0), qR, 0)
         gg = np.where(aL[..., None], gk[:-1], 0) + np.where(aR[..., None], gk[1:], 0)
-        SFy[1:ny] = fa - 0.5 * gg * S[..., None]
+        SFy[1:ny] = np.where((self.fixedC[:-1] | self.fixedC[1:])[..., None], 0.0, fa - 0.5 * gg * S[..., None])
 
         # ---- 粒径別の持ち出し制限（交換層内の量を超えない）
         cf = dtm / ((1 - P['porosity']) * dx)
@@ -926,18 +996,152 @@ class Sim:
         dz = dA.sum(axis=2)
         self.A = An.reshape(-1, K)
         self.z = z + dz
+        self.dzs += dz
         chg = np.flatnonzero(dz.ravel() != 0)
         if chg.size:
             self._fix_layers(chg)
         self.QsOut = out_k.sum() * dx
         self.sedOut += self.QsOut * dtm
 
-        # ---- 安息角を超えた斜面の崩落（市松に分けて同時に処理）
-        self._collapse()
+    def _noneq_step(self, dts):
+        """侵食・堆積速度式による非平衡の河床変動（高橋・里深 1999、高橋・中川・里深・奥村・安本 1998）
+        i_k = f_bk δe (C∞−C)/C* |u*−u*ck|（C∞ > C かつ u* > u*ck）、f_0k δd (C∞−C)/C* |u*−u*ck|（C∞ ≤ C かつ u* < u*ck）
+        ∂(C_k h)/∂t + ∇·(C_k h u') = C* i_k、∂z/∂t = −Σ i_k。u' は長谷川（1983）の横断方向流砂で向きを補正した流速"""
+        P = self.P; NE = P.get('noneq') or {}; nx, ny, K, dx = self.nx, self.ny, self.K, self.dx
+        h = self.h; z = self.z; d = self.d; g = G; sg1 = self.sg1; Cst = 1 - P['porosity']; HSED = 0.02
+        A = self.A.reshape(ny, nx, K); Cc = self.Cc.reshape(ny, nx, K)
+        de0 = NE.get('de') or 0.6; dd0 = NE.get('dd') or 0.6; hE = NE.get('hEdge') or 2.5 * self.dm0
+        fe = NE.get('fe') or 1.0; fd = NE.get('fd') or 1.0; gK = (1.0 if P.get('gravK') is None else P['gravK']) / math.sqrt(1.0 * 0.45)
+        dz = np.zeros((ny, nx))
+        # 水が引いたセル：流れの中の土砂をその場に堆積させる
+        dry = h < HSED
+        if (dry[..., None] & (Cc > 0)).any():
+            dep = np.where(dry[..., None], Cc / Cst, 0.0)
+            A = A + dep; dz += dep.sum(axis=2); Cc = np.where(dry[..., None], 0.0, Cc)
+        wet = ~dry
+        hs = np.where(wet, h, 1.0)
+        uu = 0.5 * (self.FxM[:, :-1] + self.FxM[:, 1:]) / hs; vv = 0.5 * (self.GyM[:-1] + self.GyM[1:]) / hs
+        V = np.sqrt(uu * uu + vv * vv)
+        As = A.sum(axis=2); hasA = As > 1e-9
+        fb = np.where(hasA[..., None], A / np.where(hasA, As, 1)[..., None], 0.0)
+        dm = np.where(hasA, (fb * d).sum(axis=2), self.dm0)
+        order = np.argsort(d); cum = np.cumsum(fb[..., order], axis=2)
+        ks = np.where(hasA, d[order][np.minimum(K - 1, (cum < 0.9 - 1e-9).sum(axis=2))], d.max())
+        den = np.maximum(6.0 + 5.75 * np.log10(np.maximum(hs / ks, 0.2)), 2.0)
+        us = V / den; us2 = us * us
+        uscm2 = self._crit_us2(dm, uu, vv)
+        self.tcs = np.where(wet, uscm2 / (sg1 * g * dm), np.nan)
+        # 輸送速度（横断方向の流砂による向きの補正）
+        b1 = np.arctan2(vv, uu); nxn = -np.sin(b1); nyn = np.cos(b1)
+        gy, gx = np.gradient(z, dx)
+        dzdn = gx * nxn + gy * nyn
+        Kc = np.where(us2 > 1e-12, np.sqrt(np.minimum(1.0, uscm2 / np.where(us2 > 1e-12, us2, 1))) * gK, 0.0)
+        b2 = np.clip(np.arctan(-Kc * dzdn), -1.0, 1.0)
+        mv_ = wet & (V > 1e-6)
+        tu = np.where(mv_, V * np.cos(b1 + b2), 0.0); tv = np.where(mv_, V * np.sin(b1 + b2), 0.0)
+        # 侵食・堆積速度
+        q = hs * V; Ct = Cc.sum(axis=2) / hs
+        hideEg = P['hiding'] == 'egiazaroff'
+        usck2 = np.zeros((ny, nx, K)); Cinf = np.zeros((ny, nx))
+        for k in range(K):
+            rr = d[k] / dm
+            if hideEg:
+                lg = LN19 / np.log(19 * np.maximum(rr, 1e-9))
+                usck2[..., k] = np.where(rr >= 0.4, uscm2 * lg * lg * rr, 0.85 * uscm2)
+            else:
+                usck2[..., k] = uscm2
+            okk = wet & hasA & (q > 1e-9) & (us2 > usck2[..., k])
+            tk = us2 / (sg1 * g * d[k]); tck = usck2[..., k] / (sg1 * g * d[k])
+            qbu = np.where(okk, 17 * math.sqrt(sg1 * g * d[k] ** 3) * np.maximum(tk, 0) ** 1.5 * (1 - tck / np.where(okk, tk, 1)) * (1 - np.sqrt(usck2[..., k]) / np.where(okk, us, 1)), 0.0)
+            Cinf += fb[..., k] * qbu / np.where(q > 1e-9, q, 1)
+        edge = h < hE
+        de = np.where(edge, de0 * fe, de0); ddd = np.where(edge, dd0 * fd, dd0)
+        diffC = Cinf - Ct
+        usck = np.sqrt(usck2)
+        f0 = np.where((Ct > 0)[..., None], Cc / np.where(Ct > 0, Ct * hs, 1)[..., None], 0.0)
+        ero = (diffC > 0)[..., None] & (us[..., None] > usck) & hasA[..., None]
+        depo = (diffC <= 0)[..., None] & (Ct > 0)[..., None] & (us[..., None] < usck)
+        rate = np.where(ero, fb * de[..., None] * diffC[..., None] / Cst * (us[..., None] - usck),
+               np.where(depo, f0 * ddd[..., None] * diffC[..., None] / Cst * (usck - us[..., None]), 0.0))
+        act = wet & ~self.fixedC
+        dzk = np.where(act[..., None], -rate * dts, 0.0)
+        dzk = np.where(dzk < 0, np.maximum(dzk, -A), np.minimum(dzk, Cc / Cst))
+        A = A + dzk; Cc = Cc - dzk * Cst; dz += dzk.sum(axis=2)
+        self.A = A.reshape(-1, K); self.z = z + dz; self.dzs += dz
+        chg = np.flatnonzero(dz.ravel() != 0)
+        if chg.size:
+            self._fix_layers(chg)
+        # 流れの中の土砂の移流（風上差分）
+        Qs = self.QsAt(self.t) if self.phase == 'run' else 0.0
+        self.QsIn = Qs; self.sedIn += Qs * dts
+        Cin = Qs / self.Qin if (Qs > 0 and self.Qin > 0) else 0.0
+        cf = dts / dx
+        wl = wet[:, :-1]; wr = wet[:, 1:]
+        uf = np.where(wl & wr, 0.5 * (tu[:, :-1] + tu[:, 1:]), np.where(wl, np.maximum(0, tu[:, :-1]), np.where(wr, np.minimum(0, tu[:, 1:]), 0.0)))
+        SFx = np.zeros((ny, nx + 1, K)); SFy = np.zeros((ny + 1, nx, K))
+        SFx[:, 1:nx] = uf[..., None] * np.where((uf > 0)[..., None], Cc[:, :-1], Cc[:, 1:])
+        SFx[:, nx] = np.where(wet[:, -1], np.maximum(0, tu[:, -1]), 0.0)[:, None] * Cc[:, -1]
+        wl = wet[:-1]; wr = wet[1:]
+        vf = np.where(wl & wr, 0.5 * (tv[:-1] + tv[1:]), np.where(wl, np.maximum(0, tv[:-1]), np.where(wr, np.minimum(0, tv[1:]), 0.0)))
+        SFy[1:ny] = vf[..., None] * np.where((vf > 0)[..., None], Cc[:-1], Cc[1:])
+        outv = cf * (np.maximum(SFx[:, 1:], 0) - np.minimum(SFx[:, :-1], 0) + np.maximum(SFy[1:], 0) - np.minimum(SFy[:-1], 0))
+        scS = np.where(outv > Cc + 1e-15, np.where(outv > 0, Cc / np.where(outv > 0, outv, 1), 0.0), 1.0)
+        if (scS < 1).any():
+            r = np.ones_like(SFx)
+            r[:, 1:] = np.where(SFx[:, 1:] > 0, scS, np.concatenate([scS[:, 1:], np.ones((ny, 1, K))], axis=1))
+            SFx *= r
+            ry = np.ones_like(SFy); ry[1:ny] = np.where(SFy[1:ny] > 0, scS[:-1], scS[1:]); SFy *= ry
+        out_k = SFx[:, nx].sum(axis=0)
+        self.sedOutK += out_k * dx * dts
+        Cn = Cc - cf * (SFx[:, 1:] - SFx[:, :-1] + SFy[1:] - SFy[:-1])
+        if Cin > 0:
+            Cn[:, 0, :] += (cf * Cin * np.maximum(self.qin, 0))[:, None] * self.ff[None, :]
+        self.Cc = np.maximum(Cn, 0.0).reshape(-1, K)
+        self.QsOut = out_k.sum() * dx
+        self.sedOut += self.QsOut * dts
+
+    def _dry_bank_erosion(self):
+        """水際の側岸侵食：濡れたセルが侵食されたとき、その一部（割合 dryEro）を隣の乾いた側岸セルから削る
+        （Delft3D の dry-cell erosion と同じ考え方）"""
+        th = (self.P.get('bank') or {}).get('dryEro', 0) or 0
+        if th <= 0:
+            return
+        nx, ny, K = self.nx, self.ny, self.K
+        HW = 0.01
+        z = self.z.ravel(); h = self.h.ravel(); kind = self.kind.ravel(); fxC = self.fixedC.ravel(); A = self.A
+        cand = np.flatnonzero((self.dzs.ravel() < 0) & (h >= HW) & (kind == 0) & ~fxC)
+        for c in cand:            # ブラウザ版と同じく 1 セルずつ順に処理する
+            i = c % nx
+            nb = []
+            for n in (c - 1 if i > 0 else -1, c + 1 if i < nx - 1 else -1, c - nx, c + nx):
+                if 0 <= n < self.N and h[n] < HW and kind[n] == 0 and not fxC[n] and z[n] > z[c]:
+                    nb.append(n)
+            if not nb:
+                continue
+            want = th * (-self.dzs.ravel()[c]) / len(nb)
+            for n in nb:
+                av = A[n].sum()
+                if av < 1e-6:
+                    continue
+                mv = min(want, 0.5 * av, 0.5 * (z[n] - z[c]))
+                if mv < 1e-9:
+                    continue
+                t = A[n] * (mv / av); A[n] -= t; A[c] += t
+                z[n] -= mv; z[c] += mv
+                self._fix_layers(np.array([n, c]))
+        self.z = z.reshape(ny, nx)
+
+    def sediment_in_water(self):
+        """流れの中にある土砂の量（実質体積） [m3]"""
+        return float(self.Cc.sum() * self.dx * self.dx)
 
     def _collapse(self):
+        """安息角を超えた斜面の崩落。水に浸かった斜面は水中安息角、乾いた斜面は陸上安息角で判定する"""
         nx, ny, K, dx = self.nx, self.ny, self.K, self.dx
-        lim = self.tanPhi * dx
+        BK = self.P.get('bank') or {}
+        limW = math.tan(math.radians(BK.get('reposeWet') or self.P['reposeDeg'])) * dx
+        limD = math.tan(math.radians(BK.get('reposeDry') or self.P['reposeDeg'])) * dx
+        HW = 0.01; fxC = self.fixedC
         for axis in (1, 0):
             n_faces = (nx - 1) if axis == 1 else (ny - 1)
             for parity in (0, 1):
@@ -945,11 +1149,15 @@ class Sim:
                 idx = np.arange(parity, n_faces, 2)
                 if idx.size == 0:
                     continue
+                h = self.h
                 if axis == 1:
                     za = z[:, idx]; zb = z[:, idx + 1]
+                    wetp = (h[:, idx] > HW) | (h[:, idx + 1] > HW); fxp = fxC[:, idx] | fxC[:, idx + 1]
                 else:
                     za = z[idx, :]; zb = z[idx + 1, :]
-                diff = za - zb
+                    wetp = (h[idx, :] > HW) | (h[idx + 1, :] > HW); fxp = fxC[idx, :] | fxC[idx + 1, :]
+                lim = np.where(wetp, limW, limD)
+                diff = np.where(fxp, 0.0, za - zb)
                 hiA = diff > lim; hiB = -diff > lim
                 if not (hiA.any() or hiB.any()):
                     continue
@@ -1394,6 +1602,9 @@ def ground_rgb(sim):
     forest = wall & ~sim.bare
     rgb[forest] = np.stack([(46 + 30 * rnd) / 255, (78 + 22 * rnd) / 255, (42 + 12 * rnd) / 255], axis=-1)[forest]
     rgb[wall & sim.bare] = np.array([184, 176, 160]) / 255
+    bankV = sim.bankC & (np.abs(sim.z - sim.z0) < 0.05)          # まだ削れていない側岸（段丘の森林）
+    rgb[bankV] = np.stack([(52 + 30 * rnd) / 255, (84 + 22 * rnd) / 255, (44 + 12 * rnd) / 255], axis=-1)[bankV]
+    rgb[sim.fixedC] = np.array([128, 126, 120]) / 255              # 動かない巨礫
     rgb[sim.kind == 2] = np.array([190, 188, 180]) / 255
     return rgb
 
@@ -1603,8 +1814,15 @@ def main(argv=None):
     ap.add_argument('--qpeak', type=float, help='ピーク流量 [m3/s]')
     ap.add_argument('--qbase', type=float, help='基底流量 [m3/s]')
     ap.add_argument('--minutes', type=float, help='出水の継続時間 [分]（ピークは 1/3 の時刻）')
-    ap.add_argument('--cs-feed', type=float, help='供給土砂濃度 Qs/Q [%]')
+    ap.add_argument('--cs-feed', type=float, help='供給土砂濃度 Qs/Q [%%]')
     ap.add_argument('--morfac', type=float, help='河床変動の加速係数')
+    ap.add_argument('--noneq', action='store_true', help='非平衡の流砂モデル（侵食・堆積速度式。高橋・里深 1999）を使う')
+    ap.add_argument('--bank-h', type=float, help='侵食される側岸の高さ [m]（谷底より上の壁をこの高さまで掘れるようにする。0 で側岸は固定）')
+    ap.add_argument('--dry-ero', type=float, help='水際の乾いた側岸を削る割合（0〜1。Delft3D の dry-cell erosion）')
+    ap.add_argument('--repose-wet', type=float, help='水中の安息角 [度]（既定 30）')
+    ap.add_argument('--repose-dry', type=float, help='陸上の安息角 [度]（既定 50）')
+    ap.add_argument('--boulders', type=float, help='岸に置く動かない巨礫の間隔 [m]（高橋・里深・奥村 1996。0 で置かない）')
+    ap.add_argument('--boulder-mode', choices=['parallel', 'zigzag'], help='巨礫の並べ方（両岸で向かい合わせ／千鳥）')
     ap.add_argument('--out', default='result', help='図と CSV を書き出すフォルダ')
     a = ap.parse_args(argv)
     P = preset(a.preset)
@@ -1632,6 +1850,21 @@ def main(argv=None):
         H['Cs'] = a.cs_feed / 100
     if a.morfac:
         P['morfac'] = a.morfac
+    if a.noneq:
+        P['transport'] = 'noneq'
+    B = P.setdefault('bank', {})
+    if a.bank_h is not None:
+        B['erodH'] = a.bank_h
+    if a.dry_ero is not None:
+        B['dryEro'] = a.dry_ero
+    if a.repose_wet is not None:
+        B['reposeWet'] = a.repose_wet
+    if a.repose_dry is not None:
+        B['reposeDry'] = a.repose_dry
+    if a.boulders is not None:
+        P.setdefault('boulders', {})['L'] = a.boulders
+    if a.boulder_mode:
+        P.setdefault('boulders', {})['mode'] = a.boulder_mode
     sim = Sim(P)
     print('格子 %d × %d（%d セル、幅 %g m）、堰堤 %d 基、%s' % (sim.nx, sim.ny, sim.N, sim.dx, len(sim.dams),
           '読み込んだ地形' if sim.fromCSV else 'モデル渓流 ' + a.preset))
