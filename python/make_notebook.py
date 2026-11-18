@@ -257,6 +257,53 @@ code("""fig, axs = plt.subplots(2, 1, figsize=(12, 6))
 for ax, (name, s) in zip(axs, dsims.items()):
     plot_plan(s, ax=ax, var='dz', title=name)
 plt.tight_layout(); plt.show()""")
+dem_src = open('sabo2d_dem.py', encoding='utf-8').read()
+md("""## 16. DEM から流域を選ぶ・雨・斜面崩壊・天然ダム
+
+DEM を読み込み（`SD.load('ファイル')`。ESRI ASCII grid、XYZ、GeoTIFF、基盤地図情報の XML）、窪地を埋めて流向・集水面積・谷筋・流域・谷頭を求めます。
+ここでは例の DEM（`SD.synth_dem()`、架空の山地流域）で、最も大きい流域を切り出し、
+
+- 谷頭 3 つから土石流の一波を流す（渓床侵食型）
+- 一様な雨を降らせ、斜面から谷筋へ合理式（土研式の到達時間）で横流入させる
+- 斜面の 1 か所を 30 秒に崩して流動化させる（崩壊型）
+
+を一度に計算します。天然ダム（`P['ldams']`）は谷筋の点に置きます（堤体の透水係数 `P['ldam']['k']` で越流侵食と進行性崩壊が分かれます）。
+ブラウザ版で作った計算条件は「計算条件を JSON で保存」で保存し、`P = default_params(); P.update(json.load(open('sabo2d_params.json')))` で同じ計算ができます。
+
+**適用条件**：合理式・貯留関数法は流域スケールの経験的な扱いで、斜面ごとの到達時間は土研式（自然流域、A < 50 km²）を斜面に当てた近似です。
+表層崩壊の安全率は無限長斜面、深層は Hovland の 3 次元簡便法、土塊の移動は瞬時移動（エネルギー線）の簡易モデルです。流動化の判定（地下水の割合 m ≥ 0.8）と流動化濃度 0.5 は仮定です。""")
+code("import types\nSD = types.ModuleType('sabo2d_dem')\nexec(" + repr(dem_src) + ", SD.__dict__)")
+code("""D = SD.synth_dem()
+A = SD.analyze(D, thrArea=20000)
+b = max(A.basins, key=lambda b: b['area']); mask = A.bid == b['id']
+dom = SD.prepare_domain(D, A, mask, b['outlet'])
+heads = sorted([c for c in A.heads if mask[c]], key=lambda c: -A.acc[c])[:3]
+print('DEM %d × %d、流域 %.2f km²、谷頭 %d 点' % (D.nx, D.ny, mask.sum() * D.cs ** 2 / 1e6, sum(1 for c in A.heads if mask[c])))
+fig, ax = plt.subplots(figsize=(9, 6))
+Z = D.z.reshape(D.ny, D.nx)
+ax.imshow(Z, cmap='terrain'); ax.contour(mask.reshape(D.ny, D.nx), [0.5], colors='r')
+ys, xs = np.divmod(np.nonzero(A.stream)[0], D.nx); ax.plot(xs, ys, ',', color='b')
+hy, hx = np.divmod(np.array(heads), D.nx); ax.plot(hx, hy, 'o', color='orange')
+ax.set_title('流域（赤）、谷筋（青）、供給点（橙）'); plt.show()""")
+code("""P = default_params()
+P['terrain'] = SD.terrain_params(dom); P['dx'] = D.cs; P['csvSlope'] = 0; P['dams'] = []; P['tribs'] = []
+P['transport'] = 'debris'; P['snapEvery'] = 0
+P['dem'] = {'soilD': 1.0, 'chW': 10.0, 'ks': 1e-5, 's0': 0.3, 'duration': 300.0}
+P['sources'] = [{'x': dom.toXY(c)[0], 'y': dom.toXY(c)[1], 'ux': dom.dirXY(c)[0], 'uy': dom.dirXY(c)[1], 'I': SD.local_slope(D, A, c, 3),
+                 'hydro': {'mode': 'debris', 'Qbase': 0.5, 'Qpeak': 10, 't0': 10, 'tRise': 30, 'tFall': 120, 'Cd': 0.3, 'Cs': 0}} for c in heads]
+rain = [[0, 50], [10, 80], [20, 0]]
+cells, Q, dtq = SD.lateral_inflow(D, A, mask, rain, {'type': 'f', 'f': 0.8}, {'type': 'rational', 'tc': 0}, 60.0, 300.0)
+P['latIn'] = {'dt': dtq, 'pts': [dom.toXY(c) + dom.dirXY(c) + [SD.local_slope(D, A, c, 3)] for c in cells], 'Q': Q.tolist()}
+c1 = heads[1]; x1, y1 = dom.toXY(c1)
+P['slides'] = [{'x': x1 + 15, 'y': y1 + 15, 'R': 35, 'D': 2, 'type': 'shallow', 'trigger': 'time', 't': 30, 'move': 'fluid'}]
+s = Sim(P)
+while s.phase != 'done':
+    s.step()
+eb, ew = s.balance()
+print('流出土砂 %.0f m³、崩壊 %s、土砂の収支の誤差 %.1e m³、水 %.1e m³' % (s.sedOut, [(round(L['t']), L['mode'], round(L['vol'])) for L in s.slideLog], eb, ew))
+fig, axs = plt.subplots(1, 2, figsize=(14, 5))
+plot_plan(s, ax=axs[0], var='depth', title='水深'); plot_plan(s, ax=axs[1], var='dz', title='河床変動量')
+plt.tight_layout(); plt.show()""")
 nb.metadata['kernelspec'] = {'name': 'python3', 'display_name': 'Python 3', 'language': 'python'}
 nb.metadata['language_info'] = {'name': 'python'}
 nbf.write(nb, 'sabo2d.ipynb')

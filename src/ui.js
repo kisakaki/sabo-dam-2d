@@ -73,7 +73,7 @@
   // ファイルとして保存（公開ページでは保存の確認が出る。オフライン版はブラウザのダウンロード）
   function saveText(name, text, msgId, raw) {
     var mid = msgId || 'csv_msg', data = raw ? text : '\uFEFF' + text, done = function () { $(mid).hidden = false; $(mid).textContent = name + ' を保存しました。'; };
-    var mime = /\.zip$/.test(name) ? 'application/zip' : 'text/csv';
+    var mime = /\.zip$/.test(name) ? 'application/zip' : /\.json$/.test(name) ? 'application/json' : 'text/csv';
     var fallback = function () { try { var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: mime })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000); done(); } catch (e) { $(mid).hidden = false; $(mid).textContent = '保存できませんでした。' + (mid === 'csv_msg' ? '「CSV をコピー」を使ってください。' : ''); } };
     if (window.claude && window.claude.use) {
       window.claude.use('downloads').then(function (dl) {
@@ -435,15 +435,16 @@
     p.boulders = { L: num('bo_L', 0, 0, 10000), mode: $('bo_m').value, size: num('bo_s', 1, 1, 4) };
     p.morfac = num('c_mf', 4, 1, 50); p.order = +$('c_ord').value || 2;
     p.snapEvery = num('o_ev', 10, 0, 100000) * 60;
+    if ($('g_src').value === 'dem') { var dr = window.SaboDEMUI.params(p); Bmax = dr.Bmax; }
     // 格子数の上限（ブラウザで動く範囲）
     var sideN = function () { return p.terrain ? 0 : Math.max(p.sideCells, p.valley.wallH > 0 ? Math.ceil(Math.max(p.valley.wallH, mxH + p.wingHeight + 3) / p.sideGrad / p.dx) + 1 : 0); };
     var nc = (p.L / p.dx) * (Bmax / p.dx + 2 * sideN());
-    while (nc > 40000) { p.dx *= 1.25; nc = (p.L / p.dx) * (Bmax / p.dx + 2 * sideN()); }
+    while (nc > ($('g_src').value === 'dem' ? 60000 : 40000)) { p.dx *= 1.25; nc = (p.L / p.dx) * (Bmax / p.dx + 2 * sideN()); }
     return p;
   }
   function geoSwitch() {
-    var src = $('g_src').value, csv = src === 'csv', sv = src === 'survey', bm = $('b_mode').value;
-    $('g_param').hidden = csv || sv; $('g_csv').hidden = !csv; $('g_survey').hidden = !sv;
+    var src = $('g_src').value, csv = src === 'csv', sv = src === 'survey', dm = src === 'dem', bm = $('b_mode').value;
+    $('g_param').hidden = csv || sv || dm; $('g_csv').hidden = !csv; $('g_survey').hidden = !sv;
     $('b_sine').hidden = bm !== 'sine'; $('b_tab').hidden = bm !== 'table'; $('b_note').hidden = bm === 'none';
   }
   // ---- CSV 地形の読み込み
@@ -730,6 +731,7 @@
     return out;
   }
   function ground(c, o) {
+    if (sim.basin && !sim.basin[c]) { o[0] = o[1] = o[2] = 214; return; }   // DEM の流域の外
     var k = sim.kind[c], n = hash(c);
     if (k === 2) { var s = 178 + n * 14; o[0] = s; o[1] = s - 2; o[2] = s - 9; return; }
     if (k === 1 && sim.bare && sim.bare[c] && sim.z[c] - sim.z0[c] < 0.02) { var tb = 0.9 + 0.2 * n; o[0] = 184 * tb; o[1] = 176 * tb; o[2] = 160 * tb; return; }   // 扇状地（裸地）
@@ -1403,7 +1405,7 @@
     var i, j, c, p;
     for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {
       c = j * nx + i; p = c * 3;
-      var zz = kind[c] === 2 ? damGround(c) : z[c];
+      var zz = kind[c] === 2 ? damGround(c) : (sim.zOut && !sim.basin[c] ? sim.zOut[c] : z[c]);   // DEM の流域の外は元の標高で見せる
       tp[p] = (i + 0.5) * dx - X0; tp[p + 1] = (zz - zmid) * vex; tp[p + 2] = Z0 - (j + 0.5) * dx;
       if (mode === 'real') { ground(kind[c] === 2 ? nonDam(c) : c, c3); }
       else { var v = V.water ? NaN : value(mode, c); if (v === v) V.ramp(norm(mode, v), c3); else { c3[0] = c3[1] = kind[c] === 1 ? 120 : 150; c3[2] = c3[0] + 3; } }
@@ -1593,6 +1595,10 @@
     $('xs_x').max = sim.Lx; $('xs_x').step = sim.dx; if (xsX == null || xsX > sim.Lx) xsX = Math.round(sim.Lx * 0.55); $('xs_x').value = xsX;
     $('gridinfo').textContent = '格子 ' + sim.nx + ' × ' + sim.ny + '（' + sim.N.toLocaleString() + ' セル、幅 ' + sim.dx + ' m）　粒径階 ' + sim.K + '　堰堤 ' + sim.dams.length + ' 基' + (sim.fromCSV ? '　CSV 地形（平均勾配 1/' + (1 / sim.I).toFixed(0) + '）' : '') + (sim.I > 0.1 + 1e-9 && sim.P.transport !== 'debris' ? '　注意：勾配 1/' + (1 / sim.I).toFixed(0) + ' は掃流砂の式の適用範囲（1/10 程度より緩い）を超えます。' : '') + (sim.warn.length ? '　注意：' + sim.warn.join(' ') : '');
     if (P.prefill > 0) $('gridinfo').textContent += '　はじめから満砂（比 ' + P.prefill + '）';
+    if (sim.demMode) {
+      var dmS = window.SaboDEMUI.state.dom;
+      $('gridinfo').textContent += '　DEM の流域：' + ['回転なし（出口は東向き）', '時計回りに 90° 回して', '180° 回して', '反時計回りに 90° 回して'][dmS ? dmS.rot : 0] + '、出口を右端に置きました。供給点 ' + (P.sources || []).length + '、雨の横流入 ' + (P.latIn ? P.latIn.pts.length + ' セル' : (P.rain && P.rain.on ? '格子の雨' : 'なし')) + '、斜面崩壊 ' + sim.slides.length + '、天然ダム ' + sim.ldamList.length + '。';
+    }
     // 文献の式の適用範囲から外れる設定の注意
     var nag = (P.sec && (P.sec.bed || P.sec.mom)) || (P.bank && P.bank.collapse === 'hasegawa' && P.bank.erodH > 0);
     if (nag && sim.I > 0.01 + 1e-9) $('gridinfo').textContent += '　注意：長田ら（1996）の2次流・崩落モデルの検証は勾配 1/100〜1/466 の砂の水路です。勾配 1/' + (1 / sim.I).toFixed(0) + ' では定性的な目安として見てください。';
@@ -1626,6 +1632,10 @@
     running = !running; this.textContent = running ? '⏸ 一時停止' : '▶ 再開'; dirty = true;
   };
   $('reset').onclick = apply; $('apply').onclick = apply; $('saveref').onclick = saveRef;
+  $('dem_json').onclick = function () {
+    try { var pj = readForm(); saveText('sabo2d_params.json', JSON.stringify(pj), 'dem_msg', true); }
+    catch (e) { $('dem_msg').hidden = false; $('dem_msg').textContent = e.message; }
+  };
   $('h_mode').onchange = modeSwitch;
   $('s_tcm').onchange = function () { if (this.value === 'iwagaki') $('s_hid').value = 'egiazaroff'; tcSwitch(); };
   // CSV を読む：UTF-8（BOM の有無を問わない）で読めなければ Shift_JIS（Excel の「CSV（コンマ区切り）」）として読み直す

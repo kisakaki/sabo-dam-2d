@@ -144,7 +144,7 @@ table.res th,table.res td{white-space:nowrap}
     </div></details>
 
     <details open><summary>河道地形</summary><div class="body">
-      <div class="row"><label for="g_src">地形の作り方</label><select id="g_src"><option value="param">数値で指定</option><option value="survey">横断・縦断の測量値</option><option value="csv">格子の CSV を読み込む</option></select></div>
+      <div class="row"><label for="g_src">地形の作り方</label><select id="g_src"><option value="param">数値で指定</option><option value="survey">横断・縦断の測量値</option><option value="csv">格子の CSV を読み込む</option><option value="dem">DEM から流域を選ぶ</option></select></div>
       <p class="note" style="margin:0">モデル渓流（写真の河道を参考にした架空の地形。押すと「数値で指定」に切り替わり、地形と堰堤の配置が入れ替わります）</p>
       <div class="btns" style="margin-top:4px"><button class="sm" id="pre_A">床固工群の渓流</button><button class="sm" id="pre_B">狭窄部と広い堆砂域</button><button class="sm" id="pre_S">単純な直線水路</button></div>
       <ol class="note" style="margin:6px 0 0;padding-left:1.3em">
@@ -227,6 +227,22 @@ table.res th,table.res td{white-space:nowrap}
         <p class="note" id="csv_info">形式は2通りです。①行列：1行目が左岸側、左の列が上流、値は標高 [m]。②x, y, z の3列：x は流下方向、y は左岸側が正。区切りはカンマ・タブ・空白のどれでも構いません。</p>
         <p class="note">各横断の最低点から「谷底とみなす高さ」までを侵食できる河床とし、それより高い所は侵食しない斜面として扱います。</p>
       </div>
+      <div id="g_dem" class="body" style="padding:0" hidden>
+        <p class="note">DEM を読み込むと、窪地を埋め、流向（D8）・集水面積・谷筋・流域界を求め、谷頭（谷筋の最上流点＝水の供給点の候補）をすべて取り出します。右の「DEM と流域」の地図で、流域と供給点を選んでください。</p>
+        <div class="row"><label for="dem_file">DEM のファイル</label><input type="file" id="dem_file" multiple accept=".asc,.txt,.xyz,.csv,.xml,.tif,.tiff" style="font-size:12px"></div>
+        <p class="note" style="margin:0">ESRI ASCII grid（.asc）、XYZ 点群（.xyz/.txt/.csv、x y z）、基盤地図情報 数値標高モデル（.xml、複数のタイル可）、GeoTIFF（非圧縮・LZW・Deflate、1 バンド）。座標は平面直角座標など m 単位を想定します（基盤地図情報は緯度経度から換算）。</p>
+        <div class="btns"><button class="sm" id="dem_sample">例の DEM（架空の山地流域）</button></div>
+        <div class="row"><label for="dem_thr">谷筋とみなす集水面積<span class="u">km²</span></label><input type="number" id="dem_thr" step="0.005" min="0.0005" value="0.02"></div>
+        <div class="row"><label for="dem_chw">侵食できる谷筋の幅<span class="u">m</span></label><input type="number" id="dem_chw" step="1" min="1" value="10"></div>
+        <div class="row"><label for="dem_soil">斜面の土層の厚さ<span class="u">m</span></label><input type="number" id="dem_soil" step="0.1" min="0.1" value="1"></div>
+        <div class="row"><label for="dem_ks">土層の飽和透水係数<span class="u">m/s</span></label><input type="number" id="dem_ks" step="0.00001" min="0" value="0.00001"></div>
+        <div class="row"><label for="dem_dur">計算時間<span class="u">分</span></label><input type="number" id="dem_dur" step="5" min="1" value="30"></div>
+        <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="dem_fill" checked>窪地を埋めた地形で計算する</label>
+        <div class="btns"><button class="sm" id="dem_json" title="Python 版で python sabo2d.py --params ファイル名 として同じ計算をするときに使います">計算条件を JSON で保存（Python 版用）</button></div>
+        <p class="note" id="dem_msg" hidden></p>
+        <p class="note" id="dem_info"></p>
+        <p class="note">流域の外は高い壁にして、水は出入りしません。流域の出口から右端まで水路を掘り、出口が計算領域の右（下流端）に来るように地形を 90° 単位で回します。谷筋は「侵食できる谷筋の幅」に広げて移動床にし、それ以外の斜面は流れでは侵食しない土層（伏流と斜面崩壊に使う）にします。斜めにつながる谷筋は、横か縦の隣のセルも谷筋にして、4 近傍でつながるようにします（浅水流の計算は辺を通してしか水が流れないため）。</p>
+      </div>
       <details style="border:0;padding:0"><summary style="font-weight:500">計算後の河床から続ける・保存する（任意）</summary><div class="body">
       <p class="note">計算した後の河床を初期地形にして、もう一度出水を流すときのボタンです。堰堤は前と同じ位置・向き・天端標高で置き直します。</p>
       <div class="btns"><button class="sm" id="csv_cont">この河床から続けて計算</button><button class="sm" id="csv_save">河床を CSV ファイルに保存</button></div>
@@ -237,6 +253,73 @@ table.res th,table.res td{white-space:nowrap}
       <div class="row"><label for="g_P">初期河床の凹凸<span class="u">cm</span></label><input type="number" id="g_P" step="1" min="0"></div>
       <div class="row"><label for="g_D">侵食可能深<span class="u">m</span></label><input type="number" id="g_D" step="0.5" min="0.2"></div>
       <div class="row"><label for="g_seed">乱数の種<span class="u">–</span></label><input type="number" id="g_seed" step="1" min="1"></div>
+    </div></details>
+
+    <details id="dem_more" hidden open><summary>土石流の発生形態・雨・斜面崩壊（DEM）</summary><div class="body">
+      <div class="row"><label for="gen_type">土石流の発生形態</label><select id="gen_type"><option value="bed">渓床侵食型（谷頭から水を流す）</option><option value="slide">崩壊型（斜面崩壊が流動化）</option><option value="ldam">天然ダム決壊型</option></select></div>
+      <p class="note" id="gen_note"></p>
+      <details style="border:0;padding:0" open><summary style="font-weight:500">谷頭の供給点とハイドロ</summary><div class="body">
+        <p class="note">地図の「供給点を選ぶ」で谷頭をクリックすると、表に加わります（もう一度クリックで外す）。波形：三角形（基底→ピーク→基底）、一定、土石流の一波（基底流量＋三角形の波）。時刻は秒です。濃度は、三角形と一定では供給土砂濃度 Qs/Q、土石流の一波では波の土砂濃度（容積）です。</p>
+        <div style="overflow-x:auto"><table class="ed" id="srctab"><thead><tr><th>点</th><th>波形</th><th>基底 [m³/s]</th><th>ピーク [m³/s]</th><th>開始 [秒]</th><th>立上り [秒]</th><th>減衰 [秒]</th><th>濃度</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="btns"><button class="sm" id="src_all">1 行目の設定を全部へ</button><button class="sm" id="src_top">集水面積の大きい谷頭 3 つ</button><button class="sm" id="src_clr">すべて外す</button></div>
+      </div></details>
+      <details style="border:0;padding:0"><summary style="font-weight:500">雨（谷へ集まる水）</summary><div class="body">
+        <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="rn_on">雨を降らせる</label>
+        <div id="rn_box" hidden>
+        <div class="row"><label for="rn_meth">谷への集め方</label><select id="rn_meth"><option value="lumped">斜面で流出計算して谷筋へ入れる</option><option value="grid">格子に直接降らせる（表面流で計算）</option></select></div>
+        <div class="row"><label for="rn_mode">雨のデータ</label><select id="rn_mode"><option value="uniform">流域に一様（ハイエトグラフ）</option><option value="grid">格子の雨（XRAIN などを変換した CSV）</option></select></div>
+        <div id="rn_uni"><p class="note">1 行に「時刻 [分], 雨量強度 [mm/h]」。その時刻から次の時刻までの強度です。</p><textarea id="rn_tab" spellcheck="false">0, 20
+10, 60
+20, 80
+30, 40
+40, 10
+50, 0</textarea></div>
+        <div id="rn_grd" hidden>
+          <div class="row"><label for="rn_file">雨の CSV</label><input type="file" id="rn_file" accept=".csv,.txt" style="font-size:12px"></div>
+          <p class="note">1 行に「時刻 [分], X, Y, 雨量強度 [mm/h]」（X, Y は DEM と同じ座標。基盤地図情報の DEM なら経度, 緯度）。各時刻の点から、最も近い点の値を DEM のセルに配ります（XRAIN の 250 m メッシュなどを想定）。</p>
+          <p class="note" id="rn_ginfo"></p>
+        </div>
+        <div class="row"><label for="rn_loss">損失（有効雨量）</label><select id="rn_loss"><option value="f">流出係数 f（合理式）</option><option value="f1rsa">一次流出率 f1・飽和雨量 Rsa（貯留関数法）</option><option value="ks">浸透能（透水係数）と土層の空き容量</option></select></div>
+        <div class="row lf"><label for="rn_f">流出係数 f</label><input type="number" id="rn_f" step="0.05" min="0" max="1" value="0.8"></div>
+        <div class="row lr"><label for="rn_f1">一次流出率 f1</label><input type="number" id="rn_f1" step="0.05" min="0" max="1" value="0.5"></div>
+        <div class="row lr"><label for="rn_rsa">飽和雨量 Rsa<span class="u">mm</span></label><input type="number" id="rn_rsa" step="10" min="0" value="100"></div>
+        <div class="row lr"><label for="rn_r0">初期損失 R0<span class="u">mm</span></label><input type="number" id="rn_r0" step="5" min="0" value="0"></div>
+        <div class="row lk"><label for="rn_ks">飽和透水係数 ks<span class="u">m/s</span></label><input type="number" id="rn_ks" step="0.000001" min="0" value="0.00001"></div>
+        <div class="row lk"><label for="rn_D">土層の厚さ<span class="u">m</span></label><input type="number" id="rn_D" step="0.1" min="0.1" value="1"></div>
+        <div class="row lk"><label for="rn_n">間隙率 / 初期含水率</label><span style="display:flex;gap:4px"><input type="number" id="rn_n" step="0.05" min="0.1" max="0.9" value="0.45" style="width:4.5em"><input type="number" id="rn_th" step="0.05" min="0" max="0.9" value="0.25" style="width:4.5em"></span></div>
+        <div id="rn_lump">
+        <div class="row"><label for="rn_route">斜面の流出</label><select id="rn_route"><option value="rational">合理式（到達時間内の平均有効雨量）</option><option value="storage">貯留関数法 s = K q^P</option></select></div>
+        <div class="row rr"><label for="rn_tc">到達時間<span class="u">分、0＝土研式</span></label><input type="number" id="rn_tc" step="5" min="0" value="0"></div>
+        <div class="row rs"><label for="rn_K">K / P</label><span style="display:flex;gap:4px"><input type="number" id="rn_K" step="1" min="0.1" value="10" style="width:4.5em"><input type="number" id="rn_P" step="0.05" min="0.1" max="1" value="0.6" style="width:4.5em"></span></div>
+        <div class="row rs"><label for="rn_tl">遅れ Tl<span class="u">分</span></label><input type="number" id="rn_tl" step="1" min="0" value="0"></div>
+        <div class="btns"><button class="sm" id="rn_calc">流出を計算して図に出す</button></div>
+        </div>
+        <p class="note" id="rn_info"></p>
+        <p class="note">「斜面で流出計算」：谷筋のセルごとに、そこへ直接流れ込む斜面の面積（谷頭は上流の全面積）で、有効雨量を合理式（時間面積法。到達時間は土研式 T = 1.67×10⁻³ (L/√S)^0.7 h、L は最遠点からの流下距離）か貯留関数法で流量にして、その谷筋のセルへ横から入れます。谷筋の中の流れは 2 次元の計算です。「格子に直接降らせる」：有効雨量を流域のすべてのセルに降らせ、斜面の表面流も 2 次元で計算します（時間がかかります）。「流砂モデル・側岸侵食」で伏流を有効にすると、浸透と土層の中の流れ（湧出）は伏流の計算で扱い、損失の設定は使いません。</p>
+        </div>
+      </div></details>
+      <details style="border:0;padding:0"><summary style="font-weight:500">斜面崩壊</summary><div class="body">
+        <p class="note">地図の「崩壊を置く」で斜面をクリックすると、表に加わります。表層：深さ D の一様なすべり面（無限長斜面の安全率をセルごとに計算）。深層：中心で深さ D のさじ形のすべり面（Hovland の 3 次元簡便法で全体の安全率）。発生：「安全率」は Fs &lt; 1 になったとき、「時刻」はその時刻に崩します。</p>
+        <div style="overflow-x:auto"><table class="ed" id="sltab"><thead><tr><th>点</th><th>種類</th><th>半径 [m]</th><th>深さ D [m]</th><th>発生</th><th>時刻 [秒]</th><th>移動</th><th>φ [°]</th><th>c [kN/m²]</th><th>初期の地下水 m0</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="row"><label for="sl_dep">土塊の堆積勾配<span class="u">°</span></label><input type="number" id="sl_dep" step="1" min="2" max="35" value="10"></div>
+        <div class="row"><label for="sl_mu">等価摩擦角<span class="u">°、0＝体積から</span></label><input type="number" id="sl_mu" step="1" min="0" max="45" value="0"></div>
+        <div class="row"><label for="sl_cl">流動化するときの濃度 C<sub>L</sub></label><input type="number" id="sl_cl" step="0.05" min="0.2" max="0.55" value="0.5"></div>
+        <div class="row"><label for="sl_tk">地下水のタンクの時定数（表層 / 深層）<span class="u">h</span></label><span style="display:flex;gap:4px"><input type="number" id="sl_tk1" step="1" min="0.5" value="6" style="width:4.5em"><input type="number" id="sl_tk2" step="6" min="1" value="48" style="width:4.5em"></span></div>
+        <div class="btns"><button class="sm" id="sl_clr">すべて消す</button></div>
+        <p class="note">移動：「土石流化」は崩れた土を流れ（濃度 C<sub>L</sub>、足りない水は法面の流れと湧水から取り込むと仮定して足す）にし、土石流の式で流します。「土塊」は最急降下の経路を、エネルギー線（崩壊域の最高点から等価摩擦角の勾配）が地表に届くところまで瞬時に動かし、表面の勾配が堆積勾配の円錐形に堆積させます（谷をふさげば天然ダム）。「自動」は、すべり面より上の地下水の厚さの割合 m が 0.8 以上で、流砂モデルが土石流なら土石流化、それ以外は土塊。地下水は、表層で伏流ありなら土層の地下水、それ以外は 1 段の線形タンク dS/dt = r − S/T（雨から）です。</p>
+      </div></details>
+      <details style="border:0;padding:0"><summary style="font-weight:500">天然ダム（河道閉塞）</summary><div class="body">
+        <p class="note">地図の「天然ダムを置く」で谷筋をクリックすると、その流れの向きに直角な天然ダム（台形の縦断）を置きます。斜面崩壊の「土塊」で谷がふさがったときも、その堆積物を天然ダムとして扱います。</p>
+        <div style="overflow-x:auto"><table class="ed" id="ldtab"><thead><tr><th>点</th><th>高さ [m]</th><th>天端幅 [m]</th><th>上流法 [°]</th><th>下流法 [°]</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="row"><label for="ld_k">堤体の透水係数<span class="u">m/s、0＝粒度から</span></label><input type="number" id="ld_k" step="0.0001" min="0" value="0.001"></div>
+        <div class="row"><label for="ld_fail">決壊の形</label><select id="ld_fail"><option value="auto">透水性で決まる（越流侵食 / 進行性崩壊）</option><option value="slip">すべり破壊（湛水位で指定）</option></select></div>
+        <div class="row"><label for="ld_lev">すべりが起きる湛水位（ダム高に対する比）</label><input type="number" id="ld_lev" step="0.05" min="0.1" max="1" value="0.9"></div>
+        <div class="row"><label for="ld_phi">堤体の φ / c<span class="u">° / kN/m²</span></label><span style="display:flex;gap:4px"><input type="number" id="ld_phi" step="1" min="15" max="50" value="35" style="width:4.5em"><input type="number" id="ld_c" step="1" min="0" value="0" style="width:4.5em"></span></div>
+        <div class="row"><label for="ld_ero">越流の侵食速度式</label><select id="ld_ero"><option value="auto">堤体の飽和度で切り替え</option><option value="sat">飽和河床（高橋）</option><option value="unsat">不飽和河床（高橋・里深）</option></select></div>
+        <div class="row"><label for="ld_kt">不飽和河床の侵食速度係数 K<sub>t</sub></label><input type="number" id="ld_kt" step="0.0005" min="0" value="0.0019"></div>
+        <div class="btns"><button class="sm" id="ld_clr">すべて消す</button></div>
+        <p class="note">堤体の中の浸透は伏流の計算（Darcy、Dupuit 近似）で、天然ダムがあると伏流を自動で有効にします。透水係数が大きいと、越流の前に浸潤面が下流の法尻に達し、湧水の出る法面で無限長斜面（浸透流が斜面に平行）の安全率 Fs = c'/(γsat T sinβ cosβ) + (γ'/γsat)tanφ/tanβ が 1 を下回った所から順に崩れて、崩壊が上流へ遡ります（進行性崩壊。高山ら 2020 の観察）。透水係数が小さいと、満水になって越流し、越流水がダムを侵食します（越流侵食）。すべり破壊は、湛水位が指定の高さに達したとき、下流の法尻から角度 20° で上がる面より上の土を、法尻から下流へ堆積勾配（斜面崩壊の欄）の斜面になるように瞬時に動かします（Awal ら 2008、高山ら 2020 の簡易モデル）。</p>
+      </div></details>
     </div></details>
 
     <details open><summary>堰堤の諸元</summary><div class="body">
@@ -346,6 +429,19 @@ table.res th,table.res td{white-space:nowrap}
 
     <div class="tiles" id="tiles"></div>
 
+    <div class="card" id="demcard" hidden>
+      <div class="hd"><h2>DEM と流域</h2>
+        <div class="opts">
+          <label>クリックで <select id="dm_mode"><option value="basin">流域を選ぶ</option><option value="outlet">出口を指定（小流域）</option><option value="src">供給点を選ぶ</option><option value="slide">崩壊を置く</option><option value="ldam">天然ダムを置く</option></select></label>
+          <label><input type="checkbox" id="dm_fit" checked> 選んだ流域に寄せる</label>
+        </div>
+      </div>
+      <div class="chartwrap"><canvas id="demmap" style="cursor:crosshair"></canvas><div class="tip" id="dem_tip" hidden></div></div>
+      <div class="key" id="dem_key"></div>
+      <div class="chartwrap" id="rn_chartw" hidden><canvas id="rn_chart"></canvas><div class="tip" hidden></div></div>
+      <p class="note" id="dem_sel"></p>
+    </div>
+
     <div class="card">
       <div class="hd"><h2>鳥瞰</h2>
         <div class="opts">
@@ -448,7 +544,11 @@ table.res th,table.res td{white-space:nowrap}
           <li>勾配の屈折：「勾配を途中で変える」の表で、位置ごとに勾配を変えた折れ線の縦断にできます（多段の屈折も可）。</li>
           <li>透過型堰堤：スリット（単・複）、鋼製格子型、鋼製スリット型を選べます。開口は多孔板の損失係数（Idelchik）で水を通し、粒径 d ≥ l/α の礫は通しません。閉塞は、流れの土砂濃度と l ≤ β d95（土石流対策技術指針（案）2000 の β = 1.5）で判定し、閉塞後は不透過型として働きます。</li>
           <li>土石流の一波：高橋（2007）の式（Kanako 2D と同じ形）。混合物の水深と土砂濃度で、侵食・堆積速度式、水面勾配による平衡濃度（石礫型・乱流型・掃流）、石礫型・乱流型・Manning の抵抗則を使います。δe = 0.0007、δd = 0.05。</li>
-          <li>支川の合流：谷壁を切り込んだ支川の水路から流量と土砂を流し込みます。急な支川の土砂は合流点に沖積錐をつくり、堆積で流れの向きが変わる（首振り）様子を計算できます。</li>
+          <li>支川の合流：谷壁を切り込んだ支川の水路から流量と土砂を流し込みます。急な支川の土砂は合流点に沖積錐をつくり、本川の流れを対岸へ押します（沖積錐の上での首振りは起きにくい。条件は支川の欄の説明）。</li>
+          <li>DEM の流域：窪地を Priority-Flood + ε（Barnes ら 2014）で埋め、D8 で流向・集水面積を求め、集水面積がしきい値以上のセルを谷筋、上流に谷筋がない谷筋のセルを谷頭（水の供給点の候補）とします。流域は DEM の端（欠測）へ出る出口ごとの集水域、または谷筋の任意の点を出口にした小流域です。選んだ流域を切り出し、出口が右端に来るように 90° 単位で回して計算します。流域の外は高い壁、谷筋は移動床、斜面は流れでは侵食しない土層（伏流と崩壊の土層）です。</li>
+          <li>雨：損失は流出係数 f（合理式）、一次流出率 f1・飽和雨量 Rsa・初期損失 R0（貯留関数法の標準の扱い）、浸透能（飽和透水係数と土層の空き容量。ホートン型と飽和余剰）から選びます。斜面から谷筋へは、合理式の考え方（到達時間内の平均有効雨量強度。到達時間は土研式の自然流域 T = 1.67×10⁻³(L/√S)^0.7 h）か貯留関数法 s = Kq^P で、谷筋のセルごとの直接の集水面積から流量にして横から入れます。格子に直接降らせることもできます（斜面の表面流も 2 次元で計算。伏流を有効にすると浸透と土層の中の流れ・湧出も）。</li>
+          <li>斜面崩壊：表層崩壊は無限長斜面の安全率 Fs = [c' + (γt(D−hw) + γ'hw)cos²β tanφ'] / [(γt(D−hw) + γsat hw) sinβ cosβ] をセルごとに、深層崩壊は Hovland（1977）の 3 次元簡便法で崩壊域全体の安全率を求めます。すべり面より上の飽和厚 hw は、表層で伏流ありなら土層の地下水、それ以外は 1 段の線形タンク dS/dt = r − S/T（深層は時定数を長く）から。崩れた土は、流動化（濃度 C<sub>L</sub> の混合物にして土石流の式で流す。高山ら 2020 の C<sub>L</sub> = 0.5）か、土塊（最急降下の経路をエネルギー線が地表に届くまで瞬時に動かし、堆積勾配の円錐形に堆積。等価摩擦係数は Scheidegger 1973 の体積の式か指定）。</li>
+          <li>天然ダム：堤体の中の浸透は伏流の計算（Darcy・Dupuit 近似）。透水係数が大きいと越流の前に浸潤面が法尻に達し、湧水の出る法面で浸透流が斜面に平行な無限長斜面の安全率が 1 を下回った所から崩れ、崩壊が上流へ遡ります（進行性崩壊）。透水係数が小さいと満水になって越流し、越流水がダムを侵食します（越流侵食。侵食速度式は飽和河床（高橋）と不飽和河床（高橋・里深）を堤体の飽和度で切り替え）。すべり破壊は、湛水位が指定の高さに達したとき、法尻から上がる面より上の土を下流へ堆積勾配の斜面に瞬時に動かします（Awal ら 2008、高山ら 2020 の簡易モデル）。</li>
           <li>伏流：水に浸かった堆積層へ単位動水勾配で浸透し、堆積層の中を Darcy 則（Dupuit 近似）で流れ、空隙からあふれると湧き出します。透水係数は Kozeny–Carman 式で粒度から求めます（上限あり）。</li>
           <li>流砂量は、平衡流砂量（芦田・道上式）のほかに、高橋・里深（1999）と高橋ら（1998）の侵食・堆積速度式（非平衡）でも計算できます。流れの中の粒径別土砂濃度を運び、平衡濃度との差で侵食・堆積させます。水際の浅い所では係数を割り増して、水際の掃流力の過小評価を補います。</li>
           <li>堰堤は1セル幅の固定床です。天端、水通し、袖部を標高で与えます。固定床への段上がりが水深の半分を超える間は、掃流砂を通しません。</li>
@@ -482,6 +582,17 @@ table.res th,table.res td{white-space:nowrap}
           <li>建設省河川局砂防部砂防課（2000）：土石流対策技術指針（案）．国土技術政策総合研究所（2016）：土石流・流木対策設計技術指針解説．</li>
           <li>Idelchik, I. E.: Handbook of Hydraulic Resistance（多孔板・格子の損失係数）．</li>
           <li>Carman, P. C. (1937): Fluid flow through granular beds, Transactions of the Institution of Chemical Engineers, 15, pp.150–166（Kozeny–Carman 式）．</li>
+          <li>Barnes, R., Lehman, C., Mulla, D. (2014): Priority-Flood: An optimal depression-filling and watershed-labeling algorithm for digital elevation models, Computers &amp; Geosciences, 62, pp.117–127．</li>
+          <li>国土交通省 中部地方整備局：砂防関係施設の設計（合理式・洪水到達時間（Kraven 式・Rziha 式・土研式）・流出係数）．</li>
+          <li>国土交通省 関東地方整備局：貯留関数法の定数（K、P、Tl、f1、Rsa、R0）の設定．</li>
+          <li>Hovland, H. J. (1977): Three-dimensional slope stability analysis method, Journal of the Geotechnical Engineering Division, ASCE, 103(GT9), pp.971–986．</li>
+          <li>Iverson, R. M. (2000): Landslide triggering by rain infiltration, Water Resources Research, 36(7), pp.1897–1910．</li>
+          <li>Scheidegger, A. E. (1973): On the prediction of the reach and velocity of catastrophic landslides, Rock Mechanics, 5, pp.231–236．</li>
+          <li>高山翔揮・藤本将光・里深好文（2020）：進行性崩壊による天然ダム決壊過程に関する研究，砂防学会誌，72(5)，pp.3–14．</li>
+          <li>高山翔揮・星山博紀・藤本将光・里深好文（2020）：天然ダムのすべり破壊により生じる洪水流の規模に関する研究，土木学会論文集B1（水工学），76(2)，pp.I_1183–I_1188．</li>
+          <li>里深好文・吉野弘祐・水山高久・小川紀一朗・内川龍男・森俊勇（2007）：天然ダムの決壊に伴う洪水流出の予測手法に関する研究，水工学論文集，51，pp.901–906．</li>
+          <li>Awal, R., Nakagawa, H., Kawaike, K., Baba, Y., Zhang, H. (2008): An integrated approach to predict outflow hydrograph due to landslide dam failure by overtopping and sliding, Annual Journal of Hydraulic Engineering, JSCE, 52．</li>
+          <li>高橋保・匡尚富（1988）：天然ダムの決壊による土石流の規模に関する研究，京都大学防災研究所年報，31 B-2，pp.601–615．</li>
           <li>長田信寿・細田尚・村本嘉雄・Md. M. Rahman（1996）：側岸侵食を伴う河道変動の数値解析，京都大学防災研究所年報，第39号B-2，pp.415–428．</li>
           <li>長谷川和義（1983）：沖積蛇行の平面および河床形状と流れに関する水理学的研究，北海道大学学位論文．</li>
           <li>Kalkwijk, J. P. Th., de Vriend, H. J. (1980): Computation of the flow in shallow river bends, J. Hydraulic Research, 18(4), pp.327–342.</li>

@@ -160,7 +160,7 @@ table.res th,table.res td{white-space:nowrap}
     </div></details>
 
     <details open><summary>河道地形</summary><div class="body">
-      <div class="row"><label for="g_src">地形の作り方</label><select id="g_src"><option value="param">数値で指定</option><option value="survey">横断・縦断の測量値</option><option value="csv">格子の CSV を読み込む</option></select></div>
+      <div class="row"><label for="g_src">地形の作り方</label><select id="g_src"><option value="param">数値で指定</option><option value="survey">横断・縦断の測量値</option><option value="csv">格子の CSV を読み込む</option><option value="dem">DEM から流域を選ぶ</option></select></div>
       <p class="note" style="margin:0">モデル渓流（写真の河道を参考にした架空の地形。押すと「数値で指定」に切り替わり、地形と堰堤の配置が入れ替わります）</p>
       <div class="btns" style="margin-top:4px"><button class="sm" id="pre_A">床固工群の渓流</button><button class="sm" id="pre_B">狭窄部と広い堆砂域</button><button class="sm" id="pre_S">単純な直線水路</button></div>
       <ol class="note" style="margin:6px 0 0;padding-left:1.3em">
@@ -243,6 +243,22 @@ table.res th,table.res td{white-space:nowrap}
         <p class="note" id="csv_info">形式は2通りです。①行列：1行目が左岸側、左の列が上流、値は標高 [m]。②x, y, z の3列：x は流下方向、y は左岸側が正。区切りはカンマ・タブ・空白のどれでも構いません。</p>
         <p class="note">各横断の最低点から「谷底とみなす高さ」までを侵食できる河床とし、それより高い所は侵食しない斜面として扱います。</p>
       </div>
+      <div id="g_dem" class="body" style="padding:0" hidden>
+        <p class="note">DEM を読み込むと、窪地を埋め、流向（D8）・集水面積・谷筋・流域界を求め、谷頭（谷筋の最上流点＝水の供給点の候補）をすべて取り出します。右の「DEM と流域」の地図で、流域と供給点を選んでください。</p>
+        <div class="row"><label for="dem_file">DEM のファイル</label><input type="file" id="dem_file" multiple accept=".asc,.txt,.xyz,.csv,.xml,.tif,.tiff" style="font-size:12px"></div>
+        <p class="note" style="margin:0">ESRI ASCII grid（.asc）、XYZ 点群（.xyz/.txt/.csv、x y z）、基盤地図情報 数値標高モデル（.xml、複数のタイル可）、GeoTIFF（非圧縮・LZW・Deflate、1 バンド）。座標は平面直角座標など m 単位を想定します（基盤地図情報は緯度経度から換算）。</p>
+        <div class="btns"><button class="sm" id="dem_sample">例の DEM（架空の山地流域）</button></div>
+        <div class="row"><label for="dem_thr">谷筋とみなす集水面積<span class="u">km²</span></label><input type="number" id="dem_thr" step="0.005" min="0.0005" value="0.02"></div>
+        <div class="row"><label for="dem_chw">侵食できる谷筋の幅<span class="u">m</span></label><input type="number" id="dem_chw" step="1" min="1" value="10"></div>
+        <div class="row"><label for="dem_soil">斜面の土層の厚さ<span class="u">m</span></label><input type="number" id="dem_soil" step="0.1" min="0.1" value="1"></div>
+        <div class="row"><label for="dem_ks">土層の飽和透水係数<span class="u">m/s</span></label><input type="number" id="dem_ks" step="0.00001" min="0" value="0.00001"></div>
+        <div class="row"><label for="dem_dur">計算時間<span class="u">分</span></label><input type="number" id="dem_dur" step="5" min="1" value="30"></div>
+        <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="dem_fill" checked>窪地を埋めた地形で計算する</label>
+        <div class="btns"><button class="sm" id="dem_json" title="Python 版で python sabo2d.py --params ファイル名 として同じ計算をするときに使います">計算条件を JSON で保存（Python 版用）</button></div>
+        <p class="note" id="dem_msg" hidden></p>
+        <p class="note" id="dem_info"></p>
+        <p class="note">流域の外は高い壁にして、水は出入りしません。流域の出口から右端まで水路を掘り、出口が計算領域の右（下流端）に来るように地形を 90° 単位で回します。谷筋は「侵食できる谷筋の幅」に広げて移動床にし、それ以外の斜面は流れでは侵食しない土層（伏流と斜面崩壊に使う）にします。斜めにつながる谷筋は、横か縦の隣のセルも谷筋にして、4 近傍でつながるようにします（浅水流の計算は辺を通してしか水が流れないため）。</p>
+      </div>
       <details style="border:0;padding:0"><summary style="font-weight:500">計算後の河床から続ける・保存する（任意）</summary><div class="body">
       <p class="note">計算した後の河床を初期地形にして、もう一度出水を流すときのボタンです。堰堤は前と同じ位置・向き・天端標高で置き直します。</p>
       <div class="btns"><button class="sm" id="csv_cont">この河床から続けて計算</button><button class="sm" id="csv_save">河床を CSV ファイルに保存</button></div>
@@ -253,6 +269,73 @@ table.res th,table.res td{white-space:nowrap}
       <div class="row"><label for="g_P">初期河床の凹凸<span class="u">cm</span></label><input type="number" id="g_P" step="1" min="0"></div>
       <div class="row"><label for="g_D">侵食可能深<span class="u">m</span></label><input type="number" id="g_D" step="0.5" min="0.2"></div>
       <div class="row"><label for="g_seed">乱数の種<span class="u">–</span></label><input type="number" id="g_seed" step="1" min="1"></div>
+    </div></details>
+
+    <details id="dem_more" hidden open><summary>土石流の発生形態・雨・斜面崩壊（DEM）</summary><div class="body">
+      <div class="row"><label for="gen_type">土石流の発生形態</label><select id="gen_type"><option value="bed">渓床侵食型（谷頭から水を流す）</option><option value="slide">崩壊型（斜面崩壊が流動化）</option><option value="ldam">天然ダム決壊型</option></select></div>
+      <p class="note" id="gen_note"></p>
+      <details style="border:0;padding:0" open><summary style="font-weight:500">谷頭の供給点とハイドロ</summary><div class="body">
+        <p class="note">地図の「供給点を選ぶ」で谷頭をクリックすると、表に加わります（もう一度クリックで外す）。波形：三角形（基底→ピーク→基底）、一定、土石流の一波（基底流量＋三角形の波）。時刻は秒です。濃度は、三角形と一定では供給土砂濃度 Qs/Q、土石流の一波では波の土砂濃度（容積）です。</p>
+        <div style="overflow-x:auto"><table class="ed" id="srctab"><thead><tr><th>点</th><th>波形</th><th>基底 [m³/s]</th><th>ピーク [m³/s]</th><th>開始 [秒]</th><th>立上り [秒]</th><th>減衰 [秒]</th><th>濃度</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="btns"><button class="sm" id="src_all">1 行目の設定を全部へ</button><button class="sm" id="src_top">集水面積の大きい谷頭 3 つ</button><button class="sm" id="src_clr">すべて外す</button></div>
+      </div></details>
+      <details style="border:0;padding:0"><summary style="font-weight:500">雨（谷へ集まる水）</summary><div class="body">
+        <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="rn_on">雨を降らせる</label>
+        <div id="rn_box" hidden>
+        <div class="row"><label for="rn_meth">谷への集め方</label><select id="rn_meth"><option value="lumped">斜面で流出計算して谷筋へ入れる</option><option value="grid">格子に直接降らせる（表面流で計算）</option></select></div>
+        <div class="row"><label for="rn_mode">雨のデータ</label><select id="rn_mode"><option value="uniform">流域に一様（ハイエトグラフ）</option><option value="grid">格子の雨（XRAIN などを変換した CSV）</option></select></div>
+        <div id="rn_uni"><p class="note">1 行に「時刻 [分], 雨量強度 [mm/h]」。その時刻から次の時刻までの強度です。</p><textarea id="rn_tab" spellcheck="false">0, 20
+10, 60
+20, 80
+30, 40
+40, 10
+50, 0</textarea></div>
+        <div id="rn_grd" hidden>
+          <div class="row"><label for="rn_file">雨の CSV</label><input type="file" id="rn_file" accept=".csv,.txt" style="font-size:12px"></div>
+          <p class="note">1 行に「時刻 [分], X, Y, 雨量強度 [mm/h]」（X, Y は DEM と同じ座標。基盤地図情報の DEM なら経度, 緯度）。各時刻の点から、最も近い点の値を DEM のセルに配ります（XRAIN の 250 m メッシュなどを想定）。</p>
+          <p class="note" id="rn_ginfo"></p>
+        </div>
+        <div class="row"><label for="rn_loss">損失（有効雨量）</label><select id="rn_loss"><option value="f">流出係数 f（合理式）</option><option value="f1rsa">一次流出率 f1・飽和雨量 Rsa（貯留関数法）</option><option value="ks">浸透能（透水係数）と土層の空き容量</option></select></div>
+        <div class="row lf"><label for="rn_f">流出係数 f</label><input type="number" id="rn_f" step="0.05" min="0" max="1" value="0.8"></div>
+        <div class="row lr"><label for="rn_f1">一次流出率 f1</label><input type="number" id="rn_f1" step="0.05" min="0" max="1" value="0.5"></div>
+        <div class="row lr"><label for="rn_rsa">飽和雨量 Rsa<span class="u">mm</span></label><input type="number" id="rn_rsa" step="10" min="0" value="100"></div>
+        <div class="row lr"><label for="rn_r0">初期損失 R0<span class="u">mm</span></label><input type="number" id="rn_r0" step="5" min="0" value="0"></div>
+        <div class="row lk"><label for="rn_ks">飽和透水係数 ks<span class="u">m/s</span></label><input type="number" id="rn_ks" step="0.000001" min="0" value="0.00001"></div>
+        <div class="row lk"><label for="rn_D">土層の厚さ<span class="u">m</span></label><input type="number" id="rn_D" step="0.1" min="0.1" value="1"></div>
+        <div class="row lk"><label for="rn_n">間隙率 / 初期含水率</label><span style="display:flex;gap:4px"><input type="number" id="rn_n" step="0.05" min="0.1" max="0.9" value="0.45" style="width:4.5em"><input type="number" id="rn_th" step="0.05" min="0" max="0.9" value="0.25" style="width:4.5em"></span></div>
+        <div id="rn_lump">
+        <div class="row"><label for="rn_route">斜面の流出</label><select id="rn_route"><option value="rational">合理式（到達時間内の平均有効雨量）</option><option value="storage">貯留関数法 s = K q^P</option></select></div>
+        <div class="row rr"><label for="rn_tc">到達時間<span class="u">分、0＝土研式</span></label><input type="number" id="rn_tc" step="5" min="0" value="0"></div>
+        <div class="row rs"><label for="rn_K">K / P</label><span style="display:flex;gap:4px"><input type="number" id="rn_K" step="1" min="0.1" value="10" style="width:4.5em"><input type="number" id="rn_P" step="0.05" min="0.1" max="1" value="0.6" style="width:4.5em"></span></div>
+        <div class="row rs"><label for="rn_tl">遅れ Tl<span class="u">分</span></label><input type="number" id="rn_tl" step="1" min="0" value="0"></div>
+        <div class="btns"><button class="sm" id="rn_calc">流出を計算して図に出す</button></div>
+        </div>
+        <p class="note" id="rn_info"></p>
+        <p class="note">「斜面で流出計算」：谷筋のセルごとに、そこへ直接流れ込む斜面の面積（谷頭は上流の全面積）で、有効雨量を合理式（時間面積法。到達時間は土研式 T = 1.67×10⁻³ (L/√S)^0.7 h、L は最遠点からの流下距離）か貯留関数法で流量にして、その谷筋のセルへ横から入れます。谷筋の中の流れは 2 次元の計算です。「格子に直接降らせる」：有効雨量を流域のすべてのセルに降らせ、斜面の表面流も 2 次元で計算します（時間がかかります）。「流砂モデル・側岸侵食」で伏流を有効にすると、浸透と土層の中の流れ（湧出）は伏流の計算で扱い、損失の設定は使いません。</p>
+        </div>
+      </div></details>
+      <details style="border:0;padding:0"><summary style="font-weight:500">斜面崩壊</summary><div class="body">
+        <p class="note">地図の「崩壊を置く」で斜面をクリックすると、表に加わります。表層：深さ D の一様なすべり面（無限長斜面の安全率をセルごとに計算）。深層：中心で深さ D のさじ形のすべり面（Hovland の 3 次元簡便法で全体の安全率）。発生：「安全率」は Fs &lt; 1 になったとき、「時刻」はその時刻に崩します。</p>
+        <div style="overflow-x:auto"><table class="ed" id="sltab"><thead><tr><th>点</th><th>種類</th><th>半径 [m]</th><th>深さ D [m]</th><th>発生</th><th>時刻 [秒]</th><th>移動</th><th>φ [°]</th><th>c [kN/m²]</th><th>初期の地下水 m0</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="row"><label for="sl_dep">土塊の堆積勾配<span class="u">°</span></label><input type="number" id="sl_dep" step="1" min="2" max="35" value="10"></div>
+        <div class="row"><label for="sl_mu">等価摩擦角<span class="u">°、0＝体積から</span></label><input type="number" id="sl_mu" step="1" min="0" max="45" value="0"></div>
+        <div class="row"><label for="sl_cl">流動化するときの濃度 C<sub>L</sub></label><input type="number" id="sl_cl" step="0.05" min="0.2" max="0.55" value="0.5"></div>
+        <div class="row"><label for="sl_tk">地下水のタンクの時定数（表層 / 深層）<span class="u">h</span></label><span style="display:flex;gap:4px"><input type="number" id="sl_tk1" step="1" min="0.5" value="6" style="width:4.5em"><input type="number" id="sl_tk2" step="6" min="1" value="48" style="width:4.5em"></span></div>
+        <div class="btns"><button class="sm" id="sl_clr">すべて消す</button></div>
+        <p class="note">移動：「土石流化」は崩れた土を流れ（濃度 C<sub>L</sub>、足りない水は法面の流れと湧水から取り込むと仮定して足す）にし、土石流の式で流します。「土塊」は最急降下の経路を、エネルギー線（崩壊域の最高点から等価摩擦角の勾配）が地表に届くところまで瞬時に動かし、表面の勾配が堆積勾配の円錐形に堆積させます（谷をふさげば天然ダム）。「自動」は、すべり面より上の地下水の厚さの割合 m が 0.8 以上で、流砂モデルが土石流なら土石流化、それ以外は土塊。地下水は、表層で伏流ありなら土層の地下水、それ以外は 1 段の線形タンク dS/dt = r − S/T（雨から）です。</p>
+      </div></details>
+      <details style="border:0;padding:0"><summary style="font-weight:500">天然ダム（河道閉塞）</summary><div class="body">
+        <p class="note">地図の「天然ダムを置く」で谷筋をクリックすると、その流れの向きに直角な天然ダム（台形の縦断）を置きます。斜面崩壊の「土塊」で谷がふさがったときも、その堆積物を天然ダムとして扱います。</p>
+        <div style="overflow-x:auto"><table class="ed" id="ldtab"><thead><tr><th>点</th><th>高さ [m]</th><th>天端幅 [m]</th><th>上流法 [°]</th><th>下流法 [°]</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="row"><label for="ld_k">堤体の透水係数<span class="u">m/s、0＝粒度から</span></label><input type="number" id="ld_k" step="0.0001" min="0" value="0.001"></div>
+        <div class="row"><label for="ld_fail">決壊の形</label><select id="ld_fail"><option value="auto">透水性で決まる（越流侵食 / 進行性崩壊）</option><option value="slip">すべり破壊（湛水位で指定）</option></select></div>
+        <div class="row"><label for="ld_lev">すべりが起きる湛水位（ダム高に対する比）</label><input type="number" id="ld_lev" step="0.05" min="0.1" max="1" value="0.9"></div>
+        <div class="row"><label for="ld_phi">堤体の φ / c<span class="u">° / kN/m²</span></label><span style="display:flex;gap:4px"><input type="number" id="ld_phi" step="1" min="15" max="50" value="35" style="width:4.5em"><input type="number" id="ld_c" step="1" min="0" value="0" style="width:4.5em"></span></div>
+        <div class="row"><label for="ld_ero">越流の侵食速度式</label><select id="ld_ero"><option value="auto">堤体の飽和度で切り替え</option><option value="sat">飽和河床（高橋）</option><option value="unsat">不飽和河床（高橋・里深）</option></select></div>
+        <div class="row"><label for="ld_kt">不飽和河床の侵食速度係数 K<sub>t</sub></label><input type="number" id="ld_kt" step="0.0005" min="0" value="0.0019"></div>
+        <div class="btns"><button class="sm" id="ld_clr">すべて消す</button></div>
+        <p class="note">堤体の中の浸透は伏流の計算（Darcy、Dupuit 近似）で、天然ダムがあると伏流を自動で有効にします。透水係数が大きいと、越流の前に浸潤面が下流の法尻に達し、湧水の出る法面で無限長斜面（浸透流が斜面に平行）の安全率 Fs = c'/(γsat T sinβ cosβ) + (γ'/γsat)tanφ/tanβ が 1 を下回った所から順に崩れて、崩壊が上流へ遡ります（進行性崩壊。高山ら 2020 の観察）。透水係数が小さいと、満水になって越流し、越流水がダムを侵食します（越流侵食）。すべり破壊は、湛水位が指定の高さに達したとき、下流の法尻から角度 20° で上がる面より上の土を、法尻から下流へ堆積勾配（斜面崩壊の欄）の斜面になるように瞬時に動かします（Awal ら 2008、高山ら 2020 の簡易モデル）。</p>
+      </div></details>
     </div></details>
 
     <details open><summary>堰堤の諸元</summary><div class="body">
@@ -362,6 +445,19 @@ table.res th,table.res td{white-space:nowrap}
 
     <div class="tiles" id="tiles"></div>
 
+    <div class="card" id="demcard" hidden>
+      <div class="hd"><h2>DEM と流域</h2>
+        <div class="opts">
+          <label>クリックで <select id="dm_mode"><option value="basin">流域を選ぶ</option><option value="outlet">出口を指定（小流域）</option><option value="src">供給点を選ぶ</option><option value="slide">崩壊を置く</option><option value="ldam">天然ダムを置く</option></select></label>
+          <label><input type="checkbox" id="dm_fit" checked> 選んだ流域に寄せる</label>
+        </div>
+      </div>
+      <div class="chartwrap"><canvas id="demmap" style="cursor:crosshair"></canvas><div class="tip" id="dem_tip" hidden></div></div>
+      <div class="key" id="dem_key"></div>
+      <div class="chartwrap" id="rn_chartw" hidden><canvas id="rn_chart"></canvas><div class="tip" hidden></div></div>
+      <p class="note" id="dem_sel"></p>
+    </div>
+
     <div class="card">
       <div class="hd"><h2>鳥瞰</h2>
         <div class="opts">
@@ -464,7 +560,11 @@ table.res th,table.res td{white-space:nowrap}
           <li>勾配の屈折：「勾配を途中で変える」の表で、位置ごとに勾配を変えた折れ線の縦断にできます（多段の屈折も可）。</li>
           <li>透過型堰堤：スリット（単・複）、鋼製格子型、鋼製スリット型を選べます。開口は多孔板の損失係数（Idelchik）で水を通し、粒径 d ≥ l/α の礫は通しません。閉塞は、流れの土砂濃度と l ≤ β d95（土石流対策技術指針（案）2000 の β = 1.5）で判定し、閉塞後は不透過型として働きます。</li>
           <li>土石流の一波：高橋（2007）の式（Kanako 2D と同じ形）。混合物の水深と土砂濃度で、侵食・堆積速度式、水面勾配による平衡濃度（石礫型・乱流型・掃流）、石礫型・乱流型・Manning の抵抗則を使います。δe = 0.0007、δd = 0.05。</li>
-          <li>支川の合流：谷壁を切り込んだ支川の水路から流量と土砂を流し込みます。急な支川の土砂は合流点に沖積錐をつくり、堆積で流れの向きが変わる（首振り）様子を計算できます。</li>
+          <li>支川の合流：谷壁を切り込んだ支川の水路から流量と土砂を流し込みます。急な支川の土砂は合流点に沖積錐をつくり、本川の流れを対岸へ押します（沖積錐の上での首振りは起きにくい。条件は支川の欄の説明）。</li>
+          <li>DEM の流域：窪地を Priority-Flood + ε（Barnes ら 2014）で埋め、D8 で流向・集水面積を求め、集水面積がしきい値以上のセルを谷筋、上流に谷筋がない谷筋のセルを谷頭（水の供給点の候補）とします。流域は DEM の端（欠測）へ出る出口ごとの集水域、または谷筋の任意の点を出口にした小流域です。選んだ流域を切り出し、出口が右端に来るように 90° 単位で回して計算します。流域の外は高い壁、谷筋は移動床、斜面は流れでは侵食しない土層（伏流と崩壊の土層）です。</li>
+          <li>雨：損失は流出係数 f（合理式）、一次流出率 f1・飽和雨量 Rsa・初期損失 R0（貯留関数法の標準の扱い）、浸透能（飽和透水係数と土層の空き容量。ホートン型と飽和余剰）から選びます。斜面から谷筋へは、合理式の考え方（到達時間内の平均有効雨量強度。到達時間は土研式の自然流域 T = 1.67×10⁻³(L/√S)^0.7 h）か貯留関数法 s = Kq^P で、谷筋のセルごとの直接の集水面積から流量にして横から入れます。格子に直接降らせることもできます（斜面の表面流も 2 次元で計算。伏流を有効にすると浸透と土層の中の流れ・湧出も）。</li>
+          <li>斜面崩壊：表層崩壊は無限長斜面の安全率 Fs = [c' + (γt(D−hw) + γ'hw)cos²β tanφ'] / [(γt(D−hw) + γsat hw) sinβ cosβ] をセルごとに、深層崩壊は Hovland（1977）の 3 次元簡便法で崩壊域全体の安全率を求めます。すべり面より上の飽和厚 hw は、表層で伏流ありなら土層の地下水、それ以外は 1 段の線形タンク dS/dt = r − S/T（深層は時定数を長く）から。崩れた土は、流動化（濃度 C<sub>L</sub> の混合物にして土石流の式で流す。高山ら 2020 の C<sub>L</sub> = 0.5）か、土塊（最急降下の経路をエネルギー線が地表に届くまで瞬時に動かし、堆積勾配の円錐形に堆積。等価摩擦係数は Scheidegger 1973 の体積の式か指定）。</li>
+          <li>天然ダム：堤体の中の浸透は伏流の計算（Darcy・Dupuit 近似）。透水係数が大きいと越流の前に浸潤面が法尻に達し、湧水の出る法面で浸透流が斜面に平行な無限長斜面の安全率が 1 を下回った所から崩れ、崩壊が上流へ遡ります（進行性崩壊）。透水係数が小さいと満水になって越流し、越流水がダムを侵食します（越流侵食。侵食速度式は飽和河床（高橋）と不飽和河床（高橋・里深）を堤体の飽和度で切り替え）。すべり破壊は、湛水位が指定の高さに達したとき、法尻から上がる面より上の土を下流へ堆積勾配の斜面に瞬時に動かします（Awal ら 2008、高山ら 2020 の簡易モデル）。</li>
           <li>伏流：水に浸かった堆積層へ単位動水勾配で浸透し、堆積層の中を Darcy 則（Dupuit 近似）で流れ、空隙からあふれると湧き出します。透水係数は Kozeny–Carman 式で粒度から求めます（上限あり）。</li>
           <li>流砂量は、平衡流砂量（芦田・道上式）のほかに、高橋・里深（1999）と高橋ら（1998）の侵食・堆積速度式（非平衡）でも計算できます。流れの中の粒径別土砂濃度を運び、平衡濃度との差で侵食・堆積させます。水際の浅い所では係数を割り増して、水際の掃流力の過小評価を補います。</li>
           <li>堰堤は1セル幅の固定床です。天端、水通し、袖部を標高で与えます。固定床への段上がりが水深の半分を超える間は、掃流砂を通しません。</li>
@@ -498,6 +598,17 @@ table.res th,table.res td{white-space:nowrap}
           <li>建設省河川局砂防部砂防課（2000）：土石流対策技術指針（案）．国土技術政策総合研究所（2016）：土石流・流木対策設計技術指針解説．</li>
           <li>Idelchik, I. E.: Handbook of Hydraulic Resistance（多孔板・格子の損失係数）．</li>
           <li>Carman, P. C. (1937): Fluid flow through granular beds, Transactions of the Institution of Chemical Engineers, 15, pp.150–166（Kozeny–Carman 式）．</li>
+          <li>Barnes, R., Lehman, C., Mulla, D. (2014): Priority-Flood: An optimal depression-filling and watershed-labeling algorithm for digital elevation models, Computers &amp; Geosciences, 62, pp.117–127．</li>
+          <li>国土交通省 中部地方整備局：砂防関係施設の設計（合理式・洪水到達時間（Kraven 式・Rziha 式・土研式）・流出係数）．</li>
+          <li>国土交通省 関東地方整備局：貯留関数法の定数（K、P、Tl、f1、Rsa、R0）の設定．</li>
+          <li>Hovland, H. J. (1977): Three-dimensional slope stability analysis method, Journal of the Geotechnical Engineering Division, ASCE, 103(GT9), pp.971–986．</li>
+          <li>Iverson, R. M. (2000): Landslide triggering by rain infiltration, Water Resources Research, 36(7), pp.1897–1910．</li>
+          <li>Scheidegger, A. E. (1973): On the prediction of the reach and velocity of catastrophic landslides, Rock Mechanics, 5, pp.231–236．</li>
+          <li>高山翔揮・藤本将光・里深好文（2020）：進行性崩壊による天然ダム決壊過程に関する研究，砂防学会誌，72(5)，pp.3–14．</li>
+          <li>高山翔揮・星山博紀・藤本将光・里深好文（2020）：天然ダムのすべり破壊により生じる洪水流の規模に関する研究，土木学会論文集B1（水工学），76(2)，pp.I_1183–I_1188．</li>
+          <li>里深好文・吉野弘祐・水山高久・小川紀一朗・内川龍男・森俊勇（2007）：天然ダムの決壊に伴う洪水流出の予測手法に関する研究，水工学論文集，51，pp.901–906．</li>
+          <li>Awal, R., Nakagawa, H., Kawaike, K., Baba, Y., Zhang, H. (2008): An integrated approach to predict outflow hydrograph due to landslide dam failure by overtopping and sliding, Annual Journal of Hydraulic Engineering, JSCE, 52．</li>
+          <li>高橋保・匡尚富（1988）：天然ダムの決壊による土石流の規模に関する研究，京都大学防災研究所年報，31 B-2，pp.601–615．</li>
           <li>長田信寿・細田尚・村本嘉雄・Md. M. Rahman（1996）：側岸侵食を伴う河道変動の数値解析，京都大学防災研究所年報，第39号B-2，pp.415–428．</li>
           <li>長谷川和義（1983）：沖積蛇行の平面および河床形状と流れに関する水理学的研究，北海道大学学位論文．</li>
           <li>Kalkwijk, J. P. Th., de Vriend, H. J. (1980): Computation of the flow in shallow river bends, J. Hydraulic Research, 18(4), pp.327–342.</li>
@@ -525,6 +636,663 @@ table.res th,table.res td{white-space:nowrap}
 
 </script>
 <script>
+/* DEM の読み込みと流域の解析（ブラウザと Node の両方で動く）
+ *  - 読み込み：ESRI ASCII grid（.asc）、XYZ 点群（.xyz/.txt/.csv）、基盤地図情報 数値標高モデル（JPGIS GML .xml、複数可）、GeoTIFF（非圧縮・LZW・Deflate）
+ *  - 窪地の埋め：Priority-Flood + ε（Barnes et al. 2014）
+ *  - 流向：D8（最急勾配の 8 方向）、集水面積、谷筋（集水面積がしきい値以上）、谷頭（上流に谷筋がない谷筋のセル）
+ *  - 流域：DEM の端（または欠測）へ出る出口ごとの集水域。谷筋の任意の点を出口にした小流域
+ *  - 計算領域：流域を切り出し、出口が右（下流端）に来るように 90° 単位で回し、出口から右端まで水路を掘る
+ */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.SaboDEM = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+  // D8 の 8 方向（東から反時計回り）。行は北が 0（下に行くほど南）
+  var DC = [1, 1, 0, -1, -1, -1, 0, 1], DR = [0, -1, -1, -1, 0, 1, 1, 1];
+  var DL = [1, Math.SQRT2, 1, Math.SQRT2, 1, Math.SQRT2, 1, Math.SQRT2];
+
+  function mkDEM(nx, ny, csx, csy, x0, yTop, z, src) {
+    return { nx: nx, ny: ny, csx: csx, csy: csy, cs: csx, x0: x0, yTop: yTop, z: z, src: src || '' };
+  }
+
+  // ---------------------------------------------------------------- 読み込み
+  function parseASC(text) {
+    var lines = text.split(/\r?\n/), H = {}, i = 0;
+    for (; i < lines.length; i++) {
+      var m = lines[i].trim().match(/^([A-Za-z_]+)\s+([-+0-9.eE]+)$/);
+      if (!m) break;
+      H[m[1].toLowerCase()] = parseFloat(m[2]);
+    }
+    var nx = H.ncols | 0, ny = H.nrows | 0;
+    if (!(nx > 1 && ny > 1)) throw new Error('ESRI ASCII grid の見出し（ncols, nrows）が読めません');
+    var csx = H.cellsize || H.dx, csy = H.cellsize || H.dy || csx;
+    var x0 = isFinite(H.xllcorner) ? H.xllcorner : (H.xllcenter || 0) - csx / 2;
+    var yll = isFinite(H.yllcorner) ? H.yllcorner : (H.yllcenter || 0) - csy / 2;
+    var nd = isFinite(H.nodata_value) ? H.nodata_value : -9999;
+    var z = new Float64Array(nx * ny), k = 0;
+    for (; i < lines.length && k < nx * ny; i++) {
+      var t = lines[i].trim(); if (!t) continue;
+      var a = t.split(/[\s,]+/);
+      for (var q = 0; q < a.length && k < nx * ny; q++) { var v = parseFloat(a[q]); z[k++] = (!isFinite(v) || v === nd || v <= -9998) ? NaN : v; }
+    }
+    if (k < nx * ny) throw new Error('ESRI ASCII grid の値が足りません（' + k + ' / ' + nx * ny + '）');
+    return mkDEM(nx, ny, csx, csy, x0, yll + ny * csy, z, 'asc');
+  }
+
+  function parseXYZ(text) {
+    var pts = [], lines = text.split(/\r?\n/);
+    for (var i = 0; i < lines.length; i++) {
+      var a = lines[i].trim().split(/[\s,;]+/); if (a.length < 3) continue;
+      var x = parseFloat(a[0]), y = parseFloat(a[1]), zz = parseFloat(a[2]);
+      if (isFinite(x) && isFinite(y) && isFinite(zz)) pts.push([x, y, zz]);
+    }
+    if (pts.length < 9) throw new Error('XYZ の点が足りません');
+    function step(vals) {
+      vals.sort(function (p, q) { return p - q; });
+      var u = [vals[0]];
+      for (var i2 = 1; i2 < vals.length; i2++) if (vals[i2] - u[u.length - 1] > 1e-6) u.push(vals[i2]);
+      var ds = []; for (i2 = 1; i2 < u.length; i2++) ds.push(u[i2] - u[i2 - 1]);
+      ds.sort(function (p, q) { return p - q; });
+      return { min: u[0], max: u[u.length - 1], d: ds.length ? ds[Math.floor(ds.length / 2)] : 1 };
+    }
+    var sx = step(pts.map(function (p) { return p[0]; })), sy = step(pts.map(function (p) { return p[1]; }));
+    var cs = Math.min(sx.d, sy.d);
+    var nx = Math.round((sx.max - sx.min) / cs) + 1, ny = Math.round((sy.max - sy.min) / cs) + 1;
+    if (nx * ny > 4e7) throw new Error('XYZ の格子が大きすぎます（' + nx + '×' + ny + '）');
+    var z = new Float64Array(nx * ny).fill(NaN);
+    for (i = 0; i < pts.length; i++) {
+      var c = Math.round((pts[i][0] - sx.min) / cs), r = Math.round((sy.max - pts[i][1]) / cs);
+      if (c >= 0 && c < nx && r >= 0 && r < ny) z[r * nx + c] = pts[i][2];
+    }
+    return mkDEM(nx, ny, cs, cs, sx.min - cs / 2, sy.max + cs / 2, z, 'xyz');
+  }
+
+  // 基盤地図情報 数値標高モデル（JPGIS GML）。緯度経度の格子。複数のタイルをつなげる
+  function parseGSIXMLOne(text) {
+    function tag(name) { var m = text.match(new RegExp('<gml:' + name + '[^>]*>([^<]*)</gml:' + name + '>')); return m ? m[1].trim() : null; }
+    var lo = tag('lowerCorner'), up = tag('upperCorner'), hi = tag('high'), sp = tag('startPoint');
+    if (!lo || !up || !hi) throw new Error('基盤地図情報の XML（lowerCorner, upperCorner, high）が読めません');
+    lo = lo.split(/\s+/).map(Number); up = up.split(/\s+/).map(Number); hi = hi.split(/\s+/).map(Number);
+    var nx = hi[0] + 1, ny = hi[1] + 1, st = sp ? sp.split(/\s+/).map(Number) : [0, 0];
+    var m = text.match(/<gml:tupleList>([\s\S]*?)<\/gml:tupleList>/);
+    if (!m) throw new Error('基盤地図情報の XML に tupleList がありません');
+    var z = new Float64Array(nx * ny).fill(NaN), k = st[1] * nx + st[0];
+    var rows = m[1].split(/\r?\n/);
+    for (var i = 0; i < rows.length && k < nx * ny; i++) {
+      var t = rows[i].trim(); if (!t) continue;
+      var p = t.lastIndexOf(','), v = parseFloat(p >= 0 ? t.slice(p + 1) : t);
+      z[k++] = (!isFinite(v) || v <= -9998) ? NaN : v;
+    }
+    return { lat0: lo[0], lon0: lo[1], lat1: up[0], lon1: up[1], nx: nx, ny: ny, z: z };
+  }
+  function parseGSIXML(texts) {
+    if (!Array.isArray(texts)) texts = [texts];
+    var T = texts.map(parseGSIXMLOne);
+    var dlat = (T[0].lat1 - T[0].lat0) / T[0].ny, dlon = (T[0].lon1 - T[0].lon0) / T[0].nx;
+    var la0 = Infinity, la1 = -Infinity, lo0 = Infinity, lo1 = -Infinity;
+    T.forEach(function (t) { la0 = Math.min(la0, t.lat0); la1 = Math.max(la1, t.lat1); lo0 = Math.min(lo0, t.lon0); lo1 = Math.max(lo1, t.lon1); });
+    var NX = Math.round((lo1 - lo0) / dlon), NY = Math.round((la1 - la0) / dlat);
+    if (NX * NY > 4e7) throw new Error('つなげた格子が大きすぎます');
+    var Z = new Float64Array(NX * NY).fill(NaN);
+    T.forEach(function (t) {
+      var c0 = Math.round((t.lon0 - lo0) / dlon), r0 = Math.round((la1 - t.lat1) / dlat);
+      for (var r = 0; r < t.ny; r++) for (var c = 0; c < t.nx; c++) {
+        var v = t.z[r * t.nx + c]; if (!isFinite(v)) continue;
+        var R = r0 + r, C = c0 + c; if (R >= 0 && R < NY && C >= 0 && C < NX) Z[R * NX + C] = v;
+      }
+    });
+    // 緯度経度 → 局所の平面（m）。正方形の格子に直す（小さい方の間隔）
+    var latm = (la0 + la1) / 2 * Math.PI / 180;
+    var my = 111132.92 - 559.82 * Math.cos(2 * latm) + 1.175 * Math.cos(4 * latm);
+    var mx = 111412.84 * Math.cos(latm) - 93.5 * Math.cos(3 * latm);
+    var csx = dlon * mx, csy = dlat * my;
+    var D = mkDEM(NX, NY, csx, csy, lo0 * mx, la1 * my, Z, 'gsi');
+    D.geo = { lat0: la0, lat1: la1, lon0: lo0, lon1: lo1 };
+    return squareCells(D);
+  }
+
+  // 格子の間隔が縦横で違うときは、小さい方の間隔の正方形格子に直す（双一次補間）
+  function squareCells(D) {
+    if (Math.abs(D.csx - D.csy) < 1e-6 * D.csx) { D.cs = D.csx; return D; }
+    var cs = Math.min(D.csx, D.csy), W = D.nx * D.csx, Hh = D.ny * D.csy;
+    var nx = Math.max(2, Math.round(W / cs)), ny = Math.max(2, Math.round(Hh / cs));
+    var z = new Float64Array(nx * ny);
+    for (var r = 0; r < ny; r++) for (var c = 0; c < nx; c++) z[r * nx + c] = sampleBil(D, (c + 0.5) * cs / D.csx - 0.5, (r + 0.5) * cs / D.csy - 0.5);
+    var E = mkDEM(nx, ny, cs, cs, D.x0, D.yTop, z, D.src); E.geo = D.geo; return E;
+  }
+  function sampleBil(D, fx, fy) {
+    var nx = D.nx, ny = D.ny;
+    if (fx < 0) fx = 0; if (fy < 0) fy = 0; if (fx > nx - 1) fx = nx - 1; if (fy > ny - 1) fy = ny - 1;
+    var c0 = Math.min(nx - 2, Math.floor(fx)), r0 = Math.min(ny - 2, Math.floor(fy)), tx = fx - c0, ty = fy - r0;
+    var a = D.z[r0 * nx + c0], b = D.z[r0 * nx + c0 + 1], c = D.z[(r0 + 1) * nx + c0], d = D.z[(r0 + 1) * nx + c0 + 1];
+    if (!(isFinite(a) && isFinite(b) && isFinite(c) && isFinite(d))) {   // 欠測が混じるときは最も近い点
+      var v = D.z[Math.round(fy) * nx + Math.round(fx)]; return v;
+    }
+    return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
+  }
+
+  // ---- GeoTIFF（最低限）：ストリップとタイル、非圧縮・LZW・Deflate、予測子 2・3、整数と浮動小数点
+  // inflate(Uint8Array) は Deflate（zlib）の展開関数。ブラウザでは非同期（DecompressionStream）なので、parseTIFF は Promise を返す
+  function parseTIFF(buf, inflate) {
+    var dv = new DataView(buf instanceof ArrayBuffer ? buf : buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+    var u8 = new Uint8Array(dv.buffer);
+    var le = dv.getUint16(0) === 0x4949;
+    if (dv.getUint16(2, le) !== 42) throw new Error('GeoTIFF ではありません（BigTIFF は未対応）');
+    var off = dv.getUint32(4, le), n = dv.getUint16(off, le), T = {};
+    var SZ = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8, 16: 8 };
+    function rd(type, p) {
+      switch (type) {
+        case 1: case 7: return dv.getUint8(p); case 6: return dv.getInt8(p);
+        case 3: return dv.getUint16(p, le); case 8: return dv.getInt16(p, le);
+        case 4: return dv.getUint32(p, le); case 9: return dv.getInt32(p, le);
+        case 5: return dv.getUint32(p, le) / dv.getUint32(p + 4, le); case 10: return dv.getInt32(p, le) / dv.getInt32(p + 4, le);
+        case 11: return dv.getFloat32(p, le); case 12: return dv.getFloat64(p, le);
+        case 16: return dv.getUint32(p, le) + dv.getUint32(p + 4, le) * 4294967296;
+      }
+      return 0;
+    }
+    for (var i = 0; i < n; i++) {
+      var e = off + 2 + i * 12, tg = dv.getUint16(e, le), ty = dv.getUint16(e + 2, le), cnt = dv.getUint32(e + 4, le);
+      var sz = (SZ[ty] || 1) * cnt, p = sz <= 4 ? e + 8 : dv.getUint32(e + 8, le);
+      if (ty === 2) { var s = ''; for (var q = 0; q < cnt; q++) { var ch = u8[p + q]; if (ch) s += String.fromCharCode(ch); } T[tg] = s; }
+      else { var arr = []; for (q = 0; q < cnt; q++) arr.push(rd(ty, p + q * (SZ[ty] || 1))); T[tg] = arr; }
+    }
+    var W = T[256][0], H = T[257][0], bps = (T[258] || [8])[0], cmp = (T[259] || [1])[0], spp = (T[277] || [1])[0];
+    var pred = (T[317] || [1])[0], fmt = (T[339] || [1])[0], bpp = bps / 8;
+    if (spp !== 1) throw new Error('GeoTIFF：1 バンドの標高だけに対応しています（' + spp + ' バンド）');
+    var tiled = !!T[322], tw = tiled ? T[322][0] : W, th = tiled ? T[323][0] : (T[278] ? T[278][0] : H);
+    var offs = tiled ? T[324] : T[273], cnts = tiled ? T[325] : T[279];
+    var nd = T[42113] ? parseFloat(T[42113]) : NaN;
+    var scale = T[33550] || [1, 1], tie = T[33922] || [0, 0, 0, 0, 0, 0];
+    var z = new Float64Array(W * H);
+    var nTx = Math.ceil(W / tw);
+    function readVal(b, p) {
+      var d = new DataView(b.buffer, b.byteOffset, b.byteLength);
+      if (fmt === 3) return bps === 64 ? d.getFloat64(p, le) : d.getFloat32(p, le);
+      if (fmt === 2) return bps === 8 ? d.getInt8(p) : bps === 16 ? d.getInt16(p, le) : d.getInt32(p, le);
+      return bps === 8 ? d.getUint8(p) : bps === 16 ? d.getUint16(p, le) : d.getUint32(p, le);
+    }
+    function place(k, raw) {
+      var rowsIn = tiled ? th : Math.min(th, H - k * th);
+      var b = raw;
+      if (pred === 2) {          // 横方向の差分（整数）
+        var d = new DataView(b.buffer, b.byteOffset, b.byteLength);
+        for (var r = 0; r < rowsIn; r++) for (var x = 1; x < tw; x++) {
+          var p0 = (r * tw + x) * bpp, p1 = p0 - bpp;
+          if (bps === 8) b[p0] = (b[p0] + b[p1]) & 255;
+          else if (bps === 16) d.setUint16(p0, (d.getUint16(p0, le) + d.getUint16(p1, le)) & 65535, le);
+          else d.setUint32(p0, (d.getUint32(p0, le) + d.getUint32(p1, le)) >>> 0, le);
+        }
+      } else if (pred === 3) {   // 浮動小数点の予測子（バイトの並べ替え＋差分）
+        var rowB = tw * bpp, out = new Uint8Array(b.length);
+        for (r = 0; r < rowsIn; r++) {
+          var o = r * rowB;
+          for (x = 1; x < rowB; x++) b[o + x] = (b[o + x] + b[o + x - 1]) & 255;
+          for (x = 0; x < tw; x++) for (var bb = 0; bb < bpp; bb++) {
+            var src = b[o + bb * tw + x];
+            out[o + x * bpp + (le ? bpp - 1 - bb : bb)] = src;
+          }
+        }
+        b = out;
+      }
+      var tx0 = tiled ? (k % nTx) * tw : 0, ty0 = tiled ? Math.floor(k / nTx) * th : k * th;
+      for (var rr = 0; rr < rowsIn; rr++) {
+        var Y = ty0 + rr; if (Y >= H) break;
+        for (var xx = 0; xx < tw; xx++) {
+          var X = tx0 + xx; if (X >= W) break;
+          var v = readVal(b, (rr * tw + xx) * bpp);
+          z[Y * W + X] = (!isFinite(v) || v === nd || v <= -9998 || v >= 1e30) ? NaN : v;
+        }
+      }
+    }
+    var jobs = [];
+    for (var k = 0; k < offs.length; k++) {
+      var seg = u8.subarray(offs[k], offs[k] + cnts[k]);
+      if (cmp === 1) jobs.push(new Uint8Array(seg));
+      else if (cmp === 5) jobs.push(lzw(seg));
+      else if (cmp === 8 || cmp === 32946) { if (!inflate) throw new Error('Deflate の展開ができません'); jobs.push(inflate(seg)); }
+      else throw new Error('GeoTIFF の圧縮形式（' + cmp + '）には対応していません。非圧縮・LZW・Deflate にしてください');
+    }
+    function finish(raws) {
+      for (var k2 = 0; k2 < raws.length; k2++) place(k2, raws[k2]);
+      var csx = scale[0], csy = scale[1] || scale[0];
+      var x0 = tie[3] - tie[0] * csx, yTop = tie[4] + tie[1] * csy;
+      return squareCells(mkDEM(W, H, csx, csy, x0, yTop, z, 'tif'));
+    }
+    if (jobs.some(function (j) { return j && typeof j.then === 'function'; })) return Promise.all(jobs).then(finish);
+    return finish(jobs);
+  }
+  function lzw(src) {
+    var out = [], dict = [], bitPos = 0, width = 9, prev = null, i;
+    function reset() { dict = []; for (i = 0; i < 256; i++) dict[i] = [i]; dict[256] = null; dict[257] = null; width = 9; }
+    function next() {
+      var v = 0;
+      for (var b = 0; b < width; b++) { var byte = src[(bitPos + b) >> 3]; v = (v << 1) | ((byte >> (7 - ((bitPos + b) & 7))) & 1); }
+      bitPos += width; return v;
+    }
+    reset();
+    while ((bitPos + width) <= src.length * 8) {
+      var code = next();
+      if (code === 257) break;
+      if (code === 256) { reset(); prev = null; continue; }
+      var entry;
+      if (code < dict.length && dict[code]) entry = dict[code];
+      else if (prev) entry = prev.concat([prev[0]]);
+      else break;
+      for (i = 0; i < entry.length; i++) out.push(entry[i]);
+      if (prev) dict.push(prev.concat([entry[0]]));
+      prev = entry;
+      if (dict.length + 1 >= (1 << width) && width < 12) width++;
+    }
+    return new Uint8Array(out);
+  }
+
+  // ---------------------------------------------------------------- 解析
+  // 二分ヒープ（標高の小さい順）
+  function Heap(N) { this.k = new Int32Array(N); this.v = new Float64Array(N); this.n = 0; }
+  Heap.prototype.push = function (key, val) {
+    var i = this.n++, k = this.k, v = this.v;
+    while (i > 0) { var p = (i - 1) >> 1; if (v[p] <= val) break; k[i] = k[p]; v[i] = v[p]; i = p; }
+    k[i] = key; v[i] = val;
+  };
+  Heap.prototype.pop = function () {
+    var k = this.k, v = this.v, top = k[0], n = --this.n, lk = k[n], lv = v[n], i = 0;
+    while (true) {
+      var l = 2 * i + 1; if (l >= n) break;
+      var r = l + 1, m = (r < n && v[r] < v[l]) ? r : l;
+      if (v[m] >= lv) break;
+      k[i] = k[m]; v[i] = v[m]; i = m;
+    }
+    k[i] = lk; v[i] = lv; return top;
+  };
+
+  // 窪地の埋め（Priority-Flood + ε）。欠測（NaN）と DEM の端が出口
+  function fill(D) {
+    var nx = D.nx, ny = D.ny, N = nx * ny, z = D.z, zf = new Float64Array(N), done = new Uint8Array(N);
+    var H = new Heap(N), c, r, q, eps = 1e-5;
+    for (c = 0; c < N; c++) {
+      zf[c] = z[c];
+      if (!isFinite(z[c])) { done[c] = 1; continue; }
+      var x = c % nx, y = (c / nx) | 0, edge = x === 0 || y === 0 || x === nx - 1 || y === ny - 1;
+      if (!edge) for (q = 0; q < 8; q++) { var n2 = (y + DR[q]) * nx + x + DC[q]; if (!isFinite(z[n2])) { edge = true; break; } }
+      if (edge) { done[c] = 1; H.push(c, z[c]); }
+    }
+    while (H.n) {
+      c = H.pop(); var cx = c % nx, cy = (c / nx) | 0;
+      for (q = 0; q < 8; q++) {
+        var xx = cx + DC[q], yy = cy + DR[q]; if (xx < 0 || yy < 0 || xx >= nx || yy >= ny) continue;
+        var o = yy * nx + xx; if (done[o]) continue;
+        done[o] = 1;
+        if (zf[o] <= zf[c]) zf[o] = zf[c] + eps * DL[q];
+        H.push(o, zf[o]);
+      }
+    }
+    return zf;
+  }
+
+  // D8 の流向。-1：DEM の端か欠測へ出る出口、-2：欠測
+  function flowDir(D, zf) {
+    var nx = D.nx, ny = D.ny, N = nx * ny, dir = new Int8Array(N), csx = D.cs;
+    for (var c = 0; c < N; c++) {
+      if (!isFinite(zf[c])) { dir[c] = -2; continue; }
+      var x = c % nx, y = (c / nx) | 0, best = -1, bs = 0, out = false;
+      for (var q = 0; q < 8; q++) {
+        var xx = x + DC[q], yy = y + DR[q];
+        if (xx < 0 || yy < 0 || xx >= nx || yy >= ny) { out = true; continue; }
+        var o = yy * nx + xx; if (!isFinite(zf[o])) { out = true; continue; }
+        var s = (zf[c] - zf[o]) / (DL[q] * csx);
+        if (s > bs) { bs = s; best = q; }
+      }
+      dir[c] = best >= 0 ? best : (out ? -1 : -1);
+    }
+    return dir;
+  }
+  function downOf(D, dir, c) {
+    var q = dir[c]; if (q < 0) return -1;
+    var x = c % D.nx + DC[q], y = ((c / D.nx) | 0) + DR[q];
+    return (x < 0 || y < 0 || x >= D.nx || y >= D.ny) ? -1 : y * D.nx + x;
+  }
+  // 標高の高い順に並べる（流れの上流から下流への順）
+  function order(D, zf) {
+    var N = D.nx * D.ny, idx = [], c;
+    for (c = 0; c < N; c++) if (isFinite(zf[c])) idx.push(c);
+    idx.sort(function (a, b) { return zf[b] - zf[a]; });
+    return idx;
+  }
+  function accumulate(D, dir, ord) {
+    var acc = new Float64Array(D.nx * D.ny), i;
+    for (i = 0; i < ord.length; i++) acc[ord[i]] = 1;
+    for (i = 0; i < ord.length; i++) { var c = ord[i], o = downOf(D, dir, c); if (o >= 0) acc[o] += acc[c]; }
+    return acc;
+  }
+
+  // 全体の解析。thrArea：谷筋とみなす集水面積 [m2]
+  function analyze(D, opt) {
+    opt = opt || {};
+    var nx = D.nx, ny = D.ny, N = nx * ny, a1 = D.cs * D.cs;
+    var zf = fill(D), dir = flowDir(D, zf), ord = order(D, zf), acc = accumulate(D, dir, ord);
+    var thr = Math.max(2, Math.round((opt.thrArea > 0 ? opt.thrArea : 20000) / a1));
+    var stream = new Uint8Array(N), c, q;
+    for (c = 0; c < N; c++) if (acc[c] >= thr && dir[c] !== -2) stream[c] = 1;
+    // 谷頭：谷筋のうち、上流側に谷筋のセルがないもの
+    var hasUp = new Uint8Array(N);
+    for (c = 0; c < N; c++) if (stream[c]) { var o = downOf(D, dir, c); if (o >= 0) hasUp[o] = 1; }
+    var heads = [];
+    for (c = 0; c < N; c++) if (stream[c] && !hasUp[c]) heads.push(c);
+    // 流域：出口（流向が -1 のセル）ごとに番号。下流から上流へ順に伝える
+    var bid = new Int32Array(N).fill(-1), basins = [];
+    for (var i = ord.length - 1; i >= 0; i--) {
+      c = ord[i];
+      var dn = downOf(D, dir, c);
+      if (dn < 0) { bid[c] = basins.length; basins.push({ id: basins.length, outlet: c, n: 0 }); }
+      else bid[c] = bid[dn];
+    }
+    for (c = 0; c < N; c++) if (bid[c] >= 0) basins[bid[c]].n++;
+    basins.forEach(function (b) { b.area = b.n * a1; b.acc = acc[b.outlet]; });
+    // Strahler 次数（谷筋だけ）
+    var so = new Uint8Array(N), mx = new Uint8Array(N), cntMx = new Uint8Array(N);
+    for (i = 0; i < ord.length; i++) {
+      c = ord[i]; if (!stream[c]) continue;
+      if (!so[c]) so[c] = mx[c] > 0 ? (cntMx[c] >= 2 ? mx[c] + 1 : mx[c]) : 1;
+      var d2 = downOf(D, dir, c);
+      if (d2 >= 0 && stream[d2]) { if (so[c] > mx[d2]) { mx[d2] = so[c]; cntMx[d2] = 1; } else if (so[c] === mx[d2]) cntMx[d2]++; }
+    }
+    return { zf: zf, dir: dir, ord: ord, acc: acc, stream: stream, heads: heads, bid: bid, basins: basins, thr: thr, strahler: so };
+  }
+
+  // 出口 c0 の上流の範囲（流域）
+  function upstream(D, A, c0) {
+    var N = D.nx * D.ny, m = new Uint8Array(N); m[c0] = 1;
+    var o = A.ord, idx = -1, i;
+    for (i = o.length - 1; i >= 0; i--) if (o[i] === c0) { idx = i; break; }
+    for (i = idx - 1; i >= 0; i--) { var c = o[i], dn = downOf(D, A.dir, c); if (dn >= 0 && m[dn]) m[c] = 1; }
+    return m;
+  }
+
+  // 谷筋のセルの局所勾配（流向の方向、下流側 n セルの平均）
+  function localSlope(D, A, c, n) {
+    var z0 = A.zf[c], L = 0, cc = c, k;
+    for (k = 0; k < (n || 3); k++) { var dn = downOf(D, A.dir, cc); if (dn < 0) break; L += DL[A.dir[cc]] * D.cs; cc = dn; }
+    return L > 0 ? Math.max(1e-3, (z0 - A.zf[cc]) / L) : 1e-2;
+  }
+
+  // 斜面の長さ（谷筋までの流下距離）と、谷筋のセルごとの直接の集水面積（斜面から直接入る分）
+  function hillslopes(D, A, mask) {
+    var N = D.nx * D.ny, dist = new Float64Array(N), recv = new Int32Array(N).fill(-1), i, c;
+    // 下流から上流へ：谷筋なら距離 0・受け手は自分、そうでなければ下流の距離＋1 区間
+    for (i = A.ord.length - 1; i >= 0; i--) {
+      c = A.ord[i]; if (mask && !mask[c]) continue;
+      if (A.stream[c]) { dist[c] = 0; recv[c] = c; continue; }
+      var dn = downOf(D, A.dir, c);
+      if (dn < 0 || (mask && !mask[dn])) { dist[c] = 0; recv[c] = -1; continue; }
+      dist[c] = dist[dn] + DL[A.dir[c]] * D.cs; recv[c] = recv[dn];
+    }
+    return { dist: dist, recv: recv };
+  }
+
+  // ---------------------------------------------------------------- 計算領域の用意
+  // basinMask の範囲を切り出し、出口の流向が右（+x）になるよう回す。出口から右端まで水路を掘る。
+  // 返り値：rows（北が上の 2 次元配列、ソルバーの格子 CSV と同じ並び）、basin、chan（谷筋）、セルの対応
+  function prepareDomain(D, A, mask, outlet, opt) {
+    opt = opt || {};
+    var nx = D.nx, ny = D.ny, c, x, y;
+    // 計算に使う標高：窪地を埋めた標高（既定）。谷筋が斜めにつながる所は、横か縦の隣のセルも谷筋にして
+    // 4 近傍でつながるようにする（浅水流の計算は辺を通してしか水が流れないため）
+    var zs = opt.fill === false ? D.z : A.zf, st = new Uint8Array(A.stream), zz2 = new Float64Array(zs);
+    for (c = 0; c < nx * ny; c++) {
+      if (!st[c] || !mask[c]) continue;
+      var q0 = A.dir[c]; if (q0 < 0 || !(q0 % 2)) continue;
+      var dn = downOf(D, A.dir, c); if (dn < 0) continue;
+      var cx0 = c % nx, cy0 = (c / nx) | 0, a1 = cy0 * nx + cx0 + DC[q0], b1 = (cy0 + DR[q0]) * nx + cx0;
+      var pick = zz2[a1] <= zz2[b1] ? a1 : b1;
+      var zm = 0.5 * (zz2[c] + zz2[dn]);
+      if (zz2[pick] > zm) zz2[pick] = zm;
+      if (mask[pick]) st[pick] = 1;
+    }
+    var x0 = nx, x1 = -1, y0 = ny, y1 = -1;
+    for (c = 0; c < nx * ny; c++) if (mask[c]) { x = c % nx; y = (c / nx) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    var pad = 2; x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(nx - 1, x1 + pad); y1 = Math.min(ny - 1, y1 + pad);
+    var W = x1 - x0 + 1, H = y1 - y0 + 1;
+    // 出口の流向 → 回転（時計回りに rot × 90°）
+    var q = A.dir[outlet], ox = DC[q < 0 ? 0 : q], oy = DR[q < 0 ? 0 : q];
+    if (q < 0) {   // DEM の端（または欠測）へ出る出口：いちばん近い端の外向き
+      var cx = outlet % nx, cy = (outlet / nx) | 0, dl = [nx - 1 - cx, cy, cx, ny - 1 - cy], km = 0;
+      for (var k0 = 1; k0 < 4; k0++) if (dl[k0] < dl[km]) km = k0;
+      ox = [1, 0, -1, 0][km]; oy = [0, -1, 0, 1][km];
+    }
+    var rot;   // 東→0、北→1、西→2、南→3（時計回りの回数）
+    if (Math.abs(ox) >= Math.abs(oy)) rot = ox > 0 ? 0 : 2; else rot = oy < 0 ? 1 : 3;
+    // 元の (col, row) → 回転後 (i, j)（j は北が 0）
+    var RW = (rot % 2) ? H : W, RH = (rot % 2) ? W : H;
+    function fwd(col, row) {
+      var a = col - x0, b = row - y0;
+      if (rot === 0) return [a, b];
+      if (rot === 1) return [H - 1 - b, a];        // 時計回り 90°：北が東へ
+      if (rot === 2) return [W - 1 - a, H - 1 - b];
+      return [b, W - 1 - a];
+    }
+    function inv(i, j) {
+      if (rot === 0) return [x0 + i, y0 + j];
+      if (rot === 1) return [x0 + j, y0 + H - 1 - i];
+      if (rot === 2) return [x0 + W - 1 - i, y0 + H - 1 - j];
+      return [x0 + W - 1 - j, y0 + i];
+    }
+    var po = fwd(outlet % nx, (outlet / nx) | 0), extra = RW - 1 - po[0] + 3;   // 出口から右端まで＋3 列
+    var NW = RW + 3, rows = [], bas = [], chn = [], src = [];
+    var zmaxB = -Infinity;
+    for (c = 0; c < nx * ny; c++) if (mask[c] && D.z[c] > zmaxB) zmaxB = D.z[c];
+    for (var j = 0; j < RH; j++) {
+      var r = [], b = [], s = [], m = [];
+      for (var i = 0; i < NW; i++) {
+        if (i < RW) {
+          var o = inv(i, j), oc = o[1] * nx + o[0];
+          var zz = zz2[oc]; if (!isFinite(zz)) zz = zmaxB;
+          r.push(zz); b.push(mask[oc] ? 1 : 0); s.push(mask[oc] && st[oc] ? 1 : 0); m.push(oc);
+        } else { r.push(r[RW - 1]); b.push(0); s.push(0); m.push(-1); }   // 右に足す列は端の列の標高のまま（流域の外）
+      }
+      rows.push(r); bas.push(b); chn.push(s); src.push(m);
+    }
+    // 出口から右端まで水路（出口の勾配で下げる）
+    var Iout = Math.max(0.01, localSlope(D, A, outlet, 4)), zo = zz2[outlet];
+    for (i = po[0] + 1; i < NW; i++) {
+      var dd = (i - po[0]) * D.cs;
+      rows[po[1]][i] = zo - Iout * dd; bas[po[1]][i] = 1; chn[po[1]][i] = 1;
+    }
+    return {
+      rows: rows, cs: D.cs, basin: bas, chan: chn, cellOf: src, rot: rot, x0: x0, y0: y0, W: W, H: H, nx: NW, ny: RH,
+      outlet: po, Iout: Iout, zTop: zmaxB, extra: extra,
+      // DEM のセル → 計算領域の座標（m、x は右、y は上が正。ソルバーの座標）
+      toXY: function (cell) { var p = fwd(cell % nx, (cell / nx) | 0); return [(p[0] + 0.5) * D.cs, (RH - p[1] - 0.5) * D.cs]; },
+      // DEM の流向の単位ベクトル（計算領域の向き）
+      dirXY: function (cell) {
+        var qq = A.dir[cell]; if (qq < 0) return [1, 0];
+        var vx = DC[qq], vy = -DR[qq], L = Math.sqrt(vx * vx + vy * vy); vx /= L; vy /= L;   // vy：北が正
+        for (var k = 0; k < rot; k++) { var t = vx; vx = vy; vy = -t; }   // 時計回りに 90°
+        return [vx, vy];
+      }
+    };
+  }
+
+  // ---------------------------------------------------------------- 例の DEM（架空の山地流域）
+  // 乱数の起伏に、流れの集中で谷を刻む簡単な地形発達（stream power の侵食）を繰り返して谷を作る
+  function synthDEM(opt) {
+    opt = opt || {};
+    var nx = opt.nx || 160, ny = opt.ny || 120, cs = opt.cs || 10, seed = opt.seed || 3, N = nx * ny;
+    var s = seed >>> 0; function rnd() { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }
+    var g = [], gn = 9; for (var q = 0; q < (gn + 2) * (gn + 2) * 4; q++) g.push(rnd() * 2 - 1);
+    function noise(x, y, o) {
+      var xi = Math.floor(x), yi = Math.floor(y), tx = x - xi, ty = y - yi;
+      function G(a, b) { return g[(((a % (gn + 1)) + (gn + 1)) % (gn + 1) + (((b % (gn + 1)) + (gn + 1)) % (gn + 1)) * (gn + 2) + o * (gn + 2) * (gn + 2)) % g.length]; }
+      var sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty);
+      return (G(xi, yi) * (1 - sx) + G(xi + 1, yi) * sx) * (1 - sy) + (G(xi, yi + 1) * (1 - sx) + G(xi + 1, yi + 1) * sx) * sy;
+    }
+    var z = new Float64Array(N);
+    for (var r = 0; r < ny; r++) for (var c = 0; c < nx; c++) {
+      var X = c / nx, Y = r / ny;
+      // 東（右）へ下がる斜面＋南北の中央がやや低い＋起伏
+      var base = 420 * (1 - X) + 90 * Math.pow(Math.abs(Y - 0.5) * 2, 1.5) + 40;
+      var nz = 34 * noise(X * 4, Y * 4, 0) + 16 * noise(X * 8 + 3, Y * 8 + 1, 1) + 7 * noise(X * 16 + 5, Y * 16 + 7, 2);
+      z[r * nx + c] = base + nz;
+    }
+    var D = mkDEM(nx, ny, cs, cs, 0, ny * cs, z, 'synth');
+    // 地形発達：dz = -K A^0.5 S（谷を刻む）＋拡散（尾根を丸める）
+    for (var it = 0; it < (opt.iter || 40); it++) {
+      var zf = fill(D), dir = flowDir(D, zf), ord = order(D, zf), acc = accumulate(D, dir, ord), zn = new Float64Array(N);
+      for (c = 0; c < N; c++) {
+        var dn = downOf(D, dir, c), S = dn >= 0 ? Math.max(0, (zf[c] - zf[dn]) / (DL[dir[c]] * cs)) : 0;
+        var x = c % nx, y = (c / nx) | 0, lap = 0, nn = 0;
+        for (q = 0; q < 8; q += 2) { var xx = x + DC[q], yy = y + DR[q]; if (xx >= 0 && yy >= 0 && xx < nx && yy < ny) { lap += z[yy * nx + xx] - z[c]; nn++; } }
+        zn[c] = z[c] - 0.9 * Math.sqrt(acc[c] * cs * cs) * S * 0.06 + 0.08 * lap;
+      }
+      for (c = 0; c < N; c++) { var xc = c % nx; z[c] = xc === nx - 1 ? z[c] : zn[c]; }
+    }
+    return D;
+  }
+
+  return {
+    parseASC: parseASC, parseXYZ: parseXYZ, parseGSIXML: parseGSIXML, parseTIFF: parseTIFF, lzw: lzw,
+    fill: fill, flowDir: flowDir, accumulate: accumulate, order: order, analyze: analyze, upstream: upstream,
+    downOf: downOf, localSlope: localSlope, hillslopes: hillslopes, prepareDomain: prepareDomain, synthDEM: synthDEM,
+    squareCells: squareCells, DC: DC, DR: DR, DL: DL
+  };
+});
+
+/* 降雨と流出（谷へ入る水）の計算。ブラウザと Node の両方で動く
+ *  雨：一様（ハイエトグラフの表）か、格子（時刻ごとの雨量の格子、XRAIN などを変換したもの）
+ *  損失（有効雨量）：
+ *    'f'     流出係数 f：re = f·r（合理式の考え方）
+ *    'f1rsa' 一次流出率 f1・飽和雨量 Rsa・初期損失 R0：累加雨量 ΣR < R0 で f = 0、R0 ≤ ΣR < R0+Rsa で f1、それ以上で 1（貯留関数法の標準の扱い）
+ *    'ks'    浸透能（飽和透水係数 ks）と土層の空き容量 Smax = D·(n − θ0)：満ちるまでは r − min(r, ks) が表面流（ホートン型）、
+ *            満ちたら r 全部が表面流（飽和余剰）
+ *  流出（斜面から谷へ）：
+ *    'rational' 合理式の考え方：到達時間 Tc 内の平均有効雨量強度 × 面積（時間面積法、面積は Tc の間に一様に到達）
+ *               Tc は土研式（自然流域）T = 1.67×10⁻³ (L/√S)^0.7 [h]（L：斜面の最遠点からの流下距離 m、S：平均勾配）か指定値
+ *    'storage'  貯留関数法 s = K q^P、ds/dt = re − q（q, re：mm/h、s：mm）、遅れ Tl
+ *  谷筋のセルごとに、そこへ直接流れ込む斜面の面積から流量を出す（谷頭は上流の全面積）
+ */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.SaboHydro = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+
+  // 時刻 t [s] の雨量強度 [mm/h]。表 [[時刻 分, mm/h], ...] は、その時刻から次の時刻までの強度（階段状）
+  function rainUniform(tab, t) {
+    if (!tab || !tab.length) return 0;
+    var tm = t / 60, v = 0;
+    for (var i = 0; i < tab.length; i++) { if (tm >= tab[i][0] - 1e-9) v = tab[i][1]; else break; }
+    if (tab.length > 1 && tm >= tab[tab.length - 1][0] + (tab[tab.length - 1][0] - tab[tab.length - 2][0])) v = 0;   // 最後の区間の後は 0
+    return Math.max(0, v);
+  }
+  // 格子の雨：frames = [{t: 分, r: 配列}]。時刻 t の直前の格子（階段状）
+  function frameAt(frames, t) {
+    if (!frames || !frames.length) return null;
+    var tm = t / 60, f = null;
+    for (var i = 0; i < frames.length; i++) { if (tm >= frames[i].t - 1e-9) f = frames[i]; else break; }
+    if (f && frames.length > 1) { var dtf = frames[frames.length - 1].t - frames[frames.length - 2].t; if (tm >= frames[frames.length - 1].t + dtf) f = null; }
+    return f;
+  }
+
+  // 損失モデル（1 セル分の状態を st に持つ）。dt [s]、r [mm/h] → 有効雨量 re [mm/h]
+  function lossStep(L, st, r, dt) {
+    var dth = dt / 3600;
+    if (L.type === 'f1rsa') {
+      st.R = (st.R || 0) + r * dth;
+      var R0 = L.R0 || 0, f = st.R < R0 ? 0 : (st.R < R0 + (L.Rsa || 0) ? (L.f1 != null ? L.f1 : 0.5) : 1);
+      return f * r;
+    }
+    if (L.type === 'ks') {
+      var Smax = Math.max(0, (L.D || 1) * ((L.n || 0.45) - (L.th0 || 0.25)) * 1000);   // mm
+      var ks = (L.ks || 1e-5) * 3.6e6;    // m/s → mm/h
+      st.S = st.S || 0;
+      if (st.S >= Smax) return r;
+      var inf = Math.min(r, ks), add = inf * dth;
+      if (st.S + add > Smax) { var over = (st.S + add - Smax) / dth; st.S = Smax; return r - inf + over; }
+      st.S += add; return r - inf;
+    }
+    return (L.f != null ? L.f : 0.8) * r;
+  }
+
+  // 土研式（自然流域）の到達時間 [s]
+  function tcPWRI(L, S) { return 3600 * 1.67e-3 * Math.pow(Math.max(1, L) / Math.sqrt(Math.max(1e-3, S)), 0.7); }
+
+  /* 谷筋への流入の計算
+   *  D, A：DEM と解析結果（SaboDEM.analyze）、mask：流域、rain：{mode:'uniform'|'grid', table, frames（DEM のセルに対応する配列）}
+   *  opt：{loss:{type,...}, route:{type:'rational'|'storage', tc（分、0 で自動）, K, P, Tl（分）}, dt（s）, tEnd（s）}
+   *  返り値：{cells: 谷筋のセルの番号, area: 直接の集水面積 m², Q: [Float64Array（時刻ごと m³/s）], dt, n, Qsum, Rmean}
+   */
+  function lateralInflow(SD, D, A, mask, rain, opt) {
+    var dt = opt.dt || 60, tEnd = opt.tEnd || 3600 * 6, nT = Math.max(2, Math.ceil(tEnd / dt) + 1);
+    var N = D.nx * D.ny, a1 = D.cs * D.cs, c, i, k;
+    var HS = SD.hillslopes(D, A, mask);
+    // 受け手（谷筋のセル）ごとに：面積、最遠の流下距離、平均勾配、雨の平均（格子の雨はセルごとに損失を計算して面積平均）
+    var idx = new Int32Array(N).fill(-1), recv = [];
+    for (c = 0; c < N; c++) if (mask[c] && A.stream[c]) { idx[c] = recv.length; recv.push({ c: c, n: 0, Lmax: 0, Ssum: 0 }); }
+    var members = [];
+    for (c = 0; c < N; c++) {
+      if (!mask[c]) continue;
+      var rc = HS.recv[c]; if (rc < 0 || idx[rc] < 0) continue;
+      var R = recv[idx[rc]]; R.n++; if (HS.dist[c] > R.Lmax) R.Lmax = HS.dist[c];
+      var dn = SD.downOf(D, A.dir, c);
+      var sl = dn >= 0 ? Math.max(0, (A.zf[c] - A.zf[dn]) / (SD.DL[A.dir[c]] * D.cs)) : 0.01; R.Ssum += sl;
+      members.push(c);
+    }
+    var nR = recv.length, Q = [], re = new Float64Array(nR), st = [], sto = new Float64Array(nR), Tc = new Float64Array(nR);
+    var L = opt.loss || { type: 'f', f: 0.8 }, RT = opt.route || { type: 'rational' };
+    for (i = 0; i < nR; i++) {
+      Q.push(new Float64Array(nT));
+      var Sm = recv[i].n ? recv[i].Ssum / recv[i].n : 0.1;
+      Tc[i] = RT.tc > 0 ? RT.tc * 60 : Math.max(300, Math.min(7200, tcPWRI(recv[i].Lmax + D.cs / 2, Sm)));
+    }
+    var grid = rain.mode === 'grid' && rain.frames && rain.frames.length;
+    var lossSt = grid ? members.map(function () { return {}; }) : [{}];
+    var hist = []; for (i = 0; i < nR; i++) hist.push(new Float64Array(nT));   // 有効雨量の履歴（合理式の移動平均用）
+    var K = RT.K > 0 ? RT.K : 10, Pp = RT.P > 0 ? RT.P : 0.6, lagN = Math.round((RT.Tl || 0) * 60 / dt);
+    var Rsum = 0, Asum = 0;
+    for (i = 0; i < nR; i++) Asum += recv[i].n * a1;
+    for (k = 0; k < nT; k++) {
+      var t = k * dt;
+      // 有効雨量 re（受け手ごとの面積平均）
+      for (i = 0; i < nR; i++) re[i] = 0;
+      if (grid) {
+        var fr = frameAt(rain.frames, t);
+        for (var m = 0; m < members.length; m++) {
+          c = members[m]; var r = fr ? Math.max(0, fr.r[c] || 0) : 0;
+          var e = lossStep(L, lossSt[m], r, dt); re[idx[HS.recv[c]]] += e / recv[idx[HS.recv[c]]].n;
+          Rsum += r * dt / 3600 / 1000 * a1;
+        }
+      } else {
+        var ru = rainUniform(rain.table, t), eu = lossStep(L, lossSt[0], ru, dt);
+        for (i = 0; i < nR; i++) re[i] = eu;
+        Rsum += ru * dt / 3600 / 1000 * Asum;
+      }
+      for (i = 0; i < nR; i++) {
+        hist[i][k] = (k > 0 ? hist[i][k - 1] : 0) + re[i];   // 有効雨量の累計（移動平均を速く求める）
+        var qmm;
+        if (RT.type === 'storage') {
+          // ds/dt = re − q、q = (s/K)^(1/P)。2 次の Runge–Kutta
+          var dth = dt / 3600, s0 = sto[i];
+          var q0 = Math.pow(Math.max(0, s0) / K, 1 / Pp), s1 = s0 + dth * (re[i] - q0);
+          var q1 = Math.pow(Math.max(0, s1) / K, 1 / Pp);
+          sto[i] = Math.max(0, s0 + 0.5 * dth * (2 * re[i] - q0 - q1));
+          qmm = Math.pow(sto[i] / K, 1 / Pp);
+        } else {
+          // 合理式（時間面積法）：到達時間 Tc の間の有効雨量強度の平均
+          var nb = Math.max(1, Math.round(Tc[i] / dt));
+          qmm = (hist[i][k] - (k - nb >= 0 ? hist[i][k - nb] : 0)) / nb;
+        }
+        var kk = k + lagN; if (kk < nT) Q[i][kk] = qmm * recv[i].n * a1 / 3.6e6;
+      }
+    }
+    var Qsum = new Float64Array(nT);
+    for (i = 0; i < nR; i++) for (k = 0; k < nT; k++) Qsum[k] += Q[i][k];
+    return { cells: recv.map(function (R) { return R.c; }), area: recv.map(function (R) { return R.n * a1; }), Tc: Tc, Q: Q, dt: dt, n: nT, Qsum: Qsum, rainVol: Rsum, area0: Asum };
+  }
+
+  return { rainUniform: rainUniform, frameAt: frameAt, lossStep: lossStep, tcPWRI: tcPWRI, lateralInflow: lateralInflow };
+});
+
 /*
  * sabo2d-solver.js  —  連続砂防堰堤 平面2次元河床変動計算ソルバー
  * ---------------------------------------------------------------------------
@@ -576,6 +1344,15 @@ table.res th,table.res td{white-space:nowrap}
       tribs: [],
       // 伏流（河床への浸透と地下水の流れ。Darcy 則・Dupuit 近似）
       gw: { on: false, k: 0, kMax: 0.05, s0: 0 },   // k：透水係数 [m/s]（0 なら粒度から Kozeny–Carman 式）、kMax：上限、s0：乾いた堆積層の初期の飽和度
+      // ---- DEM の流域（地形を DEM から切り出したとき）
+      dem: { soilD: 1.0, chW: 6, ks: 1e-5, s0: 0.3, duration: 3600 },   // 斜面の土層の厚さ [m]、侵食できる谷筋の幅 [m]、土層の飽和透水係数 [m/s]、土層の初期の飽和度、計算時間 [s]
+      sources: [],       // 点の流入 [{x, y, ux, uy, I, hydro: {上流端と同じ形}}]
+      latIn: null,       // 雨の横流入 {dt, pts: [[x, y, ux, uy, I]], Q: [[流量の時系列]]}
+      rain: { on: false, method: 'lumped', mode: 'uniform', table: [], frames: [], loss: { type: 'f', f: 0.8 } },
+      slides: [],        // 斜面崩壊 [{x, y, R, D, type: 'shallow'|'deep', trigger: 'fs'|'time', t, move: 'auto'|'block'|'fluid', c, phi, gt, gs, ne, m0, Tk, Sr0, CL, mu, thDep, mc}]
+      slideChk: 1,       // 崩壊の判定の間隔 [s]
+      ldams: [],         // 天然ダム [{x, y, ux, uy, H, Wc, up, dn, lat}]
+      ldam: { k: 0, fail: 'auto', slipLevel: 0.9, slipDeg: 20, thDep: 10, phi: 35, c: 0, gs: 20, Ts: 0.5, s0: 0.3 },
       sideGrad: 0.8,     // 谷壁の勾配 [-]
       // ---- 渓流の作り込み（数値で指定する地形のみ。0 のとき使わない）
       valley: {
@@ -907,6 +1684,7 @@ table.res th,table.res td{white-space:nowrap}
         }
         Bx[i] = Math.max(1, nf) * dx;
       }
+      if (T.basin && T.basin.length === T.rows.length) this.setupBasin(T);
     } else {
       // 縦断：勾配の表（位置 x から先の勾配）があれば、区間ごとの勾配をつないだ折れ線にする
       var st = (P.slopeTable || []).filter(function (r) { return isFinite(r[0]) && r[1] > 0; }).slice().sort(function (a, b) { return a[0] - b[0]; });
@@ -1227,7 +2005,7 @@ table.res th,table.res td{white-space:nowrap}
     this.sedWaterInit = 0;
     for (c = 0; c < N; c++) {
       var del = z[c] - zfix[c];
-      if (del <= 1e-9) continue;
+      if (del <= 1e-9 || kind[c] === 3) continue;   // 斜面の土層（kind 3）は流れで侵食しない（層を持たない）
       var a = Math.min(del, La);
       for (k = 0; k < K; k++) this.A[c * K + k] = a * f0[k];
       var rem = del - a;
@@ -1241,8 +2019,9 @@ table.res th,table.res td{white-space:nowrap}
     // 支川の流入セル
     this.tribIn = new Int16Array(N);
     for (q = 0; q < this.tribs.length; q++) for (k = 0; k < this.tribs[q].cells.length; k++) this.tribIn[this.tribs[q].cells[k]] = q + 1;
+    this.setupPoints();
     // ---- 初期の水（等流の薄層流＋堰堤上流の湛水）
-    var Q0 = this.Qat(0);
+    var Q0 = this.demMode ? 0 : this.Qat(0);
     var h = this.h, qx = this.qx;
     if (Q0 > 0.01) {
       for (i = 0; i < nx; i++) {
@@ -1265,9 +2044,11 @@ table.res th,table.res td{white-space:nowrap}
     // ---- 伏流：河床（堆積層）の中の水 W [m]。水に浸かったセルは飽和、乾いたセルは飽和度 s0
     this.W = new Float64Array(N); this.kgw = new Float64Array(N); this.gwOut = 0;
     var GW0 = P.gw || {};
-    if (GW0.on) for (c = 0; c < N; c++) if (kind[c] === 0) { var Tc = Math.max(0, z[c] - zfix[c]); this.W[c] = P.porosity * Tc * (h[c] > 1e-3 ? 1 : Math.max(0, Math.min(1, GW0.s0 || 0))); }
+    this.por = new Uint8Array(N); for (c = 0; c < N; c++) this.por[c] = (kind[c] === 0 || kind[c] === 3) ? 1 : 0;   // 伏流の層があるセル（河床と斜面の土層）
+    if (GW0.on) for (c = 0; c < N; c++) if (this.por[c]) { var Tc = Math.max(0, z[c] - zfix[c]); this.W[c] = P.porosity * Tc * (h[c] > 1e-3 ? 1 : Math.max(0, Math.min(1, kind[c] === 3 && P.dem && P.dem.s0 >= 0 ? P.dem.s0 : (GW0.s0 || 0)))); }
     this.W0 = 0; for (c = 0; c < N; c++) this.W0 += this.W[c]; this.W0 *= dx * dx;
     this.voidAir = 0;   // 伏流なしの土石流で、堆積物の間隙を満たす水が足りなかった体積（空気）
+    this.setupSlides();
     // ---- 時刻・収支
     this.t = 0;          // 出水の時刻（河床変動の時間軸） [s]
     this.th = 0;         // 流れの計算時間 [s]
@@ -1277,6 +2058,7 @@ table.res th,table.res td{white-space:nowrap}
     this.spinT = 0;
     this.Qin = Q0; this.Qout = 0; this.QsIn = 0; this.QsOut = 0;
     this.Vwin = 0; this.Vwout = 0;
+    this.rainVol = 0; this.rainLoss = 0; this.slideLog = [];
     this.sedIn = 0; this.sedOut = 0;     // 実質体積 [m3]
     this.sedOutK = new Float64Array(K);
     this.nLimW = 0; this.nLimS = 0;
@@ -1284,10 +2066,13 @@ table.res th,table.res td{white-space:nowrap}
     this.snaps = []; this.snapFull = false; this._nextSnap = 0;   // 時間ごとの結果（記録は出水の開始から）
     this._nextSample = 0;
     this.Uref = Q0 > 0.01 ? Math.max(0.5, (Q0 / this.Bf) / Math.pow((Q0 / this.Bf) * P.manning / Math.sqrt(Math.max(I, 1e-4)), 0.6)) : 1;
+    // 天然ダムを置いたあとの地形を初期の地形とする
+    this.z0.set(z); this.Vw0 = this.waterVolume(); this.W0 = this.groundWater();
   };
 
   // ------------------------------------------------------------ ハイドログラフ
   Sim.prototype.duration = function () {
+    if (this.demMode && this.P.dem && this.P.dem.duration > 0) return this.P.dem.duration;
     var H = this.P.hydro;
     if (H.mode === 'table' && H.table && H.table.length > 1) return H.table[H.table.length - 1][0];
     return H.duration;
@@ -1308,9 +2093,16 @@ table.res th,table.res td{white-space:nowrap}
     if (a <= 0 || a >= r + f) return 0;
     return (H.Qpeak - H.Qbase) * (a < r ? a / r : 1 - (a - r) / f);
   };
-  Sim.prototype.Qat = function (t) {
-    var H = this.P.hydro;
-    if (H.mode === 'debris') return H.Qbase + this.waveQ(t);
+  Sim.prototype.Qat = function (t) { return this.demMode ? 0 : QatH(this.P.hydro, t); };
+  Sim.prototype.QsAt = function (t) { return this.demMode ? 0 : QsAtH(this.P.hydro, t); };
+  function waveQH(H, t) {
+    var a = t - (H.t0 || 0), r = Math.max(1, H.tRise || 30), f = Math.max(1, H.tFall || 120);
+    if (a <= 0 || a >= r + f) return 0;
+    return (H.Qpeak - H.Qbase) * (a < r ? a / r : 1 - (a - r) / f);
+  }
+  // ハイドロ H（上流端と同じ形の設定）の時刻 t の流量 [m3/s]
+  function QatH(H, t) {
+    if (H.mode === 'debris') return H.Qbase + waveQH(H, t);
     if (H.mode === 'table' && H.table && H.table.length > 1) return Math.max(0, interp(H.table, t, 1));
     if (H.mode === 'const') return H.Qpeak;
     if (t <= 0) return H.Qbase;
@@ -1319,13 +2111,12 @@ table.res th,table.res td{white-space:nowrap}
     return H.Qbase;
   };
   // 供給土砂量（実質体積） [m3/s]
-  Sim.prototype.QsAt = function (t) {
-    var H = this.P.hydro;
+  function QsAtH(H, t) {
     if (H.mode === 'table' && H.table && H.table.length > 1 && H.table[0].length > 2 && isFinite(H.table[0][2]))
       return Math.max(0, interp(H.table, t, 2));
-    if (H.mode === 'debris') return (H.Cd || 0) * this.waveQ(t) + H.Cs * H.Qbase;
-    return H.Cs * this.Qat(t);
-  };
+    if (H.mode === 'debris') return (H.Cd || 0) * waveQH(H, t) + H.Cs * H.Qbase;
+    return H.Cs * QatH(H, t);
+  }
 
   // ------------------------------------------------------------------ 1 ステップ
   Sim.prototype.step = function () {
@@ -1348,7 +2139,7 @@ table.res th,table.res td{white-space:nowrap}
     var dbIn = P.transport === 'debris', Cin0 = dbIn && Q > 0 ? Math.min(0.9 * (1 - P.porosity), this.QsAt(this.t) / Q) : 0;
     var Iu = (P.hydro.Iup > 0 ? 1 / P.hydro.Iup : this.Ix[0]);
     for (j = 0; j < ny; j++) {
-      var qj = Q * qin[j] / wsum / dx;                 // 単位幅流量 [m2/s]
+      var qj = wsum > 0 ? Q * qin[j] / wsum / dx : 0;   // 単位幅流量 [m2/s]
       qin[j] = qj;
       uin[j] = qj > 0 ? (dbIn ? qj / this.debrisDepth(qj, Cin0, Iu) : qj / Math.pow(qj * nman / Math.sqrt(Math.max(Iu, 1e-4)), 0.6)) : 0;
     }
@@ -1361,6 +2152,9 @@ table.res th,table.res td{white-space:nowrap}
       var qw = tb.q * tb.sA;   // 支川の単位幅流量（斜めに入ると、端のセルの列は幅 B/sin になる）
       tb.v = qw > 0 ? (dbIn ? qw / this.debrisDepth(qw, Ct, tb.I) : qw / Math.pow(qw * nman / Math.sqrt(tb.I), 0.6)) : 0;
     }
+
+    // 点の流入（谷頭の供給点・雨の横流入）と、格子に降る雨
+    var PIN = this.pin, QpSum = PIN && PIN.length ? this.pinStep() : 0, rainH = null;
 
     // ---- 2次流：流線の曲率（前のステップの面の流束から求める）
     var SEC = P.sec || {}, secOn = !!(SEC.bed || SEC.mom);
@@ -1502,6 +2296,7 @@ table.res th,table.res td{white-space:nowrap}
     if (dt > 0.5) dt = 0.5;
     if (this.dt > 0 && dt > 1.5 * this.dt) dt = 1.5 * this.dt;
     this.dt = dt;
+    if (this.rainOn) rainH = this.rainStep(dt);   // 格子に降る雨（このステップの有効雨量の水深 [m]）
     var cf = dt / dx;
 
     // ---- 水深の非負性を保つ流出制限
@@ -1549,6 +2344,7 @@ table.res th,table.res td{white-space:nowrap}
     if (dbr) { this.hOld.set(h); this.debrisParams(); }
     var rhoS = 1000 * P.sg, rhoW = DB.rho || 1000, mfl = DB.manningFloor !== false;
     // ---- 更新（勾配項・流入・摩擦）
+    var pinIn = PIN && PIN.length ? this.pinIn : null;
     var n2 = this.n2, hn, qxn, qyn, Vv, fr, qoutSum = 0, tribIn = this.tribIn, openC = this.openC, dams = this.dams, phiB = (P.openDam && P.openDam.phiBlock > 0) ? P.openDam.phiBlock : 0.05, frX;
     for (j = 0; j < ny; j++) {
       row = j * nx; frow = j * (nx + 1);
@@ -1574,6 +2370,8 @@ table.res th,table.res td{white-space:nowrap}
         }
         if (i === 0 && qin[j] > 0) { hn += cf * qin[j]; qxn += cf * qin[j] * uin[j]; }
         if (tribIn[c]) { var tbc = TRB[tribIn[c] - 1]; hn += cf * tbc.q; qyn -= cf * tbc.q * tbc.v * tbc.sA * tbc.side; qxn += cf * tbc.q * tbc.v * tbc.cA; }
+        if (pinIn && pinIn[c]) { hn += dt * this.pH[c]; qxn += dt * this.pMx[c]; qyn += dt * this.pMy[c]; }
+        if (rainH && rainH[c] > 0) hn += rainH[c];
         if (hn < 0) hn = 0;
         if (hn > HDRY) {
           // 摩擦項は陰的（|q| の2次方程式を解く）
@@ -1601,7 +2399,7 @@ table.res th,table.res td{white-space:nowrap}
       }
     }
     this.Qout = qoutSum * dx;
-    this.Vwin += (Q + QtSum) * dt; this.Vwout += this.Qout * dt;
+    this.Vwin += (Q + QtSum + QpSum) * dt + (rainH ? this._rainV : 0); this.Vwout += this.Qout * dt;
     var gwOn_ = !!(P.gw && P.gw.on);
     this.th += dt; this.nstep++;
 
@@ -1624,6 +2422,7 @@ table.res th,table.res td{white-space:nowrap}
     var dtm = dt * (P.transport === 'debris' ? 1 : Math.max(1, P.morfac));   // 土石流は加速しない
     this.morph(dtm);
     if (gwOn_) this.gwStep(dt);      // 伏流は流れの時間刻みで（加速しない）
+    if (this.slides.length || this.depOn) this.slideStep(dt);
     this.t += dtm;
     if (this.t >= this._nextSample) {
       var S = this.series;
@@ -1745,6 +2544,7 @@ table.res th,table.res td{white-space:nowrap}
     var h = this.h, hO = this.hOld, z = this.z, zfix = this.zfix, A = this.A, Cc = this.Cc, d = this.d, FxM = this.FxM, GyM = this.GyM;
     var SFx = this.SFx, SFy = this.SFy, fxC = this.fixedC, Cst = 1 - P.porosity, HSED = 0.02, ff = this.ff, qin = this.qin;
     var de = DB.de > 0 ? DB.de : 0.0007, dd = DB.dd > 0 ? DB.dd : 0.05, Vmin = DB.Vmin >= 0 ? DB.Vmin : 0.1, gwOn = !!(P.gw && P.gw.on);
+    var eroMode = DB.erosion || 'sat', Kt = DB.Kt > 0 ? DB.Kt : 0.0019, tanPd = DB.tanPhi > 0 ? DB.tanPhi : 0.7, sgm = P.sg * 1000 / (DB.rho || 1000);
     var i, j, c, k, ck, row, frow, fk, L, R, f, cu, hu;
     // ---- 1. 移流（面の混合物流束 × 風上セルの濃度）
     for (j = 0; j < ny; j++) {
@@ -1853,7 +2653,12 @@ table.res th,table.res td{white-space:nowrap}
       if (C < Ci) {
         if (As < 1e-9) continue;
         var dB = dmB / As;
-        dz = de * (Ci - C) / (Cst - Ci) * hh * V / dB * dt;
+        var unsat = eroMode === 'unsat' || (eroMode === 'auto' && gwOn && this.por[c] && this.W[c] < 0.9 * (1 - Cst) * Math.max(0, z[c] - zfix[c]));
+        if (unsat && tq > 1e-4 && tq < tanPd) {
+          // 不飽和河床の侵食速度式（高橋・里深）：i/√(gh) = Kt sin^{3/2}θ {1 − (σ−ρ)/ρ C (tanφ/tanθ − 1)}^{1/2} (tanφ/tanθ − 1)(C∞ − C) h/d
+          var tr_ = tanPd / tq - 1, br_ = 1 - (sgm - 1) * C * tr_, sn_ = tq / Math.sqrt(1 + tq * tq);
+          dz = br_ > 0 ? Kt * Math.sqrt(G * hh) * Math.pow(sn_, 1.5) * Math.sqrt(br_) * tr_ * (Ci - C) * hh / dB * dt : 0;
+        } else dz = de * (Ci - C) / (Cst - Ci) * hh * V / dB * dt;
         var lim1 = (Ci * hh - S) / (Cst - Ci); if (dz > lim1) dz = lim1;
         if (dz > As) dz = As;
         if (dz > z[c] - zfix[c]) dz = Math.max(0, z[c] - zfix[c]);
@@ -2092,6 +2897,7 @@ table.res th,table.res td{white-space:nowrap}
 
   // ---- 支川からの給砂（本川の供給土砂量の rs 倍、lag 秒遅れ）。bulk：河床に置く（平衡流砂量）、そうでなければ流れの中へ
   Sim.prototype.tribFeed = function (dtm, bulk) {
+    if (this.phase === 'run' && this.pin && this.pin.length) this.pinFeed(dtm, bulk);
     var TRB = this.tribs; if (!TRB.length || this.phase !== 'run') return;
     var K = this.K, ff = this.ff, A = this.A, Cc = this.Cc, dx = this.dx, lam = 1 - this.P.porosity;
     for (var q = 0; q < TRB.length; q++) {
@@ -2107,6 +2913,530 @@ table.res th,table.res td{white-space:nowrap}
       }
     }
   };
+  // ======================================================================================
+  // DEM の流域（SaboDEM.prepareDomain で切り出した地形）
+  //  流域の外：高い壁（水が出入りしない）。谷筋（幅 chW に広げる）：侵食できる河床（kind 0）。
+  //  斜面：kind 3（流れでは侵食しない。土層の厚さ soilD は伏流と斜面崩壊の土層として使う）
+  // ======================================================================================
+  Sim.prototype.setupBasin = function (T) {
+    var P = this.P, nx = this.nx, ny = this.ny, dx = this.dx, N = this.N, z = this.z, zfix = this.zfix, kind = this.kind, fl = this.fl;
+    var DM = P.dem || {}, soilD = DM.soilD > 0 ? DM.soilD : 1, chR = Math.max(0, Math.round(((DM.chW > 0 ? DM.chW : dx) / dx - 1) / 2));
+    var Ly = this.Ly, cs = T.cs, nr = T.rows.length, nc = T.rows[0].length, i, j, c, r, q;
+    var bas = this.basin = new Uint8Array(N), ch = new Uint8Array(N), zTop = -1e30;
+    this.tIdx = new Int32Array(N);
+    for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {
+      c = j * nx + i;
+      r = Math.min(nr - 1, Math.max(0, Math.floor((Ly - (j + 0.5) * dx) / cs))); q = Math.min(nc - 1, Math.max(0, Math.floor((i + 0.5) * dx / cs)));
+      this.tIdx[c] = r * nc + q;
+      bas[c] = T.basin[r][q] ? 1 : 0; ch[c] = T.chan && T.chan[r][q] ? 1 : 0;
+      z[c] = sampleTerrain(T, (i + 0.5) * dx, (j + 0.5) * dx, Ly);   // 擾乱を足す前の標高に戻す
+      if (bas[c] && z[c] > zTop) zTop = z[c];
+    }
+    var chD = new Uint8Array(N);
+    for (c = 0; c < N; c++) if (ch[c]) {
+      var ci = c % nx, cj = (c - ci) / nx;
+      for (var dj = -chR; dj <= chR; dj++) for (var di = -chR; di <= chR; di++) {
+        var ii = ci + di, jj = cj + dj; if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
+        var o = jj * nx + ii; if (bas[o]) chD[o] = 1;
+      }
+    }
+    var wallZ = zTop + 30, nf;
+    this.zOut = new Float32Array(N);   // 流域の外の元の標高（表示用。計算では高い壁）
+    for (i = 0; i < nx; i++) {
+      nf = 0;
+      for (j = 0; j < ny; j++) {
+        c = j * nx + i;
+        if (!bas[c]) { this.zOut[c] = z[c]; kind[c] = 1; fl[c] = 0; z[c] = wallZ; zfix[c] = wallZ; }
+        else if (chD[c]) { kind[c] = 0; fl[c] = 1; nf++; zfix[c] = (i < 2 || i >= nx - 2) ? z[c] : z[c] - P.erodDepth; }
+        else { kind[c] = 3; fl[c] = 0; zfix[c] = z[c] - soilD; }
+      }
+      this.Bx[i] = Math.max(1, nf) * dx;
+    }
+    this.demMode = true; this.zTop = zTop; this.wallZ = wallZ;
+    var Io = T.Iout > 0 ? T.Iout : 0.01; this.I = Io;
+    for (i = 0; i < nx; i++) { this.Ix[i] = Io; this.colmin[i] = 1e30; for (j = 0; j < ny; j++) { c = j * nx + i; if (bas[c] && z[c] < this.colmin[i]) this.colmin[i] = z[c]; } if (this.colmin[i] > 1e29) this.colmin[i] = wallZ; }
+  };
+
+  function cellAtXY(sim, x, y) {
+    var i = Math.floor(x / sim.dx), j = Math.floor(y / sim.dx);
+    if (i < 0 || j < 0 || i >= sim.nx || j >= sim.ny) return -1;
+    return j * sim.nx + i;
+  }
+  // 壁のセルなら、近くの壁でないセルへずらす
+  function snapCell(sim, c) {
+    if (c < 0 || sim.kind[c] !== 1 || (sim.basin && sim.basin[c] && sim.kind[c] !== 1)) return c;
+    var nx = sim.nx, ny = sim.ny, ci = c % nx, cj = (c - ci) / nx, best = -1, bd = 1e9;
+    for (var dj = -3; dj <= 3; dj++) for (var di = -3; di <= 3; di++) {
+      var ii = ci + di, jj = cj + dj; if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
+      var o = jj * nx + ii; if (sim.kind[o] === 1 || sim.kind[o] === 2) continue;
+      var dd = di * di + dj * dj; if (dd < bd) { bd = dd; best = o; }
+    }
+    return best >= 0 ? best : c;
+  }
+
+  // 点の流入：谷頭などの供給点（それぞれのハイドロ）と、雨の横流入（谷筋のセルごとの流量の表）
+  Sim.prototype.setupPoints = function () {
+    var P = this.P, N = this.N, self = this, k;
+    this.pin = [];
+    (P.sources || []).forEach(function (S) {
+      var c = snapCell(self, cellAtXY(self, S.x, S.y)); if (c < 0) return;
+      var ux = isFinite(S.ux) ? S.ux : 1, uy = isFinite(S.uy) ? S.uy : 0, L = Math.sqrt(ux * ux + uy * uy) || 1;
+      self.pin.push({ c: c, ux: ux / L, uy: uy / L, I: Math.max(1e-3, S.I || 0.05), H: S.hydro || null, tab: null, Q: 0, Qs: 0, v: 0, name: S.name || '' });
+    });
+    var LI = P.latIn;
+    if (LI && LI.pts && LI.Q) for (k = 0; k < LI.pts.length; k++) {
+      var pt = LI.pts[k], c2 = snapCell(self, cellAtXY(self, pt[0], pt[1])); if (c2 < 0) continue;
+      self.pin.push({ c: c2, ux: pt[2], uy: pt[3], I: Math.max(1e-3, pt[4] || 0.05), H: null, tab: LI.Q[k], dtab: LI.dt > 0 ? LI.dt : 60, Q: 0, Qs: 0, v: 0, lat: true });
+    }
+    this.pinIn = new Uint8Array(N); this.pH = new Float64Array(N); this.pMx = new Float64Array(N); this.pMy = new Float64Array(N);
+    for (k = 0; k < this.pin.length; k++) this.pinIn[this.pin[k].c] = 1;
+    // 格子に降る雨
+    var R = P.rain || {};
+    this.rainOn = !!(R.on && R.method === 'grid' && this.demMode);
+    if (this.rainOn) { this.rS = new Float64Array(N); this.rR = new Float64Array(N); }
+  };
+  Sim.prototype.pinStep = function () {
+    var P = this.P, t = this.t, dx = this.dx, PIN = this.pin, sum = 0, dbIn = P.transport === 'debris', Cmax = 0.9 * (1 - P.porosity), nman = P.manning, m, p;
+    for (m = 0; m < PIN.length; m++) { var c0 = PIN[m].c; this.pH[c0] = 0; this.pMx[c0] = 0; this.pMy[c0] = 0; }
+    for (m = 0; m < PIN.length; m++) {
+      p = PIN[m]; var Q, Qs;
+      if (p.tab) {
+        var f = t / p.dtab, k0 = Math.floor(f), w = f - k0, nT = p.tab.length;
+        Q = k0 >= nT - 1 ? p.tab[nT - 1] : p.tab[k0] * (1 - w) + p.tab[k0 + 1] * w; Qs = 0;
+      } else { Q = QatH(p.H, t); Qs = QsAtH(p.H, t); }
+      if (!(Q > 0)) { p.Q = 0; p.Qs = 0; p.v = 0; continue; }
+      if (dbIn && Qs > Cmax * Q) Qs = Cmax * Q;
+      p.Q = Q; p.Qs = Qs > 0 ? Qs : 0; sum += Q;
+      var q = Q / dx;
+      p.v = dbIn ? q / this.debrisDepth(q, p.Qs / Q, p.I) : q / Math.pow(q * nman / Math.sqrt(p.I), 0.6);
+      var a = Q / (dx * dx);
+      this.pH[p.c] += a; this.pMx[p.c] += a * p.v * p.ux; this.pMy[p.c] += a * p.v * p.uy;
+    }
+    return sum;
+  };
+  // 供給点の土砂（粒度は「供給」の割合）
+  Sim.prototype.pinFeed = function (dtm, bulk) {
+    var PIN = this.pin; if (!PIN || !PIN.length) return;
+    var K = this.K, ff = this.ff, A = this.A, Cc = this.Cc, dx = this.dx, lam = 1 - this.P.porosity, add = 0;
+    for (var m = 0; m < PIN.length; m++) {
+      var p = PIN[m]; if (!(p.Qs > 0)) continue;
+      var per = p.Qs * dtm / (dx * dx), c = p.c, ck = c * K, k;
+      add += p.Qs * dtm;
+      if (bulk) { for (k = 0; k < K; k++) A[ck + k] += per / lam * ff[k]; this.z[c] += per / lam; this.dzs[c] += per / lam; this.fixLayers(c); }
+      else for (k = 0; k < K; k++) Cc[ck + k] += per * ff[k];
+    }
+    this.sedIn += add; this.QsIn += add / Math.max(1e-9, dtm);
+  };
+
+  // ---- 雨（格子）
+  function rainUni(tab, t) {
+    if (!tab || !tab.length) return 0;
+    var tm = t / 60, v = 0, i;
+    for (i = 0; i < tab.length; i++) { if (tm >= tab[i][0] - 1e-9) v = tab[i][1]; else break; }
+    if (tab.length > 1 && tm >= tab[tab.length - 1][0] + (tab[tab.length - 1][0] - tab[tab.length - 2][0])) v = 0;
+    return Math.max(0, v);
+  }
+  function rainFrame(frames, t) {
+    if (!frames || !frames.length) return null;
+    var tm = t / 60, f = null, i;
+    for (i = 0; i < frames.length; i++) { if (tm >= frames[i].t - 1e-9) f = frames[i]; else break; }
+    if (f && frames.length > 1) { var dtf = frames[frames.length - 1].t - frames[frames.length - 2].t; if (tm >= frames[frames.length - 1].t + dtf) f = null; }
+    return f;
+  }
+  // 損失（有効雨量）：流出係数 f、一次流出率 f1・飽和雨量 Rsa・初期損失 R0、浸透能 ks と土層の空き容量
+  function lossCell(L, Sa, Ra, c, r, dt) {
+    var dth = dt / 3600;
+    if (L.type === 'f1rsa') {
+      Ra[c] += r * dth;
+      var R0 = L.R0 || 0, f = Ra[c] < R0 ? 0 : (Ra[c] < R0 + (L.Rsa || 0) ? (L.f1 != null ? L.f1 : 0.5) : 1);
+      return f * r;
+    }
+    if (L.type === 'ks') {
+      var Smax = Math.max(0, (L.D || 1) * ((L.n || 0.45) - (L.th0 || 0.25)) * 1000), ks = (L.ks || 1e-5) * 3.6e6;
+      if (Sa[c] >= Smax) return r;
+      var inf = Math.min(r, ks), add = inf * dth;
+      if (Sa[c] + add > Smax) { var over = (Sa[c] + add - Smax) / dth; Sa[c] = Smax; return r - inf + over; }
+      Sa[c] += add; return r - inf;
+    }
+    return (L.f != null ? L.f : 0.8) * r;
+  }
+  Sim.prototype.rainAtCell = function (c, t) {
+    var R = this.P.rain || {};
+    if (R.mode === 'grid' && R.frames && R.frames.length) { var fr = rainFrame(R.frames, t); return fr && this.tIdx ? Math.max(0, fr.r[this.tIdx[c]] || 0) : 0; }
+    return rainUni(R.table, t);
+  };
+  Sim.prototype.rainStep = function (dt) {
+    var P = this.P, R = P.rain, N = this.N, bas = this.basin, t = this.t, dx = this.dx, a = dx * dx;
+    var rr = this._rainR || (this._rainR = new Float64Array(N)), L = R.loss || { type: 'f', f: 1 }, gwOn = !!(P.gw && P.gw.on);
+    var fr = (R.mode === 'grid' && R.frames && R.frames.length) ? rainFrame(R.frames, t) : null, ru = fr ? 0 : rainUni(R.table, t);
+    var vol = 0, tot = 0;
+    for (var c = 0; c < N; c++) {
+      if (!bas[c]) { rr[c] = 0; continue; }
+      var r = fr ? Math.max(0, fr.r[this.tIdx[c]] || 0) : ru;
+      if (!(r > 0)) { rr[c] = 0; continue; }
+      var e = gwOn ? r : lossCell(L, this.rS, this.rR, c, r, dt);   // 伏流ありなら全部を地表へ（浸透は伏流の計算で）
+      rr[c] = e / 3.6e6 * dt; vol += rr[c]; tot += r / 3.6e6 * dt;
+    }
+    this._rainV = vol * a; this.rainVol += tot * a; this.rainLoss += (tot - vol) * a;
+    return rr;
+  };
+
+  // ======================================================================================
+  // 斜面崩壊・天然ダム
+  // ======================================================================================
+  // 崩壊の範囲：中心 (x, y)、半径 R。表層：一様な深さ D（無限長斜面）。深層：深さ D のさじ形のすべり面（中心で D、縁で 0）
+  Sim.prototype.setupSlides = function () {
+    var P = this.P, N = this.N, dx = this.dx, nx = this.nx, ny = this.ny, z = this.z, kind = this.kind, self = this;
+    this.slides = []; this.dep = new Uint8Array(N); this.depOn = false; this.ldamList = []; this.depK = 0; this._chkT = 0;
+    (P.slides || []).forEach(function (S, q) {
+      var R = Math.max(dx, S.R || 20), D = Math.max(0.1, S.D || 2), deep = S.type === 'deep', cells = [], zs = [];
+      var i0 = Math.max(0, Math.floor((S.x - R) / dx)), i1 = Math.min(nx - 1, Math.floor((S.x + R) / dx));
+      var j0 = Math.max(0, Math.floor((S.y - R) / dx)), j1 = Math.min(ny - 1, Math.floor((S.y + R) / dx));
+      var zt = -1e30, sx = 0, sy = 0;
+      for (var j = j0; j <= j1; j++) for (var i = i0; i <= i1; i++) {
+        var c = j * nx + i; if (kind[c] === 2 || (self.basin && !self.basin[c])) continue;
+        var rx = (i + 0.5) * dx - S.x, ry = (j + 0.5) * dx - S.y, rr = Math.sqrt(rx * rx + ry * ry) / R;
+        if (rr > 1) continue;
+        var th = deep ? D * Math.sqrt(Math.max(0, 1 - rr * rr)) : D;
+        if (th < 0.05) continue;
+        cells.push(c); zs.push(z[c] - th); if (z[c] > zt) zt = z[c]; sx += i; sy += j;
+      }
+      if (!cells.length) return;
+      var ne = S.ne > 0 ? S.ne : (deep ? 0.05 : 0.15), m0 = S.m0 >= 0 ? S.m0 : 0.2;
+      self.slides.push({ id: q, S: S, cells: cells, zslip: Float64Array.from(zs), deep: deep, D: D, R: R, ne: ne, fired: false, done: new Uint8Array(cells.length),
+        Sw: m0 * D * ne * 1000, Fs: NaN, zTop: zt, ci: Math.round(sx / cells.length), cj: Math.round(sy / cells.length), m: m0 });
+    });
+    (P.ldams || []).forEach(function (L) { self.placeLdam(L); });
+  };
+
+  // 表面の勾配 tanβ（中心差分、端は片側）
+  Sim.prototype.surfSlope = function (c) {
+    var nx = this.nx, ny = this.ny, z = this.z, dx = this.dx, i = c % nx, j = (c - i) / nx;
+    var a = i > 0 ? c - 1 : c, b = i < nx - 1 ? c + 1 : c, s = j > 0 ? c - nx : c, n = j < ny - 1 ? c + nx : c;
+    var gx = (z[b] - z[a]) / ((b - a) * dx || dx), gy = (z[n] - z[s]) / (((n - s) / nx) * dx || dx);
+    if (b === a) gx = 0; if (n === s) gy = 0;
+    return Math.sqrt(gx * gx + gy * gy);
+  };
+  // すべり面より上の飽和厚 hw [m]（伏流ありで表層なら土層の地下水、それ以外はタンク）
+  Sim.prototype.slideHw = function (sl, k) {
+    var P = this.P, c = sl.cells[k], T = this.z[c] - sl.zslip[k];
+    if (!sl.deep && P.gw && P.gw.on && this.por[c]) {
+      var n = P.porosity, b = this.W[c] / n, base = this.zfix[c];   // 地下水面の高さ = zfix + W/n
+      return Math.max(0, Math.min(T, base + b - sl.zslip[k]));
+    }
+    return Math.max(0, Math.min(T, sl.Sw / 1000 / sl.ne));
+  };
+  // 安全率。表層：無限長斜面 Fs = [c' + (γt(D−hw) + γ'hw) cos²β tanφ] / [(γt(D−hw) + γsat hw) sinβ cosβ]（セルごと）
+  // 深層：Hovland（1977）の 3 次元簡便法（柱ごとの重さ・間隙水圧、すべり面の傾きは移動方向に測る）
+  Sim.prototype.slideFs = function (sl) {
+    var S = sl.S, gt = S.gt > 0 ? S.gt : 18, gs = S.gs > 0 ? S.gs : 20, gw = 9.81, coh = S.c >= 0 ? S.c : (sl.deep ? 30 : 5), tp = Math.tan((S.phi > 0 ? S.phi : (sl.deep ? 30 : 35)) * Math.PI / 180);
+    var z = this.z, dx = this.dx, nx = this.nx, k, c, n = sl.cells.length;
+    if (!sl.deep) {
+      var fsc = sl.fsc || (sl.fsc = new Float64Array(n)), mn = 1e9, msum = 0, cnt = 0;
+      for (k = 0; k < n; k++) {
+        if (sl.done[k]) { fsc[k] = 9; continue; }
+        c = sl.cells[k]; var D = z[c] - sl.zslip[k]; if (D <= 0.01) { fsc[k] = 9; continue; }
+        var hw = this.slideHw(sl, k), tb = this.surfSlope(c), b = Math.atan(tb), cb = Math.cos(b), sb = Math.sin(b);
+        var res = coh + (gt * (D - hw) + (gs - gw) * hw) * cb * cb * tp, drv = (gt * (D - hw) + gs * hw) * sb * cb;
+        fsc[k] = drv > 1e-9 ? res / drv : 9; if (fsc[k] < mn) mn = fsc[k]; msum += hw / D; cnt++;
+      }
+      sl.m = cnt ? msum / cnt : 0; return mn;
+    }
+    // 移動方向：崩壊域の表面勾配の平均の下り向き
+    var gxs = 0, gys = 0, ny = this.ny;
+    for (k = 0; k < n; k++) {
+      c = sl.cells[k]; var i = c % nx, j = (c - i) / nx;
+      if (i > 0 && i < nx - 1) gxs += (z[c + 1] - z[c - 1]) / (2 * dx);
+      if (j > 0 && j < ny - 1) gys += (z[c + nx] - z[c - nx]) / (2 * dx);
+    }
+    var L = Math.sqrt(gxs * gxs + gys * gys); if (L < 1e-9) return 9;
+    var ux = -gxs / L, uy = -gys / L, num = 0, den = 0, a1 = dx * dx, ms = 0;
+    var zsl = this._zsl || (this._zsl = new Float64Array(this.N)), msk = this._zm || (this._zm = new Uint8Array(this.N));
+    for (k = 0; k < n; k++) { zsl[sl.cells[k]] = sl.zslip[k]; msk[sl.cells[k]] = 1; }
+    for (k = 0; k < n; k++) {
+      c = sl.cells[k]; var T = z[c] - sl.zslip[k]; if (T <= 0.01) continue;
+      var i2 = c % nx, j2 = (c - i2) / nx;
+      var sxp = (i2 < nx - 1 && msk[c + 1]) ? zsl[c + 1] : z[Math.min(c + 1, this.N - 1)], sxm = (i2 > 0 && msk[c - 1]) ? zsl[c - 1] : z[Math.max(0, c - 1)];
+      var syp = (j2 < ny - 1 && msk[c + nx]) ? zsl[c + nx] : (j2 < ny - 1 ? z[c + nx] : zsl[c]), sym = (j2 > 0 && msk[c - nx]) ? zsl[c - nx] : (j2 > 0 ? z[c - nx] : zsl[c]);
+      var al = Math.atan(-((sxp - sxm) / (2 * dx) * ux + (syp - sym) / (2 * dx) * uy));   // すべり面の移動方向の傾き
+      var hw2 = this.slideHw(sl, k), Wt = (gt * (T - hw2) + gs * hw2) * a1, Ab = a1 / Math.max(0.2, Math.cos(al)), u = gw * hw2 * Math.cos(al) * Math.cos(al);
+      num += coh * Ab + Math.max(0, Wt * Math.cos(al) - u * Ab) * tp; den += Wt * Math.sin(al); ms += hw2 / T;
+    }
+    for (k = 0; k < n; k++) msk[sl.cells[k]] = 0;
+    sl.m = n ? ms / n : 0; sl.ux = ux; sl.uy = uy;
+    return den > 1e-9 ? num / den : 9;
+  };
+
+  Sim.prototype.slideStep = function (dt) {
+    var P = this.P, t = this.t, m;
+    for (m = 0; m < this.slides.length; m++) {
+      var sl = this.slides[m], S = sl.S; if (sl.fired) continue;
+      // 地下水のタンク：dS/dt = r − S/Tk（S：mm）
+      var Tk = (S.Tk > 0 ? S.Tk : (sl.deep ? 48 : 6)) * 3600, r = P.rain && P.rain.on ? this.rainAtCell(sl.cells[0], t) : 0;
+      sl.Sw += (r / 3600 - sl.Sw / Tk) * dt;
+      if (sl.Sw > sl.D * sl.ne * 1000) sl.Sw = sl.D * sl.ne * 1000;
+    }
+    this._chkT += dt;
+    var chk = P.slideChk > 0 ? P.slideChk : 1;
+    if (this._chkT < chk) return;
+    this._chkT = 0;
+    for (m = 0; m < this.slides.length; m++) {
+      var s2 = this.slides[m], S2 = s2.S; if (s2.fired) continue;
+      var Fs = this.slideFs(s2); s2.Fs = Fs;
+      if (S2.trigger === 'time') { if (t >= (S2.t || 0)) this.releaseSlide(s2, null); }
+      else if (s2.deep) { if (Fs < 1) this.releaseSlide(s2, null); }
+      else if (Fs < 1) {   // 表層：安全率が 1 を下回ったセルだけ崩れる
+        var list = [];
+        for (var k = 0; k < s2.cells.length; k++) if (!s2.done[k] && s2.fsc[k] < 1) list.push(k);
+        if (list.length) this.releaseSlide(s2, list);
+      }
+    }
+    if (this.depOn && P.gw && P.gw.on) this.progressive();
+    this.ldamSlip();
+  };
+
+  // 層から厚さ dz（かさ）を取り去る。取った粒径別の実質体積を out に足す
+  Sim.prototype.takeSed = function (c, dz, out) {
+    var K = this.K, A = this.A, ck = c * K, left = dz, it = 0, k, lam = 1 - this.P.porosity;
+    while (left > 1e-9 && it++ < 400) {
+      var av = 0; for (k = 0; k < K; k++) av += A[ck + k];
+      if (av < 1e-9) break;
+      var take = left < av ? left : av, frc = take / av;
+      for (k = 0; k < K; k++) { var tt = A[ck + k] * frc; A[ck + k] -= tt; if (out) out[k] += tt * lam; }
+      left -= take; this.fixLayers(c);
+    }
+    return dz - left;
+  };
+  // 堆積物（かさ dz、粒度 fr）を足す
+  Sim.prototype.addDeposit = function (c, dz, fr) {
+    var K = this.K, A = this.A, ck = c * K;
+    if (this.kind[c] !== 0) { this.kind[c] = 0; this.zfix[c] = this.z[c]; this.fl[c] = 1; if (this.fixedC) this.fixedC[c] = 0; }
+    for (var k = 0; k < K; k++) A[ck + k] += dz * fr[k];
+    this.z[c] += dz; this.dzs[c] += dz; this.fixLayers(c);
+    this.por[c] = 1; this.dep[c] = 1; this.depOn = true;
+  };
+
+  // 崩壊：list（セルの番号の配列、null で全部）を崩す
+  Sim.prototype.releaseSlide = function (sl, list) {
+    var P = this.P, S = sl.S, n = P.porosity, Cst = 1 - n, K = this.K, dx = this.dx, a1 = dx * dx, z = this.z, h = this.h, Cc = this.Cc, f0 = this.f0;
+    var gwOn = !!(P.gw && P.gw.on), idx = list || sl.cells.map(function (_, k) { return k; }), k, q;
+    this.slideFs(sl);
+    var mode = S.move || 'auto';
+    if (mode === 'auto') mode = (sl.m >= (S.mc > 0 ? S.mc : 0.8) && P.transport === 'debris') ? 'fluid' : 'block';
+    if (mode === 'fluid' && P.transport !== 'debris') mode = 'block';
+    var CL = S.CL > 0 ? S.CL : 0.5, Sr0 = S.Sr0 >= 0 ? S.Sr0 : 0.5, vol = 0, wat = 0, sed = new Float64Array(K), added = 0, sedTot = 0;
+    var frc = new Float64Array(K);
+    for (q = 0; q < idx.length; q++) {
+      k = idx[q]; if (sl.done[k]) continue; sl.done[k] = 1;
+      var c = sl.cells[k], T = z[c] - sl.zslip[k]; if (T <= 1e-6) continue;
+      var hw = this.slideHw(sl, k), wsl;
+      if (gwOn && this.por[c] && !sl.deep) { wsl = Math.max(0, Math.min(this.W[c], this.W[c] - n * Math.max(0, sl.zslip[k] - this.zfix[c]))); this.W[c] -= wsl; }
+      else if (gwOn) { wsl = n * (hw + Sr0 * Math.max(0, T - hw)); this.Vwin += wsl * a1; }   // 追っていなかった間隙の水を足す
+      else wsl = mode === 'fluid' ? n * T : 0;   // 伏流なし：河床の間隙はいつも水で満ちている扱い（かさの中の水）
+      // すべり面より上の土：河床の層があれば層から、なければ「河床材料」の粒度
+      for (var kk = 0; kk < K; kk++) frc[kk] = 0;
+      var got = 0;
+      if (this.kind[c] === 0) got = this.takeSed(c, Math.min(T, Math.max(0, z[c] - this.zfix[c])), frc);
+      for (kk = 0; kk < K; kk++) frc[kk] += (T - got) * Cst * f0[kk];
+      z[c] = sl.zslip[k]; this.dzs[c] -= T;
+      if (this.zfix[c] > z[c]) this.zfix[c] = z[c];
+      if (this.kind[c] === 3) { this.zfix[c] = z[c]; }    // 崩れた跡は土層なし
+      if (gwOn && this.por[c]) { var cap = n * Math.max(0, z[c] - this.zfix[c]); if (this.W[c] > cap) { h[c] += this.W[c] - cap; this.W[c] = cap; } }
+      if (mode === 'fluid') {
+        var ss = 0; for (kk = 0; kk < K; kk++) { Cc[c * K + kk] += frc[kk]; ss += frc[kk]; }
+        h[c] += ss + wsl;
+        var Sx = 0; for (kk = 0; kk < K; kk++) Sx += Cc[c * K + kk];
+        if (Sx > CL * h[c]) { var ad = Sx / CL - h[c]; h[c] += ad; added += ad * a1; }   // 流動化する濃度まで水を足す（法面の流れ・湧水を取り込むと仮定）
+        sedTot += ss * a1;
+      } else { for (kk = 0; kk < K; kk++) sed[kk] += frc[kk] * a1; vol += T * a1; wat += wsl * a1; }
+    }
+    this.Vwin += added;
+    if (mode === 'block' && vol > 0) {
+      var ss2 = 0; for (kk = 0; kk < K; kk++) ss2 += sed[kk];
+      for (kk = 0; kk < K; kk++) frc[kk] = ss2 > 0 ? sed[kk] / ss2 : f0[kk];
+      this.runout(sl, ss2 / Cst, wat, frc);
+    }
+    if (!list || sl.done.every(function (v) { return v; })) sl.fired = true;
+    this.slideLog.push({ t: this.t, id: sl.id, mode: mode, vol: mode === 'block' ? vol : sedTot / Cst, Fs: sl.Fs, m: sl.m, water: added });
+  };
+
+  // 土塊の瞬時移動：最急降下の経路を、エネルギー線（崩壊域の最高点から勾配 μ）が地表に届くまでたどり、そこに堆積させる。
+  // μ：指定（等価摩擦角）か Scheidegger（1973）log10(H/L) = −0.15666 log10 V + 0.62419（V：m³）
+  Sim.prototype.runout = function (sl, V, Wv, frc) {
+    var S = sl.S, nx = this.nx, ny = this.ny, dx = this.dx, z = this.z, kind = this.kind;
+    var mu = S.mu > 0 ? Math.tan(S.mu * Math.PI / 180) : Math.max(0.05, Math.min(0.9, Math.pow(10, -0.15666 * Math.log(Math.max(1, V)) / Math.LN10 + 0.62419)));
+    var c = sl.cj * nx + sl.ci, L = 0, it = 0, top = sl.zTop;
+    var DCX = [1, 1, 0, -1, -1, -1, 0, 1], DCY = [0, 1, 1, 1, 0, -1, -1, -1];
+    while (it++ < 20000) {
+      var ci = c % nx, cj = (c - ci) / nx, best = -1, bs = 0, bl = 0;
+      for (var q = 0; q < 8; q++) {
+        var ii = ci + DCX[q], jj = cj + DCY[q]; if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
+        var o = jj * nx + ii; if (kind[o] === 2 || (this.basin && !this.basin[o])) continue;
+        var dl = (q % 2 ? Math.SQRT2 : 1) * dx, s = (z[c] - z[o]) / dl;
+        if (s > bs) { bs = s; best = o; bl = dl; }
+      }
+      if (best < 0) break;
+      L += bl; c = best;
+      if (z[c] >= top - mu * (L + sl.R)) break;
+    }
+    sl.stop = c; sl.mu = mu; sl.L = L;
+    this.depositCone(c, V, Math.tan((S.thDep > 0 ? S.thDep : 10) * Math.PI / 180), Wv, frc);
+  };
+  // 円錐形の堆積（頂点はセル c0、表面の勾配 tanT）。体積 V（かさ）に合う高さを二分法で求める
+  Sim.prototype.depositCone = function (c0, V, tanT, Wv, frc) {
+    var nx = this.nx, ny = this.ny, dx = this.dx, z = this.z, kind = this.kind, a1 = dx * dx, self = this;
+    var ci = c0 % nx, cj = (c0 - ci) / nx, z0 = z[c0];
+    function vol(H, apply) {
+      var R = H / tanT, rr = Math.ceil(R / dx) + 1, s = 0, cells = apply ? [] : null;
+      for (var j = Math.max(0, cj - rr); j <= Math.min(ny - 1, cj + rr); j++) for (var i = Math.max(0, ci - rr); i <= Math.min(nx - 1, ci + rr); i++) {
+        var c = j * nx + i; if (kind[c] === 2 || (self.basin && !self.basin[c])) continue;
+        var r = Math.sqrt((i - ci) * (i - ci) + (j - cj) * (j - cj)) * dx, zt = z0 + H - tanT * r;
+        if (zt > z[c]) { s += (zt - z[c]) * a1; if (apply) cells.push([c, zt - z[c]]); }
+      }
+      return apply ? cells : s;
+    }
+    var lo = 0, hi = Math.max(1, Math.cbrt(V)), it;
+    for (it = 0; it < 60 && vol(hi) < V; it++) hi *= 2;
+    for (it = 0; it < 60; it++) { var mid = 0.5 * (lo + hi); if (vol(mid) < V) lo = mid; else hi = mid; }
+    var cells = vol(hi, true), tot = 0, q;
+    for (q = 0; q < cells.length; q++) tot += cells[q][1];
+    var sc = tot > 0 ? V / (tot * a1) : 0;   // 体積をきっちり合わせる
+    this.depositCells(cells, sc, Wv, frc);
+  };
+  Sim.prototype.depositCells = function (cells, sc, Wv, frc) {
+    var P = this.P, n = P.porosity, a1 = this.dx * this.dx, gwOn = !!(P.gw && P.gw.on), tot = 0, q, lam = 1 - n;
+    var fb = new Float64Array(this.K); for (var k = 0; k < this.K; k++) fb[k] = frc[k];   // 粒度（かさの割合）
+    for (q = 0; q < cells.length; q++) tot += cells[q][1] * sc;
+    for (q = 0; q < cells.length; q++) {
+      var c = cells[q][0], t = cells[q][1] * sc; if (!(t > 0)) continue;
+      this.addDeposit(c, t, fb);
+      var w = tot > 0 ? Wv / a1 * t / tot : 0;         // 運ばれた水を厚さに比例して配る
+      if (gwOn) { var cap = n * Math.max(0, this.z[c] - this.zfix[c]), room = Math.max(0, cap - this.W[c]), ww = Math.min(w, room); this.W[c] += ww; this.h[c] += w - ww; }
+      else this.h[c] += w;
+      this.Vdep = (this.Vdep || 0) + t * a1;
+    }
+    void lam;
+  };
+
+  // 天然ダムを直接置く：中心 (x, y)、流れの向き (ux, uy)、高さ H、天端幅 Wc、上流・下流の法面勾配（度）、横の範囲 lat
+  Sim.prototype.placeLdam = function (L) {
+    var nx = this.nx, ny = this.ny, dx = this.dx, z = this.z, kind = this.kind, c0 = snapCell(this, cellAtXY(this, L.x, L.y));
+    if (c0 < 0) return;
+    var ux = isFinite(L.ux) ? L.ux : 1, uy = isFinite(L.uy) ? L.uy : 0, nn = Math.sqrt(ux * ux + uy * uy) || 1; ux /= nn; uy /= nn;
+    var H = Math.max(0.5, L.H || 10), Wc = Math.max(0, L.Wc || 0), tu = Math.tan((L.up > 0 ? L.up : 30) * Math.PI / 180), td = Math.tan((L.dn > 0 ? L.dn : 25) * Math.PI / 180);
+    var lat = L.lat > 0 ? L.lat : Math.max(50, 8 * H), x0 = (c0 % nx + 0.5) * dx, y0 = (Math.floor(c0 / nx) + 0.5) * dx, zc = z[c0];
+    var ext = Math.max(H / tu, H / td) + Wc + lat, cells = [], f0 = this.f0;
+    for (var j = Math.max(0, Math.floor((y0 - ext) / dx)); j <= Math.min(ny - 1, Math.floor((y0 + ext) / dx)); j++)
+      for (var i = Math.max(0, Math.floor((x0 - ext) / dx)); i <= Math.min(nx - 1, Math.floor((x0 + ext) / dx)); i++) {
+        var c = j * nx + i; if (kind[c] === 2 || (this.basin && !this.basin[c])) continue;
+        var px = (i + 0.5) * dx - x0, py = (j + 0.5) * dx - y0, s = px * ux + py * uy, w = -px * uy + py * ux;
+        if (Math.abs(w) > lat) continue;
+        var zt = zc + H - (s > Wc / 2 ? (s - Wc / 2) * td : s < -Wc / 2 ? (-Wc / 2 - s) * tu : 0);
+        if (zt > z[c] + 1e-3) cells.push([c, zt - z[c]]);
+      }
+    var LD = this.P.ldam || {}, fr = new Float64Array(this.K), K = this.K;
+    for (var k = 0; k < K; k++) fr[k] = f0[k];
+    if (LD.grains && LD.grains.length === K) { var sm = 0; for (k = 0; k < K; k++) sm += Math.max(0, LD.grains[k]); for (k = 0; k < K; k++) fr[k] = sm > 0 ? Math.max(0, LD.grains[k]) / sm : f0[k]; }
+    var n = this.P.porosity, gwOn = !!(this.P.gw && this.P.gw.on), s0 = LD.s0 >= 0 ? LD.s0 : 0.3;
+    var V = 0;
+    for (var q = 0; q < cells.length; q++) {
+      var cc = cells[q][0], t = cells[q][1];
+      this.addDeposit(cc, t, fr); V += t * dx * dx;
+      if (gwOn) this.W[cc] += n * t * s0;
+    }
+    if (gwOn) { var wv = 0; for (q = 0; q < cells.length; q++) wv += n * cells[q][1] * s0; this.W0add = (this.W0add || 0) + wv * dx * dx; }
+    this.ldamList.push({ c0: c0, x0: x0, y0: y0, zc: zc, H: H, ux: ux, uy: uy, crest: zc + H, lat: lat, V: V, cells: cells.map(function (a) { return a[0]; }), slipped: false, L: L });
+  };
+
+  // 進行性崩壊：天然ダム（堆積物）のうち、地表まで飽和して湧水が出ている（浸潤面が地表に達した）セルで、
+  // 浸透流が斜面に平行なときの無限長斜面 Fs = c'/(γsat T sinβ cosβ) + (γ'/γsat) tanφ/tanβ が 1 を下回れば、
+  // 下の隣のセルへ、勾配が限界 tanβc = (γ'/γsat) tanφ になるまで土を移す（崩れた土は飽和したまま。流れが運ぶ）
+  Sim.prototype.progressive = function () {
+    var P = this.P, LD = P.ldam || {}, N = this.N, nx = this.nx, ny = this.ny, dx = this.dx, z = this.z, zfix = this.zfix, h = this.h, W = this.W, n = P.porosity;
+    var gs = LD.gs > 0 ? LD.gs : 20, gw = 9.81, tp = Math.tan((LD.phi > 0 ? LD.phi : 35) * Math.PI / 180), coh = LD.c > 0 ? LD.c : 0, Ts = LD.Ts > 0 ? LD.Ts : 0.5;
+    var tanC = (gs - gw) / gs * tp, dep = this.dep, cnt = 0, vol = 0;
+    for (var c = 0; c < N; c++) {
+      if (!dep[c]) continue;
+      var Tq = z[c] - zfix[c]; if (Tq < 1e-3) continue;
+      if (W[c] < 0.98 * n * Tq || h[c] > 0.1) continue;   // 地表まで飽和、湛水の中ではない
+      var i = c % nx, j = (c - i) / nx, best = -1, bs = 0;
+      var nb = [i < nx - 1 ? c + 1 : -1, i > 0 ? c - 1 : -1, j < ny - 1 ? c + nx : -1, j > 0 ? c - nx : -1];
+      for (var q = 0; q < 4; q++) { var o = nb[q]; if (o < 0 || this.kind[o] === 2 || (this.basin && !this.basin[o])) continue; var s = (z[c] - z[o]) / dx; if (s > bs) { bs = s; best = o; } }
+      if (best < 0) continue;
+      var b = Math.atan(bs), Fs = coh / (gs * Ts * Math.sin(b) * Math.cos(b)) + (gs - gw) / gs * tp / bs;
+      if (Fs >= 1) continue;
+      var dl = Math.min((z[c] - z[best] - tanC * dx) / 2, Tq);
+      if (!(dl > 1e-4)) continue;
+      var got = this.moveSed(c, best, dl);
+      if (!(got > 0)) continue;
+      this.dzs[c] -= got; this.dzs[best] += got;
+      if (this.kind[best] !== 0) { this.kind[best] = 0; this.zfix[best] = z[best] - got; this.fl[best] = 1; }
+      this.por[best] = 1; dep[best] = 1;
+      var wm = Math.min(W[c], n * got); W[c] -= wm;
+      var cap = n * Math.max(0, z[best] - zfix[best]), room = Math.max(0, cap - W[best]), ww = Math.min(wm, room); W[best] += ww; h[best] += wm - ww;
+      cnt++; vol += got * dx * dx;
+    }
+    if (cnt) { this.progCount = (this.progCount || 0) + cnt; this.progVol = (this.progVol || 0) + vol; }
+  };
+
+  // すべり破壊（指定）：湛水位が指定の高さに達したら、ダムのうち、下流の法尻から角度 αs で上流へ上がる面より上の土を、
+  // 法尻から下流へ堆積勾配 θdep の斜面になるように瞬時に動かす（Awal ら（2008）、高山ら（2020）の簡易モデルの 2 次元版）
+  Sim.prototype.ldamSlip = function () {
+    var LD = this.P.ldam || {}; if (LD.fail !== 'slip' || !this.ldamList.length) return;
+    var nx = this.nx, dx = this.dx, z = this.z, h = this.h, zfix = this.zfix, a1 = dx * dx, K = this.K;
+    for (var m = 0; m < this.ldamList.length; m++) {
+      var D = this.ldamList[m]; if (D.slipped) continue;
+      // 湛水位：ダムの上流（s < 0）の濡れたセルの最高水位
+      var wl = -1e30, sTo = -1e30, k, c;
+      for (k = 0; k < D.cells.length; k++) { c = D.cells[k]; var px = (c % nx + 0.5) * dx - D.x0, py = (Math.floor(c / nx) + 0.5) * dx - D.y0, s = px * D.ux + py * D.uy; if (z[c] - zfix[c] > 0.05 && s > sTo) sTo = s; }
+      var r0 = Math.ceil((D.H * 4 + D.lat) / dx), ci = D.c0 % nx, cj = Math.floor(D.c0 / nx);
+      for (var j = Math.max(0, cj - r0); j <= Math.min(this.ny - 1, cj + r0); j++) for (var i = Math.max(0, ci - r0); i <= Math.min(nx - 1, ci + r0); i++) {
+        c = j * nx + i; var px2 = (i + 0.5) * dx - D.x0, py2 = (j + 0.5) * dx - D.y0, s2 = px2 * D.ux + py2 * D.uy;
+        if (s2 < 0 && h[c] > 0.05 && z[c] + h[c] > wl) wl = z[c] + h[c];
+      }
+      var lev = LD.slipLevel > 0 ? D.zc + LD.slipLevel * D.H : D.crest - 0.05 * D.H;
+      if (wl < lev) continue;
+      D.slipped = true;
+      var al = Math.tan((LD.slipDeg > 0 ? LD.slipDeg : 20) * Math.PI / 180), tanD = Math.tan((LD.thDep > 0 ? LD.thDep : 10) * Math.PI / 180);
+      // 動く土
+      var sed = new Float64Array(K), Vb = 0, Wm = 0, n = this.P.porosity, ztoe = D.zc - 0;
+      for (k = 0; k < D.cells.length; k++) {
+        c = D.cells[k]; var px3 = (c % nx + 0.5) * dx - D.x0, py3 = (Math.floor(c / nx) + 0.5) * dx - D.y0, s3 = px3 * D.ux + py3 * D.uy;
+        var zp = ztoe + (sTo - s3) * al, base = Math.max(zfix[c], zp), ex = z[c] - base;
+        if (ex <= 1e-3) continue;
+        var got = this.takeSed(c, ex, sed); z[c] -= got; this.dzs[c] -= got; Vb += got * a1;
+        if (this.W) { var cap = n * Math.max(0, z[c] - zfix[c]); if (this.W[c] > cap) { Wm += (this.W[c] - cap) * a1; this.W[c] = cap; } }
+      }
+      if (Vb <= 0) continue;
+      var ss = 0; for (k = 0; k < K; k++) ss += sed[k];
+      var fr = new Float64Array(K); for (k = 0; k < K; k++) fr[k] = ss > 0 ? sed[k] / ss : this.f0[k];
+      this.depositRamp(D, sTo, Vb, tanD, Wm, fr);
+      this.slideLog.push({ t: this.t, id: 'ldam' + m, mode: 'slip', vol: Vb, water: 0 });
+    }
+  };
+  // 法尻（s = s0）から下流へ、勾配 tanT で下がる斜面の形に体積 V（かさ）を置く
+  Sim.prototype.depositRamp = function (D, s0, V, tanT, Wv, frc) {
+    var nx = this.nx, ny = this.ny, dx = this.dx, z = this.z, kind = this.kind, a1 = dx * dx, self = this;
+    var r0 = Math.ceil((D.H * 12 + D.lat) / dx), ci = D.c0 % nx, cj = Math.floor(D.c0 / nx);
+    function vol(Z, apply) {
+      var s = 0, cells = apply ? [] : null;
+      for (var j = Math.max(0, cj - r0); j <= Math.min(ny - 1, cj + r0); j++) for (var i = Math.max(0, ci - r0); i <= Math.min(nx - 1, ci + r0); i++) {
+        var c = j * nx + i; if (kind[c] === 2 || (self.basin && !self.basin[c])) continue;
+        var px = (i + 0.5) * dx - D.x0, py = (j + 0.5) * dx - D.y0, sv = px * D.ux + py * D.uy, w = -px * D.uy + py * D.ux;
+        if (sv < s0 - dx || Math.abs(w) > D.lat) continue;
+        var zt = Z - tanT * Math.max(0, sv - s0);
+        if (zt > z[c]) { s += (zt - z[c]) * a1; if (apply) cells.push([c, zt - z[c]]); }
+      }
+      return apply ? cells : s;
+    }
+    var lo = D.zc - 50, hi = D.crest + 50, it;
+    for (it = 0; it < 60 && vol(hi) < V; it++) hi += 50;
+    for (it = 0; it < 60; it++) { var mid = 0.5 * (lo + hi); if (vol(mid) < V) lo = mid; else hi = mid; }
+    var cells = vol(hi, true), tot = 0, q;
+    for (q = 0; q < cells.length; q++) tot += cells[q][1];
+    this.depositCells(cells, tot > 0 ? V / (tot * a1) : 0, Wv, frc);
+  };
+
   // ---- 伏流（河床への浸透・地下水の流れ・湧出）--------------------------------------------
   // 透水係数 k：指定がなければ交換層の粒度から Kozeny–Carman 式 k = (g/ν)·n³/(1−n)²·d_h²/180（d_h は調和平均径）、上限 kMax。
   // 浸透：水に浸かったセルで、堆積層の空隙が残っていれば単位動水勾配で k の速さ。
@@ -2116,10 +3446,10 @@ table.res th,table.res td{white-space:nowrap}
     var P = this.P, GW = P.gw || {}, N = this.N, nx = this.nx, ny = this.ny, dx = this.dx, K = this.K, n = P.porosity;
     var h = this.h, z = this.z, zfix = this.zfix, kind = this.kind, W = this.W, kg = this.kgw, A = this.A, d = this.d, qx = this.qx, qy = this.qy;
     var Cst = 1 - n, dbr = P.transport === 'debris', Cc = this.Cc, kMax = GW.kMax > 0 ? GW.kMax : 0.05, HD = 5e-4, c, k, i, j;   // 浸透で残す水深は流れの乾湿の境（1e-3）より小さくする（境目に止まると丸め誤差で乾湿が入れ替わる）
-    var kc0 = G / 1e-6 * n * n * n / ((1 - n) * (1 - n)) / 180, bmax = 0, kmx = 0;
+    var kc0 = G / 1e-6 * n * n * n / ((1 - n) * (1 - n)) / 180, bmax = 0, kmx = 0, por = this.por, DMk = P.dem ? P.dem.ks : 0, LDk = P.ldam ? P.ldam.k : 0;
     for (c = 0; c < N; c++) {
-      if (kind[c] !== 0) { kg[c] = 0; continue; }
-      var kk = GW.k > 0 ? GW.k : 0;
+      if (!por[c]) { kg[c] = 0; continue; }
+      var kk = kind[c] === 3 ? (DMk > 0 ? DMk : 1e-5) : (this.dep[c] && LDk > 0 ? LDk : (GW.k > 0 ? GW.k : 0));
       if (!kk) { var ck = c * K, sA = 0, sh = 0; for (k = 0; k < K; k++) { sA += A[ck + k]; sh += A[ck + k] / d[k]; } var dh = sh > 0 ? sA / sh : this.dm0; kk = kc0 * dh * dh; }
       kg[c] = kk > kMax ? kMax : kk;
       var Wm = n * Math.max(0, z[c] - zfix[c]), hh = h[c];
@@ -2138,10 +3468,10 @@ table.res th,table.res td{white-space:nowrap}
     for (var it = 0; it < ns; it++) {
       for (c = 0; c < N; c++) { Hg[c] = zfix[c] + W[c] / n; dW[c] = 0; }
       for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {
-        c = j * nx + i; if (kind[c] !== 0) continue;
+        c = j * nx + i; if (!por[c]) continue;
         for (var a = 0; a < 2; a++) {
           var o = a === 0 ? (i < nx - 1 ? c + 1 : -1) : (j < ny - 1 ? c + nx : -1);
-          if (o < 0 || kind[o] !== 0) continue;
+          if (o < 0 || !por[o]) continue;
           var dH = Hg[c] - Hg[o]; if (dH === 0) continue;
           var up = dH > 0 ? c : o, kf = kg[c] > 0 && kg[o] > 0 ? 2 * kg[c] * kg[o] / (kg[c] + kg[o]) : 0;
           var vol = kf * (W[up] / n) * dH / dx * dts / dx;            // 移る水の量（層厚） [m]
@@ -2153,7 +3483,7 @@ table.res th,table.res td{white-space:nowrap}
       for (c = 0; c < N; c++) W[c] += dW[c];
     }
     for (c = 0; c < N; c++) {     // 湧出
-      if (kind[c] !== 0) continue;
+      if (!por[c]) continue;
       var Wm2 = n * Math.max(0, z[c] - zfix[c]);
       if (W[c] > Wm2) { h[c] += W[c] - Wm2; W[c] = Wm2; }
     }
@@ -2814,7 +4144,7 @@ table.res th,table.res td{white-space:nowrap}
   // ファイルとして保存（公開ページでは保存の確認が出る。オフライン版はブラウザのダウンロード）
   function saveText(name, text, msgId, raw) {
     var mid = msgId || 'csv_msg', data = raw ? text : '\uFEFF' + text, done = function () { $(mid).hidden = false; $(mid).textContent = name + ' を保存しました。'; };
-    var mime = /\.zip$/.test(name) ? 'application/zip' : 'text/csv';
+    var mime = /\.zip$/.test(name) ? 'application/zip' : /\.json$/.test(name) ? 'application/json' : 'text/csv';
     var fallback = function () { try { var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: mime })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000); done(); } catch (e) { $(mid).hidden = false; $(mid).textContent = '保存できませんでした。' + (mid === 'csv_msg' ? '「CSV をコピー」を使ってください。' : ''); } };
     if (window.claude && window.claude.use) {
       window.claude.use('downloads').then(function (dl) {
@@ -3176,15 +4506,16 @@ table.res th,table.res td{white-space:nowrap}
     p.boulders = { L: num('bo_L', 0, 0, 10000), mode: $('bo_m').value, size: num('bo_s', 1, 1, 4) };
     p.morfac = num('c_mf', 4, 1, 50); p.order = +$('c_ord').value || 2;
     p.snapEvery = num('o_ev', 10, 0, 100000) * 60;
+    if ($('g_src').value === 'dem') { var dr = window.SaboDEMUI.params(p); Bmax = dr.Bmax; }
     // 格子数の上限（ブラウザで動く範囲）
     var sideN = function () { return p.terrain ? 0 : Math.max(p.sideCells, p.valley.wallH > 0 ? Math.ceil(Math.max(p.valley.wallH, mxH + p.wingHeight + 3) / p.sideGrad / p.dx) + 1 : 0); };
     var nc = (p.L / p.dx) * (Bmax / p.dx + 2 * sideN());
-    while (nc > 40000) { p.dx *= 1.25; nc = (p.L / p.dx) * (Bmax / p.dx + 2 * sideN()); }
+    while (nc > ($('g_src').value === 'dem' ? 60000 : 40000)) { p.dx *= 1.25; nc = (p.L / p.dx) * (Bmax / p.dx + 2 * sideN()); }
     return p;
   }
   function geoSwitch() {
-    var src = $('g_src').value, csv = src === 'csv', sv = src === 'survey', bm = $('b_mode').value;
-    $('g_param').hidden = csv || sv; $('g_csv').hidden = !csv; $('g_survey').hidden = !sv;
+    var src = $('g_src').value, csv = src === 'csv', sv = src === 'survey', dm = src === 'dem', bm = $('b_mode').value;
+    $('g_param').hidden = csv || sv || dm; $('g_csv').hidden = !csv; $('g_survey').hidden = !sv;
     $('b_sine').hidden = bm !== 'sine'; $('b_tab').hidden = bm !== 'table'; $('b_note').hidden = bm === 'none';
   }
   // ---- CSV 地形の読み込み
@@ -3471,6 +4802,7 @@ table.res th,table.res td{white-space:nowrap}
     return out;
   }
   function ground(c, o) {
+    if (sim.basin && !sim.basin[c]) { o[0] = o[1] = o[2] = 214; return; }   // DEM の流域の外
     var k = sim.kind[c], n = hash(c);
     if (k === 2) { var s = 178 + n * 14; o[0] = s; o[1] = s - 2; o[2] = s - 9; return; }
     if (k === 1 && sim.bare && sim.bare[c] && sim.z[c] - sim.z0[c] < 0.02) { var tb = 0.9 + 0.2 * n; o[0] = 184 * tb; o[1] = 176 * tb; o[2] = 160 * tb; return; }   // 扇状地（裸地）
@@ -4144,7 +5476,7 @@ table.res th,table.res td{white-space:nowrap}
     var i, j, c, p;
     for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {
       c = j * nx + i; p = c * 3;
-      var zz = kind[c] === 2 ? damGround(c) : z[c];
+      var zz = kind[c] === 2 ? damGround(c) : (sim.zOut && !sim.basin[c] ? sim.zOut[c] : z[c]);   // DEM の流域の外は元の標高で見せる
       tp[p] = (i + 0.5) * dx - X0; tp[p + 1] = (zz - zmid) * vex; tp[p + 2] = Z0 - (j + 0.5) * dx;
       if (mode === 'real') { ground(kind[c] === 2 ? nonDam(c) : c, c3); }
       else { var v = V.water ? NaN : value(mode, c); if (v === v) V.ramp(norm(mode, v), c3); else { c3[0] = c3[1] = kind[c] === 1 ? 120 : 150; c3[2] = c3[0] + 3; } }
@@ -4334,6 +5666,10 @@ table.res th,table.res td{white-space:nowrap}
     $('xs_x').max = sim.Lx; $('xs_x').step = sim.dx; if (xsX == null || xsX > sim.Lx) xsX = Math.round(sim.Lx * 0.55); $('xs_x').value = xsX;
     $('gridinfo').textContent = '格子 ' + sim.nx + ' × ' + sim.ny + '（' + sim.N.toLocaleString() + ' セル、幅 ' + sim.dx + ' m）　粒径階 ' + sim.K + '　堰堤 ' + sim.dams.length + ' 基' + (sim.fromCSV ? '　CSV 地形（平均勾配 1/' + (1 / sim.I).toFixed(0) + '）' : '') + (sim.I > 0.1 + 1e-9 && sim.P.transport !== 'debris' ? '　注意：勾配 1/' + (1 / sim.I).toFixed(0) + ' は掃流砂の式の適用範囲（1/10 程度より緩い）を超えます。' : '') + (sim.warn.length ? '　注意：' + sim.warn.join(' ') : '');
     if (P.prefill > 0) $('gridinfo').textContent += '　はじめから満砂（比 ' + P.prefill + '）';
+    if (sim.demMode) {
+      var dmS = window.SaboDEMUI.state.dom;
+      $('gridinfo').textContent += '　DEM の流域：' + ['回転なし（出口は東向き）', '時計回りに 90° 回して', '180° 回して', '反時計回りに 90° 回して'][dmS ? dmS.rot : 0] + '、出口を右端に置きました。供給点 ' + (P.sources || []).length + '、雨の横流入 ' + (P.latIn ? P.latIn.pts.length + ' セル' : (P.rain && P.rain.on ? '格子の雨' : 'なし')) + '、斜面崩壊 ' + sim.slides.length + '、天然ダム ' + sim.ldamList.length + '。';
+    }
     // 文献の式の適用範囲から外れる設定の注意
     var nag = (P.sec && (P.sec.bed || P.sec.mom)) || (P.bank && P.bank.collapse === 'hasegawa' && P.bank.erodH > 0);
     if (nag && sim.I > 0.01 + 1e-9) $('gridinfo').textContent += '　注意：長田ら（1996）の2次流・崩落モデルの検証は勾配 1/100〜1/466 の砂の水路です。勾配 1/' + (1 / sim.I).toFixed(0) + ' では定性的な目安として見てください。';
@@ -4367,6 +5703,10 @@ table.res th,table.res td{white-space:nowrap}
     running = !running; this.textContent = running ? '⏸ 一時停止' : '▶ 再開'; dirty = true;
   };
   $('reset').onclick = apply; $('apply').onclick = apply; $('saveref').onclick = saveRef;
+  $('dem_json').onclick = function () {
+    try { var pj = readForm(); saveText('sabo2d_params.json', JSON.stringify(pj), 'dem_msg', true); }
+    catch (e) { $('dem_msg').hidden = false; $('dem_msg').textContent = e.message; }
+  };
   $('h_mode').onchange = modeSwitch;
   $('s_tcm').onchange = function () { if (this.value === 'iwagaki') $('s_hid').value = 'egiazaroff'; tcSwitch(); };
   // CSV を読む：UTF-8（BOM の有無を問わない）で読めなければ Shift_JIS（Excel の「CSV（コンマ区切り）」）として読み直す
@@ -4497,6 +5837,448 @@ table.res th,table.res td{white-space:nowrap}
   fillForm(); advSwitch(); applyPreset('A'); geoSwitch(); init3D(); apply();
   requestAnimationFrame(loop);
   window.__sabo = { get sim() { return sim; }, start: function () { if (!running) $('run').click(); }, view: function (th, ph, dist, tx, tz) { if (!T3) return; T3.th = T3.gth = th; T3.ph = T3.gph = ph; T3.dist = T3.gdist = dist; T3.tgt.set(tx || 0, 0, tz || 0); T3.gtgt.copy(T3.tgt); }, get T3() { return T3; } };
+})();
+
+/* DEM と流域の画面（地図・流域の選択・供給点・雨・斜面崩壊・天然ダム）
+ * ui.js の readForm から SaboDEMUI.params(p) を呼んで、計算の条件 p を作る */
+(function () {
+  'use strict';
+  var SD = window.SaboDEM, SH = window.SaboHydro;
+  var $ = function (id) { return document.getElementById(id); };
+  var ST = { D: null, A: null, mask: null, outlet: -1, bid: -1, heads: [], src: [], slides: [], ldams: [], img: null, view: null, rainFrames: null, lat: null, dom: null };
+
+  function fmt(v, n) { return isFinite(v) ? (+v).toFixed(n) : ''; }
+  function info(msg, err) { var e = $('dem_info'); e.textContent = msg; e.style.color = err ? 'var(--err,#b3261e)' : ''; }
+
+  // ------------------------------------------------------------ 読み込み
+  function inflateBrowser(u8) {
+    var ds = new DecompressionStream('deflate');
+    var w = ds.writable.getWriter(); w.write(u8); w.close();
+    return new Response(ds.readable).arrayBuffer().then(function (b) { return new Uint8Array(b); });
+  }
+  function loadFiles(files) {
+    if (!files || !files.length) return;
+    info('読み込み中…');
+    var arr = Array.prototype.slice.call(files), first = arr[0], name = first.name.toLowerCase();
+    var asText = function (f) { return new Promise(function (ok, ng) { var r = new FileReader(); r.onload = function () { ok(r.result); }; r.onerror = ng; r.readAsText(f); }); };
+    var p;
+    if (/\.tiff?$/.test(name)) p = first.arrayBuffer().then(function (b) { return SD.parseTIFF(b, inflateBrowser); });
+    else if (/\.xml$/.test(name)) p = Promise.all(arr.map(asText)).then(function (ts) { return SD.parseGSIXML(ts); });
+    else p = asText(first).then(function (t) { return /^\s*ncols/i.test(t) ? SD.parseASC(t) : SD.parseXYZ(t); });
+    p.then(function (D) { setDEM(D, first.name + (arr.length > 1 ? ' ほか ' + (arr.length - 1) + ' 個' : '')); })
+      .catch(function (e) { info('読み込めませんでした：' + e.message, true); });
+  }
+  function setDEM(D, label) {
+    var N = D.nx * D.ny;
+    if (N > 9e6) { info('DEM が大きすぎます（' + D.nx + '×' + D.ny + '）。900 万セル以下に切り出してください。', true); return; }
+    ST.D = D; ST.label = label; analyze();
+  }
+  function analyze() {
+    var D = ST.D; if (!D) return;
+    var t0 = performance.now();
+    ST.A = SD.analyze(D, { thrArea: Math.max(0.0005, parseFloat($('dem_thr').value) || 0.02) * 1e6 });
+    var A = ST.A, big = A.basins.slice().sort(function (a, b) { return b.area - a.area; });
+    ST.order = big;
+    if (ST.bid >= 0 && ST.bid < A.basins.length && ST.mask && ST.mode !== 'outlet') selectBasin(ST.bid, true);
+    else selectBasin(big.length ? big[0].id : -1, true);
+    var zmin = Infinity, zmax = -Infinity; for (var c = 0; c < D.nx * D.ny; c++) { var v = D.z[c]; if (isFinite(v)) { if (v < zmin) zmin = v; if (v > zmax) zmax = v; } }
+    info(ST.label + '：' + D.nx + ' × ' + D.ny + '（格子 ' + fmt(D.cs, 2) + ' m、標高 ' + fmt(zmin, 0) + '〜' + fmt(zmax, 0) + ' m）。谷頭 ' + A.heads.length + ' 点、出口ごとの流域 ' + A.basins.length + '（' + Math.round(performance.now() - t0) + ' ms）');
+    ST.img = null; draw();
+  }
+  function selectBasin(id, quiet) {
+    var A = ST.A; if (!A || id < 0) { ST.mask = null; return; }
+    var N = ST.D.nx * ST.D.ny, m = new Uint8Array(N);
+    for (var c = 0; c < N; c++) if (A.bid[c] === id) m[c] = 1;
+    ST.mask = m; ST.outlet = A.basins[id].outlet; ST.bid = id; ST.mode = 'basin';
+    afterBasin(quiet);
+  }
+  function selectOutlet(c) {
+    ST.mask = SD.upstream(ST.D, ST.A, c); ST.outlet = c; ST.bid = ST.A.bid[c]; ST.mode = 'outlet';
+    afterBasin(false);
+  }
+  function afterBasin(quiet) {
+    var m = ST.mask, A = ST.A;
+    ST.heads = A.heads.filter(function (c) { return m[c]; });
+    ST.src = ST.src.filter(function (r) { return m[r.c]; });
+    ST.slides = ST.slides.filter(function (r) { return m[r.c]; });
+    ST.ldams = ST.ldams.filter(function (r) { return m[r.c]; });
+    if (!ST.src.length && ST.heads.length) topHeads(3);
+    ST.lat = null; ST.img = null;
+    renderTables(); draw();
+    if (!quiet) selInfo();
+  }
+  function selInfo() {
+    if (!ST.mask) { $('dem_sel').textContent = ''; return; }
+    var n = 0; for (var c = 0; c < ST.mask.length; c++) n += ST.mask[c];
+    var a = n * ST.D.cs * ST.D.cs / 1e6;
+    $('dem_sel').textContent = '選んだ流域：面積 ' + fmt(a, a < 1 ? 3 : 2) + ' km²、谷頭 ' + ST.heads.length + ' 点、供給点 ' + ST.src.length + ' 点、斜面崩壊 ' + ST.slides.length + ' か所、天然ダム ' + ST.ldams.length + ' か所。「適用して最初から」で計算領域に切り出します。';
+  }
+  function topHeads(n) {
+    var A = ST.A, hs = ST.heads.slice().sort(function (a, b) { return A.acc[b] - A.acc[a]; }).slice(0, n);
+    ST.src = hs.map(function (c, i) { return srcDefault(c, i); });
+  }
+  function srcDefault(c) {
+    var db = $('gen_type').value !== 'bed' ? false : ($('s_tr').value === 'debris');
+    return { c: c, mode: db ? 'debris' : 'tri', Qb: 0.2, Qp: 5, t0: 30, tr: 60, tf: 300, C: db ? 0.3 : 0.01 };
+  }
+
+  // ------------------------------------------------------------ 表
+  function opt(v, list) { return list.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === v ? ' selected' : '') + '>' + o[1] + '</option>'; }).join(''); }
+  function renderTables() {
+    var tb = $('srctab').tBodies[0]; tb.innerHTML = '';
+    ST.src.forEach(function (r, i) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + (i + 1) + '</td><td><select>' + opt(r.mode, [['tri', '三角形'], ['const', '一定'], ['debris', '土石流の一波']]) + '</select></td>' +
+        ['Qb', 'Qp', 't0', 'tr', 'tf', 'C'].map(function (k) { return '<td><input type="number" step="any" value="' + r[k] + '" data-k="' + k + '"></td>'; }).join('') +
+        '<td><button class="x" aria-label="外す">×</button></td>';
+      tr.querySelector('select').onchange = function () { r.mode = this.value; };
+      Array.prototype.forEach.call(tr.querySelectorAll('input'), function (inp) { inp.onchange = function () { r[inp.dataset.k] = parseFloat(inp.value) || 0; }; });
+      tr.querySelector('.x').onclick = function () { ST.src.splice(i, 1); renderTables(); draw(); selInfo(); };
+      tb.appendChild(tr);
+    });
+    tb = $('sltab').tBodies[0]; tb.innerHTML = '';
+    ST.slides.forEach(function (r, i) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + (i + 1) + '</td><td><select data-k="type">' + opt(r.type, [['shallow', '表層'], ['deep', '深層']]) + '</select></td>' +
+        '<td><input type="number" step="any" value="' + r.R + '" data-k="R"></td><td><input type="number" step="any" value="' + r.D + '" data-k="D"></td>' +
+        '<td><select data-k="trigger">' + opt(r.trigger, [['fs', '安全率'], ['time', '時刻']]) + '</select></td><td><input type="number" step="any" value="' + r.t + '" data-k="t"></td>' +
+        '<td><select data-k="move">' + opt(r.move, [['auto', '自動'], ['fluid', '土石流化'], ['block', '土塊']]) + '</select></td>' +
+        '<td><input type="number" step="any" value="' + r.phi + '" data-k="phi"></td><td><input type="number" step="any" value="' + r.coh + '" data-k="coh"></td><td><input type="number" step="any" value="' + r.m0 + '" data-k="m0"></td>' +
+        '<td><button class="x" aria-label="消す">×</button></td>';
+      Array.prototype.forEach.call(tr.querySelectorAll('input,select'), function (inp) {
+        inp.onchange = function () {
+          var k = inp.dataset.k; r[k] = inp.tagName === 'SELECT' ? inp.value : (parseFloat(inp.value) || 0);
+          if (k === 'type') { var d = slideDefaults(r.type); r.R = d.R; r.D = d.D; r.phi = d.phi; r.coh = d.coh; renderTables(); }
+          draw();
+        };
+      });
+      tr.querySelector('.x').onclick = function () { ST.slides.splice(i, 1); renderTables(); draw(); selInfo(); };
+      tb.appendChild(tr);
+    });
+    tb = $('ldtab').tBodies[0]; tb.innerHTML = '';
+    ST.ldams.forEach(function (r, i) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + (i + 1) + '</td>' + ['H', 'Wc', 'up', 'dn'].map(function (k) { return '<td><input type="number" step="any" value="' + r[k] + '" data-k="' + k + '"></td>'; }).join('') + '<td><button class="x" aria-label="消す">×</button></td>';
+      Array.prototype.forEach.call(tr.querySelectorAll('input'), function (inp) { inp.onchange = function () { r[inp.dataset.k] = parseFloat(inp.value) || 0; draw(); }; });
+      tr.querySelector('.x').onclick = function () { ST.ldams.splice(i, 1); renderTables(); draw(); selInfo(); };
+      tb.appendChild(tr);
+    });
+  }
+  function slideDefaults(type) { return type === 'deep' ? { R: 80, D: 20, phi: 30, coh: 30 } : { R: 25, D: 1.5, phi: 35, coh: 3 }; }
+
+  // ------------------------------------------------------------ 地図
+  function shade(D, A) {
+    var nx = D.nx, ny = D.ny, f = Math.max(1, Math.ceil(Math.max(nx, ny) / 1100)), W = Math.ceil(nx / f), H = Math.ceil(ny / f);
+    var img = new ImageData(W, H), px = img.data, z = D.z, m = ST.mask, cs = D.cs * f;
+    var zmin = Infinity, zmax = -Infinity, c;
+    for (c = 0; c < nx * ny; c++) { var v = z[c]; if (isFinite(v)) { if (v < zmin) zmin = v; if (v > zmax) zmax = v; } }
+    for (var j = 0; j < H; j++) for (var i = 0; i < W; i++) {
+      var x = Math.min(nx - 1, i * f), y = Math.min(ny - 1, j * f); c = y * nx + x;
+      var p = (j * W + i) * 4, zz = z[c];
+      if (!isFinite(zz)) { px[p] = px[p + 1] = px[p + 2] = 235; px[p + 3] = 255; continue; }
+      var xe = Math.min(nx - 1, x + f), yn = Math.max(0, y - f);
+      var dzdx = (z[y * nx + xe] - zz) / cs, dzdy = (z[yn * nx + x] - zz) / cs;
+      if (!isFinite(dzdx)) dzdx = 0; if (!isFinite(dzdy)) dzdy = 0;
+      var hs = Math.max(0, Math.min(1, 0.55 + 0.45 * (-dzdx * 0.6 + dzdy * 0.6) / Math.sqrt(1 + dzdx * dzdx + dzdy * dzdy)));
+      var t = (zz - zmin) / Math.max(1e-6, zmax - zmin);
+      var r = 120 + 110 * t, g = 150 + 70 * t, b = 110 + 90 * t;
+      var inB = m ? m[c] : 1;
+      if (!inB) { var gr = (r + g + b) / 3; r = g = b = 0.6 * gr + 70; }
+      if (A && A.stream[c]) { var o = A.strahler[c]; r = inB ? 30 : 140; g = inB ? 110 + 10 * o : 160; b = inB ? 200 : 190; hs = 1; }
+      px[p] = r * hs; px[p + 1] = g * hs; px[p + 2] = b * hs; px[p + 3] = 255;
+    }
+    return { img: img, f: f, W: W, H: H };
+  }
+  function viewBox() {
+    var D = ST.D, x0 = 0, y0 = 0, x1 = D.nx, y1 = D.ny;
+    if ($('dm_fit').checked && ST.mask) {
+      x0 = D.nx; y0 = D.ny; x1 = 0; y1 = 0;
+      for (var c = 0; c < ST.mask.length; c++) if (ST.mask[c]) { var x = c % D.nx, y = (c / D.nx) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      var mg = Math.max(4, 0.06 * Math.max(x1 - x0, y1 - y0)); x0 = Math.max(0, x0 - mg); y0 = Math.max(0, y0 - mg); x1 = Math.min(D.nx, x1 + mg + 1); y1 = Math.min(D.ny, y1 + mg + 1);
+    }
+    return { x0: x0, y0: y0, x1: x1, y1: y1 };
+  }
+  function draw() {
+    var cv = $('demmap'); if (!cv || $('demcard').hidden) return;
+    var D = ST.D, dpr = window.devicePixelRatio || 1, Wc = cv.parentNode.clientWidth || 600;
+    if (!D) { cv.width = Wc * dpr; cv.height = 120 * dpr; cv.style.height = '120px'; var c0 = cv.getContext('2d'); c0.setTransform(dpr, 0, 0, dpr, 0, 0); c0.clearRect(0, 0, Wc, 120); c0.fillStyle = '#888'; c0.font = '13px sans-serif'; c0.fillText('DEM を読み込むか「例の DEM」を押してください', 12, 60); return; }
+    if (!ST.img) ST.img = shade(D, ST.A);
+    var vb = viewBox(), vw = vb.x1 - vb.x0, vh = vb.y1 - vb.y0, Hc = Math.min(560, Math.max(220, Wc * vh / vw));
+    var sc = Math.min(Wc / vw, Hc / vh); Hc = vh * sc;
+    cv.width = Wc * dpr; cv.height = Hc * dpr; cv.style.height = Hc + 'px';
+    var ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, Wc, Hc);
+    var I = ST.img, tmp = ST.tmpCv || (ST.tmpCv = document.createElement('canvas'));
+    if (tmp.width !== I.W || tmp.height !== I.H || ST.tmpImg !== I) { tmp.width = I.W; tmp.height = I.H; tmp.getContext('2d').putImageData(I.img, 0, 0); ST.tmpImg = I; }
+    ctx.imageSmoothingEnabled = I.f > 1;
+    ctx.drawImage(tmp, vb.x0 / I.f, vb.y0 / I.f, vw / I.f, vh / I.f, 0, 0, vw * sc, vh * sc);
+    ST.view = { x0: vb.x0, y0: vb.y0, sc: sc, W: Wc, H: Hc };
+    function P(c) { return [((c % D.nx) + 0.5 - vb.x0) * sc, (((c / D.nx) | 0) + 0.5 - vb.y0) * sc]; }
+    // 流域界（選んだ流域の縁）
+    if (ST.mask) {
+      ctx.fillStyle = 'rgba(200,40,40,0.9)';
+      var m = ST.mask, step = Math.max(1, Math.floor(1 / sc));
+      for (var y = Math.floor(vb.y0); y < vb.y1; y += step) for (var x = Math.floor(vb.x0); x < vb.x1; x += step) {
+        var c = y * D.nx + x; if (!m[c]) continue;
+        if (x === 0 || y === 0 || x === D.nx - 1 || y === D.ny - 1 || !m[c - 1] || !m[c + 1] || !m[c - D.nx] || !m[c + D.nx]) ctx.fillRect((x - vb.x0) * sc, (y - vb.y0) * sc, Math.max(1.2, sc * step), Math.max(1.2, sc * step));
+      }
+      var po = P(ST.outlet); ctx.strokeStyle = '#c62828'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(po[0], po[1], 7, 0, 7); ctx.stroke();
+    }
+    // 谷頭
+    var selSet = {}; ST.src.forEach(function (r, i) { selSet[r.c] = i + 1; });
+    ST.heads.forEach(function (c) {
+      var p = P(c); if (p[0] < -5 || p[1] < -5 || p[0] > Wc + 5 || p[1] > Hc + 5) return;
+      var s = selSet[c];
+      ctx.beginPath(); ctx.arc(p[0], p[1], s ? 6 : 3.2, 0, 7);
+      ctx.fillStyle = s ? '#ef6c00' : '#fff'; ctx.fill(); ctx.lineWidth = 1.2; ctx.strokeStyle = '#333'; ctx.stroke();
+      if (s) { ctx.fillStyle = '#000'; ctx.font = '600 11px sans-serif'; ctx.fillText(String(s), p[0] + 7, p[1] - 6); }
+    });
+    // 斜面崩壊
+    ST.slides.forEach(function (r, i) {
+      var p = P(r.c), R = r.R / D.cs * sc;
+      ctx.beginPath(); ctx.arc(p[0], p[1], Math.max(4, R), 0, 7); ctx.fillStyle = r.type === 'deep' ? 'rgba(121,85,72,0.45)' : 'rgba(255,152,0,0.4)'; ctx.fill();
+      ctx.strokeStyle = '#5d4037'; ctx.lineWidth = 1.5; ctx.stroke(); ctx.fillStyle = '#3e2723'; ctx.font = '600 11px sans-serif'; ctx.fillText('崩' + (i + 1), p[0] + Math.max(4, R) + 2, p[1]);
+    });
+    // 天然ダム
+    ST.ldams.forEach(function (r, i) {
+      var p = P(r.c), q = ST.A.dir[r.c], dxv = q >= 0 ? SD.DC[q] : 1, dyv = q >= 0 ? SD.DR[q] : 0, L = Math.sqrt(dxv * dxv + dyv * dyv), wv = Math.max(8, r.H * 3 / D.cs * sc);
+      var nxv = -dyv / L, nyv = dxv / L;
+      ctx.strokeStyle = '#4e342e'; ctx.lineWidth = Math.max(4, r.Wc / D.cs * sc); ctx.beginPath(); ctx.moveTo(p[0] - nxv * wv, p[1] - nyv * wv); ctx.lineTo(p[0] + nxv * wv, p[1] + nyv * wv); ctx.stroke();
+      ctx.fillStyle = '#3e2723'; ctx.font = '600 11px sans-serif'; ctx.fillText('ダム' + (i + 1), p[0] + wv + 3, p[1] + 4);
+    });
+    $('dem_key').innerHTML = '<span><i style="border-color:#1e6ec8"></i>谷筋</span><span><i class="b" style="background:#fff;border:1px solid #333"></i>谷頭</span><span><i class="b" style="background:#ef6c00"></i>供給点</span><span><i style="border-color:#c62828"></i>流域界・出口</span><span><i class="b" style="background:rgba(255,152,0,0.5)"></i>斜面崩壊</span><span><i class="b" style="background:#4e342e"></i>天然ダム</span>';
+  }
+  function cellAt(e) {
+    var cv = $('demmap'), r = cv.getBoundingClientRect(), v = ST.view; if (!v || !ST.D) return -1;
+    var x = Math.floor(v.x0 + (e.clientX - r.left) / v.sc), y = Math.floor(v.y0 + (e.clientY - r.top) / v.sc);
+    if (x < 0 || y < 0 || x >= ST.D.nx || y >= ST.D.ny) return -1;
+    return y * ST.D.nx + x;
+  }
+  function nearest(c, list, pxMax) {
+    var D = ST.D, x = c % D.nx, y = (c / D.nx) | 0, best = -1, bd = Infinity, lim = pxMax / ST.view.sc;
+    list.forEach(function (o) { var dx = o % D.nx - x, dy = ((o / D.nx) | 0) - y, d = Math.sqrt(dx * dx + dy * dy); if (d < bd) { bd = d; best = o; } });
+    return bd <= lim ? best : -1;
+  }
+  function nearStream(c, r) {
+    var D = ST.D, A = ST.A, x = c % D.nx, y = (c / D.nx) | 0, best = -1, bd = Infinity;
+    for (var dy = -r; dy <= r; dy++) for (var dx = -r; dx <= r; dx++) {
+      var xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= D.nx || yy >= D.ny) continue;
+      var o = yy * D.nx + xx; if (!A.stream[o]) continue;
+      var d = dx * dx + dy * dy; if (d < bd || (d === bd && A.acc[o] > A.acc[best])) { bd = d; best = o; }
+    }
+    return best;
+  }
+  function onClick(e) {
+    var c = cellAt(e); if (c < 0) return;
+    var mode = $('dm_mode').value, A = ST.A;
+    if (mode === 'basin') { if (A.bid[c] >= 0) selectBasin(A.bid[c], false); return; }
+    if (mode === 'outlet') { var s = nearStream(c, Math.max(3, Math.round(14 / ST.view.sc))); if (s >= 0) selectOutlet(s); else $('dem_sel').textContent = '谷筋（青い線）の近くをクリックしてください。'; return; }
+    if (!ST.mask || !ST.mask[c]) { $('dem_sel').textContent = '選んだ流域の中をクリックしてください。'; return; }
+    if (mode === 'src') {
+      var h = nearest(c, ST.heads, 14); if (h < 0) return;
+      var k = -1; ST.src.forEach(function (r, i) { if (r.c === h) k = i; });
+      if (k >= 0) ST.src.splice(k, 1); else ST.src.push(srcDefault(h));
+    } else if (mode === 'slide') {
+      var d = slideDefaults($('gen_type').value === 'ldam' ? 'deep' : 'shallow');
+      ST.slides.push({ c: c, type: $('gen_type').value === 'ldam' ? 'deep' : 'shallow', R: d.R, D: d.D, trigger: $('rn_on').checked ? 'fs' : 'time', t: 30, move: $('gen_type').value === 'ldam' ? 'block' : 'auto', phi: d.phi, coh: d.coh, m0: $('rn_on').checked ? 0.2 : 0.9 });
+    } else if (mode === 'ldam') {
+      var s2 = nearStream(c, Math.max(3, Math.round(14 / ST.view.sc))); if (s2 < 0) { $('dem_sel').textContent = '谷筋（青い線）の近くをクリックしてください。'; return; }
+      ST.ldams.push({ c: s2, H: 15, Wc: 10, up: 30, dn: 25 });
+    }
+    renderTables(); draw(); selInfo();
+  }
+  function onMove(e) {
+    var c = cellAt(e), tip = $('dem_tip'); if (c < 0 || !ST.A) { tip.hidden = true; return; }
+    var D = ST.D, A = ST.A, a = A.acc[c] * D.cs * D.cs, sl = SD.localSlope(D, A, c, 2);
+    tip.hidden = false; tip.style.left = (e.offsetX + 14) + 'px'; tip.style.top = (e.offsetY + 10) + 'px';
+    tip.textContent = '標高 ' + fmt(D.z[c], 1) + ' m　集水面積 ' + (a >= 1e5 ? fmt(a / 1e6, 3) + ' km²' : fmt(a, 0) + ' m²') + '　勾配 ' + fmt(sl, 3) + (A.stream[c] ? '　谷筋（次数 ' + A.strahler[c] + '）' : '');
+  }
+
+  // ------------------------------------------------------------ 雨
+  function lossOf() {
+    var t = $('rn_loss').value;
+    if (t === 'f1rsa') return { type: 'f1rsa', f1: +$('rn_f1').value, Rsa: +$('rn_rsa').value, R0: +$('rn_r0').value };
+    if (t === 'ks') return { type: 'ks', ks: +$('rn_ks').value, D: +$('rn_D').value, n: +$('rn_n').value, th0: +$('rn_th').value };
+    return { type: 'f', f: +$('rn_f').value };
+  }
+  function rainTable() {
+    var tab = [];
+    $('rn_tab').value.split(/\n/).forEach(function (ln) { var a = ln.split(/[,\s\t]+/).filter(function (s) { return s !== ''; }).map(Number); if (a.length >= 2 && isFinite(a[0]) && isFinite(a[1])) tab.push([a[0], Math.max(0, a[1])]); });
+    tab.sort(function (a, b) { return a[0] - b[0]; });
+    return tab;
+  }
+  // 格子の雨の CSV（t[分], X, Y, mm/h）→ 時刻ごとに DEM のセルへ（規則格子の点とみなして最も近い点）
+  function parseRainCSV(text) {
+    var D = ST.D, rows = [];
+    text.split(/\r?\n/).forEach(function (ln) { var a = ln.split(/[,\s\t]+/).filter(function (s) { return s !== ''; }).map(Number); if (a.length >= 4 && a.every(isFinite)) rows.push(a); });
+    if (!rows.length) throw new Error('雨の CSV に「時刻, X, Y, 雨量」の行がありません');
+    var geo = D.src === 'gsi' && D.geo, mx = 1, my = 1;
+    if (geo) { var latm = (geo.lat0 + geo.lat1) / 2 * Math.PI / 180; my = 111132.92 - 559.82 * Math.cos(2 * latm) + 1.175 * Math.cos(4 * latm); mx = 111412.84 * Math.cos(latm) - 93.5 * Math.cos(3 * latm); }
+    var xs = rows.map(function (r) { return r[1] * mx; }), ys = rows.map(function (r) { return r[2] * my; });
+    function stepOf(v) { var u = v.slice().sort(function (a, b) { return a - b; }), d = []; for (var i = 1; i < u.length; i++) if (u[i] - u[i - 1] > 1e-6) d.push(u[i] - u[i - 1]); d.sort(function (a, b) { return a - b; }); return { min: u[0], d: d.length ? d[d.length >> 1] : 1 }; }
+    var SX = stepOf(xs), SY = stepOf(ys), byT = {};
+    rows.forEach(function (r, i) { var k = String(r[0]); (byT[k] || (byT[k] = {}))[Math.round((xs[i] - SX.min) / SX.d) + ',' + Math.round((ys[i] - SY.min) / SY.d)] = r[3]; });
+    var ts = Object.keys(byT).map(Number).sort(function (a, b) { return a - b; }), N = D.nx * D.ny;
+    var gi = new Int32Array(N), gj = new Int32Array(N);
+    for (var c = 0; c < N; c++) { var x = D.x0 + ((c % D.nx) + 0.5) * D.cs, y = D.yTop - (((c / D.nx) | 0) + 0.5) * D.cs; gi[c] = Math.round((x - SX.min) / SX.d); gj[c] = Math.round((y - SY.min) / SY.d); }
+    var frames = ts.map(function (t) {
+      var M = byT[String(t)], r = new Float32Array(N), hit = 0;
+      for (var c2 = 0; c2 < N; c2++) { var v = M[gi[c2] + ',' + gj[c2]]; if (v != null) { r[c2] = v; hit++; } }
+      return { t: t, r: r, hit: hit };
+    });
+    var cover = frames.length ? frames[0].hit / N : 0;
+    return { frames: frames, info: '時刻 ' + ts.length + ' 個（' + ts[0] + '〜' + ts[ts.length - 1] + ' 分）、点の間隔 ' + fmt(SX.d, 0) + ' × ' + fmt(SY.d, 0) + ' m、DEM のセルの ' + fmt(cover * 100, 0) + ' % に値がある' };
+  }
+  function rainSpec(forSolverDom) {
+    var mode = $('rn_mode').value, R = { on: $('rn_on').checked, method: $('rn_meth').value, mode: mode, table: rainTable(), frames: [], loss: lossOf() };
+    if (mode === 'grid') {
+      if (!ST.rainFrames) throw new Error('格子の雨の CSV を読み込んでください');
+      R.frames = ST.rainFrames;
+      if (forSolverDom) {   // 計算領域の格子（切り出して回した DEM）へ
+        var dom = forSolverDom, nr = dom.ny, nc = dom.nx;
+        R.frames = ST.rainFrames.map(function (f) {
+          var r = new Array(nr * nc);
+          for (var j = 0; j < nr; j++) for (var i = 0; i < nc; i++) { var oc = dom.cellOf[j][i]; r[j * nc + i] = oc >= 0 ? +f.r[oc].toFixed(2) : 0; }
+          return { t: f.t, r: r };
+        });
+      }
+    }
+    return R;
+  }
+  function lateral(durS) {
+    var R = rainSpec(null), rt = $('rn_route').value;
+    var route = rt === 'storage' ? { type: 'storage', K: +$('rn_K').value, P: +$('rn_P').value, Tl: +$('rn_tl').value } : { type: 'rational', tc: +$('rn_tc').value };
+    return SH.lateralInflow(SD, ST.D, ST.A, ST.mask, R, { loss: R.loss, route: route, dt: 60, tEnd: durS });
+  }
+  function rainChart(L) {
+    var w = $('rn_chartw'); w.hidden = false;
+    var cv = $('rn_chart'), dpr = window.devicePixelRatio || 1, W = w.clientWidth || 600, H = 200;
+    cv.width = W * dpr; cv.height = H * dpr; cv.style.height = H + 'px';
+    var ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+    var n = L.n, Qmax = 0, k; for (k = 0; k < n; k++) if (L.Qsum[k] > Qmax) Qmax = L.Qsum[k];
+    var tab = rainTable(), rmax = 0; tab.forEach(function (r) { if (r[1] > rmax) rmax = r[1]; });
+    var x0 = 48, x1 = W - 44, y0 = 14, y1 = H - 28, T = (n - 1) * L.dt;
+    ctx.strokeStyle = '#999'; ctx.lineWidth = 1; ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+    if ($('rn_mode').value === 'uniform' && rmax > 0) {   // 雨（上から下向きの棒）
+      ctx.fillStyle = 'rgba(30,110,200,0.25)';
+      for (k = 0; k < tab.length; k++) { var ta = tab[k][0] * 60, tb = k + 1 < tab.length ? tab[k + 1][0] * 60 : ta + 600; if (ta > T) break; var xa = x0 + (x1 - x0) * ta / T, xb = x0 + (x1 - x0) * Math.min(T, tb) / T; ctx.fillRect(xa, y0, xb - xa, (y1 - y0) * 0.45 * tab[k][1] / rmax); }
+    }
+    ctx.strokeStyle = '#c62828'; ctx.lineWidth = 2; ctx.beginPath();
+    for (k = 0; k < n; k++) { var x = x0 + (x1 - x0) * k / (n - 1), y = y1 - (y1 - y0) * L.Qsum[k] / Math.max(1e-9, Qmax * 1.1); if (k) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
+    ctx.stroke();
+    ctx.fillStyle = '#444'; ctx.font = '11px sans-serif';
+    ctx.fillText(fmt(Qmax * 1.1, 1) + ' m³/s', 2, y0 + 10); ctx.fillText('0', x0 - 12, y1); ctx.fillText(fmt(T / 60, 0) + ' 分', x1 - 20, H - 10); ctx.fillText('0', x0, H - 10);
+    if (rmax > 0) { ctx.fillStyle = 'rgba(30,110,200,0.9)'; ctx.fillText(fmt(rmax, 0) + ' mm/h', x1 + 2, y0 + 10); }
+    ctx.fillStyle = '#c62828'; ctx.fillText('谷筋へ入る流量の合計（河道の流れの遅れは含まない）', x0 + 6, y1 - 6);
+  }
+  function calcRain() {
+    try {
+      if (!ST.mask) throw new Error('流域を選んでください');
+      var dur = Math.max(1, +$('dem_dur').value || 30) * 60, L = lateral(dur);
+      ST.lat = L; rainChart(L);
+      var Vq = 0; for (var k = 0; k < L.n; k++) Vq += L.Qsum[k] * L.dt;
+      var pk = 0, tk = 0; for (k = 0; k < L.n; k++) if (L.Qsum[k] > pk) { pk = L.Qsum[k]; tk = k * L.dt; }
+      $('rn_info').textContent = '谷筋のセル ' + L.cells.length + '、流域面積 ' + fmt(L.area0 / 1e6, 3) + ' km²。計算時間内の雨 ' + fmt(L.rainVol, 0) + ' m³、谷へ入る水 ' + fmt(Vq, 0) + ' m³（' + fmt(100 * Vq / Math.max(1, L.rainVol), 0) + ' %）、ピーク ' + fmt(pk, 2) + ' m³/s（' + fmt(tk / 60, 0) + ' 分）。到達時間（土研式）は ' + fmt(Math.min.apply(null, Array.from(L.Tc)) / 60, 0) + '〜' + fmt(Math.max.apply(null, Array.from(L.Tc)) / 60, 0) + ' 分。';
+    } catch (e) { $('rn_info').textContent = e.message; }
+  }
+
+  // ------------------------------------------------------------ 計算条件へ
+  function params(p) {
+    if (!ST.D || !ST.mask) throw new Error('DEM を読み込み、流域を選んでください');
+    var D = ST.D, A = ST.A;
+    if (!(p.dx >= D.cs)) p.dx = D.cs;
+    var dom = SD.prepareDomain(D, A, ST.mask, ST.outlet, { fill: $('dem_fill').checked, dx: p.dx });
+    ST.dom = dom;
+    p.terrain = { rows: dom.rows, cs: dom.cs, basin: dom.basin, chan: dom.chan, Iout: dom.Iout };
+    p.csvSlope = 0; p.L = dom.nx * dom.cs; p.sideCells = 0; p.dams = []; p.tribs = []; p.prefill = 0;
+    var dur = Math.max(1, +$('dem_dur').value || 30) * 60;
+    p.dem = { soilD: Math.max(0.1, +$('dem_soil').value || 1), chW: Math.max(1, +$('dem_chw').value || 10), ks: Math.max(0, +$('dem_ks').value || 0), s0: 0.3, duration: dur };
+    var gen = $('gen_type').value;
+    if (gen !== 'bed') p.transport = 'debris';
+    p.sources = ST.src.map(function (r) {
+      var xy = dom.toXY(r.c), u = dom.dirXY(r.c), H;
+      if (r.mode === 'debris') H = { mode: 'debris', Qbase: r.Qb, Qpeak: Math.max(r.Qb, r.Qp), t0: r.t0, tRise: Math.max(1, r.tr), tFall: Math.max(1, r.tf), Cd: Math.min(0.55, Math.max(0, r.C)), Cs: 0 };
+      else if (r.mode === 'const') H = { mode: 'const', Qbase: r.Qp, Qpeak: r.Qp, Cs: Math.max(0, r.C), duration: 1e12, tPeak: 1 };
+      else {   // 三角形：開始までは基底、立上り・減衰で三角形、そのあと基底
+        H = { mode: 'table', table: [[0, r.Qb, r.Qb * r.C], [Math.max(0, r.t0), r.Qb, r.Qb * r.C], [r.t0 + Math.max(1, r.tr), r.Qp, r.Qp * r.C], [r.t0 + r.tr + Math.max(1, r.tf), r.Qb, r.Qb * r.C], [1e9, r.Qb, r.Qb * r.C]] };
+      }
+      return { x: xy[0], y: xy[1], ux: u[0], uy: u[1], I: SD.localSlope(D, A, r.c, 3), hydro: H };
+    });
+    p.rain = { on: false }; p.latIn = null;
+    if ($('rn_on').checked) {
+      var R = rainSpec($('rn_meth').value === 'grid' ? dom : null);
+      if (R.method === 'grid') p.rain = R;
+      else {
+        var L = lateral(dur); ST.lat = L;
+        p.latIn = { dt: L.dt, pts: L.cells.map(function (c) { var xy = dom.toXY(c), u = dom.dirXY(c); return [xy[0], xy[1], u[0], u[1], SD.localSlope(D, A, c, 3)]; }), Q: L.Q.map(function (a) { return Array.prototype.map.call(a, function (v) { return +v.toFixed(5); }); }) };
+        p.rain = { on: true, method: 'lumped', mode: R.mode, table: R.table, frames: [], loss: R.loss };   // 斜面崩壊のタンク用に雨を残す（谷へは latIn で入れる）
+        if (R.mode === 'grid') p.rain.frames = rainSpec(dom).frames;
+      }
+    }
+    var thD = +$('sl_dep').value || 10, mu = +$('sl_mu').value || 0, CL = +$('sl_cl').value || 0.5;
+    p.slides = ST.slides.map(function (r) {
+      var xy = dom.toXY(r.c);
+      return { x: xy[0], y: xy[1], R: r.R, D: r.D, type: r.type, trigger: r.trigger, t: r.t, move: r.move, phi: r.phi, c: r.coh, m0: r.m0, thDep: thD, mu: mu, CL: CL, Tk: r.type === 'deep' ? +$('sl_tk2').value : +$('sl_tk1').value };
+    });
+    p.ldams = ST.ldams.map(function (r) { var xy = dom.toXY(r.c), u = dom.dirXY(r.c); return { x: xy[0], y: xy[1], ux: u[0], uy: u[1], H: r.H, Wc: r.Wc, up: r.up, dn: r.dn }; });
+    p.ldam = { k: Math.max(0, +$('ld_k').value || 0), fail: $('ld_fail').value, slipLevel: +$('ld_lev').value || 0.9, slipDeg: 20, thDep: thD, phi: +$('ld_phi').value || 35, c: +$('ld_c').value || 0, gs: 20, Ts: 0.5, s0: 0.3 };
+    if (p.ldams.length) p.gw.on = true;
+    p.debris.erosion = (p.ldams.length || ST.slides.some(function (r) { return r.move !== 'fluid'; })) ? $('ld_ero').value : 'sat';
+    p.debris.Kt = +$('ld_kt').value || 0.0019;
+    return { Bmax: dom.ny * dom.cs, dom: dom };
+  }
+  function genNote() {
+    var g = $('gen_type').value;
+    $('gen_note').textContent = g === 'bed' ? '谷頭の供給点から水（または土石流）を流し、渓床の侵食で土石流が発達する場合です。流砂モデルを「土石流」にすると、高橋の侵食・堆積速度式で発達・減衰します。'
+      : g === 'slide' ? '斜面崩壊の土が流動化して土石流になる場合です。地図の「崩壊を置く」で崩壊の場所を選び、雨を降らせて安全率で崩すか、時刻で崩します。流砂モデルは自動で「土石流」になります。'
+      : '斜面崩壊（土塊）か、直接置いた天然ダムが谷をふさぎ、湛水したあと決壊する場合です。決壊の形（越流侵食・進行性崩壊）は堤体の透水係数で決まり、すべり破壊は湛水位で指定できます。伏流は自動で有効になります。';
+    if (g === 'slide') $('dm_mode').value = 'slide';
+    if (g === 'ldam') $('dm_mode').value = 'ldam';
+  }
+  function rainSwitch() {
+    $('rn_box').hidden = !$('rn_on').checked;
+    var lt = $('rn_loss').value;
+    Array.prototype.forEach.call(document.querySelectorAll('#rn_box .lf'), function (e) { e.hidden = lt !== 'f'; });
+    Array.prototype.forEach.call(document.querySelectorAll('#rn_box .lr'), function (e) { e.hidden = lt !== 'f1rsa'; });
+    Array.prototype.forEach.call(document.querySelectorAll('#rn_box .lk'), function (e) { e.hidden = lt !== 'ks'; });
+    var rt = $('rn_route').value;
+    Array.prototype.forEach.call(document.querySelectorAll('#rn_box .rr'), function (e) { e.hidden = rt !== 'rational'; });
+    Array.prototype.forEach.call(document.querySelectorAll('#rn_box .rs'), function (e) { e.hidden = rt !== 'storage'; });
+    $('rn_lump').hidden = $('rn_meth').value !== 'lumped';
+    $('rn_uni').hidden = $('rn_mode').value !== 'uniform'; $('rn_grd').hidden = $('rn_mode').value !== 'grid';
+  }
+  function show(on) {
+    $('g_dem').hidden = !on; $('demcard').hidden = !on; $('dem_more').hidden = !on;
+    if (on) { draw(); genNote(); }
+  }
+
+  // ------------------------------------------------------------ つなぐ
+  function wire() {
+    $('dem_file').onchange = function () { loadFiles(this.files); };
+    $('dem_sample').onclick = function () { setDEM(SD.synthDEM({}), '例の DEM（架空）'); };
+    $('dem_thr').onchange = analyze;
+    $('dm_fit').onchange = draw;
+    $('demmap').addEventListener('click', onClick);
+    $('demmap').addEventListener('mousemove', onMove);
+    $('demmap').addEventListener('mouseleave', function () { $('dem_tip').hidden = true; });
+    $('src_all').onclick = function () { if (!ST.src.length) return; var f = ST.src[0]; ST.src.forEach(function (r) { ['mode', 'Qb', 'Qp', 't0', 'tr', 'tf', 'C'].forEach(function (k) { r[k] = f[k]; }); }); renderTables(); };
+    $('src_top').onclick = function () { topHeads(3); renderTables(); draw(); selInfo(); };
+    $('src_clr').onclick = function () { ST.src = []; renderTables(); draw(); selInfo(); };
+    $('sl_clr').onclick = function () { ST.slides = []; renderTables(); draw(); selInfo(); };
+    $('ld_clr').onclick = function () { ST.ldams = []; renderTables(); draw(); selInfo(); };
+    ['rn_on', 'rn_loss', 'rn_route', 'rn_meth', 'rn_mode'].forEach(function (id) { $(id).addEventListener('change', rainSwitch); });
+    $('rn_calc').onclick = calcRain;
+    $('rn_file').onchange = function () {
+      var f = this.files[0]; if (!f) return; var r = new FileReader();
+      r.onload = function () { try { if (!ST.D) throw new Error('先に DEM を読み込んでください'); var o = parseRainCSV(r.result); ST.rainFrames = o.frames; $('rn_ginfo').textContent = o.info; } catch (e) { $('rn_ginfo').textContent = e.message; } };
+      r.readAsText(f);
+    };
+    $('gen_type').onchange = genNote;
+    $('g_src').addEventListener('change', function () { show(this.value === 'dem'); });
+    window.addEventListener('resize', function () { if (!$('demcard').hidden) draw(); });
+    rainSwitch(); show($('g_src').value === 'dem');
+  }
+  window.SaboDEMUI = { params: params, state: ST, draw: draw, setDEM: setDEM, active: function () { return $('g_src').value === 'dem'; } };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire); else wire();
 })();
 
 </script>
