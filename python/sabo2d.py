@@ -93,7 +93,7 @@ def default_params():
         'slides': [],       # 斜面崩壊
         'slideChk': 1.0,
         'ldams': [],        # 天然ダム
-        'ldam': {'k': 0.0, 'fail': 'auto', 'slipLevel': 0.9, 'slipDeg': 20.0, 'thDep': 10.0, 'phi': 35.0, 'c': 0.0, 'gs': 20.0, 'Ts': 0.5, 's0': 0.3},
+        'ldam': {'k': 0.0, 'fail': 'auto', 'slipLevel': 0.9, 'slipDeg': 0.0, 'thDep': 10.0, 'phi': 35.0, 'c': 0.0, 'gs': 20.0, 'Ts': 0.5, 's0': 0.0},
         'sideGrad': 0.8,       # 谷壁の勾配
         # 平面形：{'mode': 'none'|'sine'|'table', 'amp', 'wl', 'x0', 'x1', 'table': [[x, 横ずれ, 川幅(省略可)], ...]}
         'bend': {'mode': 'none'},
@@ -2056,7 +2056,7 @@ class Sim:
         if gr and len(gr) == K:
             sm = sum(max(0.0, v) for v in gr)
             fr = np.array([max(0.0, v) / sm for v in gr]) if sm > 0 else self.f0.copy()
-        n = self.P['porosity']; gwOn = bool((self.P.get('gw') or {}).get('on')); s0 = LD['s0'] if (LD.get('s0') is not None and LD['s0'] >= 0) else 0.3
+        n = self.P['porosity']; gwOn = bool((self.P.get('gw') or {}).get('on')); s0 = LD['s0'] if (LD.get('s0') is not None and LD['s0'] >= 0) else 0.0
         V = 0.0; W = self.W.ravel()
         for c, t in cells:
             self._add_deposit(c, t, fr); V += t * dx * dx
@@ -2078,7 +2078,7 @@ class Sim:
             if not dep[c]:
                 continue
             Tq = z[c] - zfix[c]
-            if Tq < 1e-3:
+            if Tq < Ts:          # すべりの厚さ Ts より薄い所（ダムの縁）は対象にしない
                 continue
             if W[c] < 0.98 * n * Tq or h[c] > 0.1:
                 continue
@@ -2118,24 +2118,32 @@ class Sim:
         for m, D in enumerate(self.ldamList):
             if D['slipped']:
                 continue
-            wl = -1e30; sTo = -1e30
+            # 湛水位：ダムの上流側（s < 0）で、ダムのセルに接する濡れたセルのうち、河床がいちばん低いセルの水位
+            lev = D['zc'] + LD['slipLevel'] * D['H'] if (LD.get('slipLevel') or 0) > 0 else D['crest'] - 0.05 * D['H']
+            wl = -1e30; zlo = 1e30; sTo = -1e30; cToe = -1; isD = set()
             for c in D['cells']:
                 px = (c % nx + 0.5) * dx - D['x0']; py = (c // nx + 0.5) * dx - D['y0']; s = px * D['ux'] + py * D['uy']
-                if z[c] - zfix[c] > 0.05 and s > sTo:
-                    sTo = s
-            r0 = int(math.ceil((D['H'] * 4 + D['lat']) / dx)); ci = D['c0'] % nx; cj = D['c0'] // nx
-            for j in range(max(0, cj - r0), min(ny - 1, cj + r0) + 1):
-                for i in range(max(0, ci - r0), min(nx - 1, ci + r0) + 1):
-                    c = j * nx + i; px2 = (i + 0.5) * dx - D['x0']; py2 = (j + 0.5) * dx - D['y0']; s2 = px2 * D['ux'] + py2 * D['uy']
-                    if s2 < 0 and h[c] > 0.05 and z[c] + h[c] > wl:
-                        wl = z[c] + h[c]
-            lev = D['zc'] + LD['slipLevel'] * D['H'] if (LD.get('slipLevel') or 0) > 0 else D['crest'] - 0.05 * D['H']
-            if wl < lev:
+                if z[c] - zfix[c] > 0.05:
+                    isD.add(c)
+                    if s > sTo:
+                        sTo = s; cToe = c
+            for c in D['cells']:
+                if c not in isD:
+                    continue
+                ci2 = c % nx; cj2 = c // nx
+                for o in (c - 1 if ci2 > 0 else -1, c + 1 if ci2 < nx - 1 else -1, c - nx if cj2 > 0 else -1, c + nx if cj2 < ny - 1 else -1):
+                    if o < 0 or o in isD or h[o] <= 0.05:
+                        continue
+                    so = ((o % nx + 0.5) * dx - D['x0']) * D['ux'] + ((o // nx + 0.5) * dx - D['y0']) * D['uy']
+                    if so < 0 and z[o] < zlo:   # いちばん河床の低い所の水位（湛水の水面）
+                        zlo = z[o]; wl = z[o] + h[o]
+            if wl < lev or cToe < 0:
                 continue
             D['slipped'] = True
-            al = math.tan((LD['slipDeg'] if (LD.get('slipDeg') or 0) > 0 else 20.0) * math.pi / 180)
+            ztoe = zfix[cToe]; sUp = -((D['L'].get('Wc') or 0.0) if D.get('L') else 0.0) / 2
+            al = math.tan(LD['slipDeg'] * math.pi / 180) if (LD.get('slipDeg') or 0) > 0 else max(0.05, (D['crest'] - ztoe) / max(dx, sTo - sUp))
             tanD = math.tan((LD['thDep'] if (LD.get('thDep') or 0) > 0 else 10.0) * math.pi / 180)
-            sed = np.zeros(K); Vb = 0.0; Wm = 0.0; n = self.P['porosity']; ztoe = D['zc']; W = self.W.ravel()
+            sed = np.zeros(K); Vb = 0.0; Wm = 0.0; n = self.P['porosity']; W = self.W.ravel()
             for c in D['cells']:
                 px3 = (c % nx + 0.5) * dx - D['x0']; py3 = (c // nx + 0.5) * dx - D['y0']; s3 = px3 * D['ux'] + py3 * D['uy']
                 zp = ztoe + (sTo - s3) * al; base = max(zfix[c], zp); ex = z[c] - base

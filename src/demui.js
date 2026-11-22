@@ -123,6 +123,37 @@
       tb.appendChild(tr);
     });
   }
+  // 例：本川の中流で、谷が深く勾配が 1.5 % 以上の点に天然ダム、その 20 セル上流の本川に一定流量の供給点
+  function ldamExample() {
+    var D = ST.D, A = ST.A, m = ST.mask; if (!D || !m) return;
+    var accO = A.acc[ST.outlet], best = -1, bd = -1, c, k;
+    for (c = 0; c < D.nx * D.ny; c++) {
+      if (!m[c] || !A.stream[c] || A.acc[c] < 0.2 * accO || A.acc[c] > 0.8 * accO) continue;
+      var q = A.dir[c]; if (q < 0 || SD.localSlope(D, A, c, 3) < 0.015) continue;
+      var nxv = -SD.DR[q], nyv = SD.DC[q], dmin = 1e9;
+      [-1, 1].forEach(function (sg) {
+        var mx = -1e9;
+        for (k = 1; k <= 6; k++) { var x = c % D.nx + Math.round(sg * k * nyv), y = ((c / D.nx) | 0) + Math.round(sg * k * nxv); if (x < 0 || y < 0 || x >= D.nx || y >= D.ny) continue; mx = Math.max(mx, D.z[y * D.nx + x]); }
+        dmin = Math.min(dmin, mx - D.z[c]);
+      });
+      if (dmin > bd) { bd = dmin; best = c; }
+    }
+    if (best < 0) { $('dem_sel').textContent = '天然ダムに向いた谷が見つかりませんでした。地図でクリックして置いてください。'; return; }
+    var up = best;
+    for (k = 0; k < 20; k++) {
+      var x0 = up % D.nx, y0 = (up / D.nx) | 0, bu = -1, ba = 0;
+      for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue; var xx = x0 + dx, yy = y0 + dy; if (xx < 0 || yy < 0 || xx >= D.nx || yy >= D.ny) continue;
+        var o = yy * D.nx + xx; if (SD.downOf(D, A.dir, o) === up && A.acc[o] > ba) { ba = A.acc[o]; bu = o; }
+      }
+      if (bu < 0) break; up = bu;
+    }
+    ST.ldams = [{ c: best, H: Math.max(5, Math.min(12, Math.round(bd * 0.3))), Wc: 10, up: 30, dn: 25 }];
+    ST.src = [{ c: up, mode: 'const', Qb: 40, Qp: 40, t0: 0, tr: 60, tf: 300, C: 0 }];
+    $('gen_type').value = 'ldam'; genNote();
+    renderTables(); draw(); selInfo();
+    $('dem_sel').textContent += '　例：天然ダム（高さ ' + ST.ldams[0].H + ' m）と、その上流の本川に一定流量 40 m³/s の供給点を置きました（谷頭でなくても供給点にできます）。';
+  }
   function slideDefaults(type) { return type === 'deep' ? { R: 80, D: 20, phi: 30, coh: 30 } : { R: 25, D: 1.5, phi: 35, coh: 3 }; }
 
   // ------------------------------------------------------------ 地図
@@ -190,6 +221,13 @@
       ctx.beginPath(); ctx.arc(p[0], p[1], s ? 6 : 3.2, 0, 7);
       ctx.fillStyle = s ? '#ef6c00' : '#fff'; ctx.fill(); ctx.lineWidth = 1.2; ctx.strokeStyle = '#333'; ctx.stroke();
       if (s) { ctx.fillStyle = '#000'; ctx.font = '600 11px sans-serif'; ctx.fillText(String(s), p[0] + 7, p[1] - 6); }
+    });
+    // 谷頭でない供給点（本川の途中など）
+    var hset = {}; ST.heads.forEach(function (c) { hset[c] = 1; });
+    ST.src.forEach(function (r, i) {
+      if (hset[r.c]) return; var p = P(r.c);
+      ctx.beginPath(); ctx.rect(p[0] - 5, p[1] - 5, 10, 10); ctx.fillStyle = '#ef6c00'; ctx.fill(); ctx.lineWidth = 1.2; ctx.strokeStyle = '#333'; ctx.stroke();
+      ctx.fillStyle = '#000'; ctx.font = '600 11px sans-serif'; ctx.fillText(String(i + 1), p[0] + 7, p[1] - 6);
     });
     // 斜面崩壊
     ST.slides.forEach(function (r, i) {
@@ -379,7 +417,7 @@
       return { x: xy[0], y: xy[1], R: r.R, D: r.D, type: r.type, trigger: r.trigger, t: r.t, move: r.move, phi: r.phi, c: r.coh, m0: r.m0, thDep: thD, mu: mu, CL: CL, Tk: r.type === 'deep' ? +$('sl_tk2').value : +$('sl_tk1').value };
     });
     p.ldams = ST.ldams.map(function (r) { var xy = dom.toXY(r.c), u = dom.dirXY(r.c); return { x: xy[0], y: xy[1], ux: u[0], uy: u[1], H: r.H, Wc: r.Wc, up: r.up, dn: r.dn }; });
-    p.ldam = { k: Math.max(0, +$('ld_k').value || 0), fail: $('ld_fail').value, slipLevel: +$('ld_lev').value || 0.9, slipDeg: 20, thDep: thD, phi: +$('ld_phi').value || 35, c: +$('ld_c').value || 0, gs: 20, Ts: 0.5, s0: 0.3 };
+    p.ldam = { k: Math.max(0, +$('ld_k').value || 0), fail: $('ld_fail').value, slipLevel: +$('ld_lev').value || 0.9, slipDeg: 0, thDep: thD, phi: +$('ld_phi').value || 35, c: +$('ld_c').value || 0, gs: 20, Ts: 0.5, s0: 0 };
     if (p.ldams.length) p.gw.on = true;
     p.debris.erosion = (p.ldams.length || ST.slides.some(function (r) { return r.move !== 'fluid'; })) ? $('ld_ero').value : 'sat';
     p.debris.Kt = +$('ld_kt').value || 0.0019;
@@ -424,6 +462,7 @@
     $('src_clr').onclick = function () { ST.src = []; renderTables(); draw(); selInfo(); };
     $('sl_clr').onclick = function () { ST.slides = []; renderTables(); draw(); selInfo(); };
     $('ld_clr').onclick = function () { ST.ldams = []; renderTables(); draw(); selInfo(); };
+    $('ld_ex').onclick = ldamExample;
     ['rn_on', 'rn_loss', 'rn_route', 'rn_meth', 'rn_mode'].forEach(function (id) { $(id).addEventListener('change', rainSwitch); });
     $('rn_calc').onclick = calcRain;
     $('rn_file').onchange = function () {

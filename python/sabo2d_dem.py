@@ -228,8 +228,8 @@ def _square(D):
 
 
 # ---------------------------------------------------------------- 解析
-def fill(D):
-    nx, ny = D.nx, D.ny; N = nx * ny; z = D.z; zf = z.copy(); done = np.zeros(N, bool); eps = 1e-5
+def fill(D, eps=1e-5):
+    nx, ny = D.nx, D.ny; N = nx * ny; z = D.z; zf = z.copy(); done = np.zeros(N, bool)
     H = []
     Zg = z.reshape(ny, nx); fin = np.isfinite(Zg)
     edge = np.zeros((ny, nx), bool); edge[0] = edge[-1] = True; edge[:, 0] = edge[:, -1] = True
@@ -433,6 +433,7 @@ def synth_dem(nx=160, ny=120, cs=10.0, seed=3, iters=40):
         zn = D.z - 0.9 * np.sqrt(A.acc * cs * cs) * S * 0.06 + 0.08 * lap.ravel()
         zn = zn.reshape(ny, nx); zn[:, -1] = Z[:, -1]
         D.z = zn.ravel()
+    D.z = fill(D, 0.01 * cs)   # 窪地は 1 % の勾配の斜面で埋める
     return D
 
 

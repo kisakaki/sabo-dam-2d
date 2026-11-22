@@ -57,7 +57,7 @@
       slides: [],        // 斜面崩壊 [{x, y, R, D, type: 'shallow'|'deep', trigger: 'fs'|'time', t, move: 'auto'|'block'|'fluid', c, phi, gt, gs, ne, m0, Tk, Sr0, CL, mu, thDep, mc}]
       slideChk: 1,       // 崩壊の判定の間隔 [s]
       ldams: [],         // 天然ダム [{x, y, ux, uy, H, Wc, up, dn, lat}]
-      ldam: { k: 0, fail: 'auto', slipLevel: 0.9, slipDeg: 20, thDep: 10, phi: 35, c: 0, gs: 20, Ts: 0.5, s0: 0.3 },
+      ldam: { k: 0, fail: 'auto', slipLevel: 0.9, slipDeg: 0, thDep: 10, phi: 35, c: 0, gs: 20, Ts: 0.5, s0: 0 },
       sideGrad: 0.8,     // 谷壁の勾配 [-]
       // ---- 渓流の作り込み（数値で指定する地形のみ。0 のとき使わない）
       valley: {
@@ -2042,7 +2042,7 @@
     var LD = this.P.ldam || {}, fr = new Float64Array(this.K), K = this.K;
     for (var k = 0; k < K; k++) fr[k] = f0[k];
     if (LD.grains && LD.grains.length === K) { var sm = 0; for (k = 0; k < K; k++) sm += Math.max(0, LD.grains[k]); for (k = 0; k < K; k++) fr[k] = sm > 0 ? Math.max(0, LD.grains[k]) / sm : f0[k]; }
-    var n = this.P.porosity, gwOn = !!(this.P.gw && this.P.gw.on), s0 = LD.s0 >= 0 ? LD.s0 : 0.3;
+    var n = this.P.porosity, gwOn = !!(this.P.gw && this.P.gw.on), s0 = LD.s0 >= 0 ? LD.s0 : 0;
     var V = 0;
     for (var q = 0; q < cells.length; q++) {
       var cc = cells[q][0], t = cells[q][1];
@@ -2062,7 +2062,7 @@
     var tanC = (gs - gw) / gs * tp, dep = this.dep, cnt = 0, vol = 0;
     for (var c = 0; c < N; c++) {
       if (!dep[c]) continue;
-      var Tq = z[c] - zfix[c]; if (Tq < 1e-3) continue;
+      var Tq = z[c] - zfix[c]; if (Tq < Ts) continue;        // すべりの厚さ Ts より薄い所（ダムの縁）は対象にしない
       if (W[c] < 0.98 * n * Tq || h[c] > 0.1) continue;   // 地表まで飽和、湛水の中ではない
       var i = c % nx, j = (c - i) / nx, best = -1, bs = 0;
       var nb = [i < nx - 1 ? c + 1 : -1, i > 0 ? c - 1 : -1, j < ny - 1 ? c + nx : -1, j > 0 ? c - nx : -1];
@@ -2091,20 +2091,30 @@
     var nx = this.nx, dx = this.dx, z = this.z, h = this.h, zfix = this.zfix, a1 = dx * dx, K = this.K;
     for (var m = 0; m < this.ldamList.length; m++) {
       var D = this.ldamList[m]; if (D.slipped) continue;
-      // 湛水位：ダムの上流（s < 0）の濡れたセルの最高水位
-      var wl = -1e30, sTo = -1e30, k, c;
-      for (k = 0; k < D.cells.length; k++) { c = D.cells[k]; var px = (c % nx + 0.5) * dx - D.x0, py = (Math.floor(c / nx) + 0.5) * dx - D.y0, s = px * D.ux + py * D.uy; if (z[c] - zfix[c] > 0.05 && s > sTo) sTo = s; }
-      var r0 = Math.ceil((D.H * 4 + D.lat) / dx), ci = D.c0 % nx, cj = Math.floor(D.c0 / nx);
-      for (var j = Math.max(0, cj - r0); j <= Math.min(this.ny - 1, cj + r0); j++) for (var i = Math.max(0, ci - r0); i <= Math.min(nx - 1, ci + r0); i++) {
-        c = j * nx + i; var px2 = (i + 0.5) * dx - D.x0, py2 = (j + 0.5) * dx - D.y0, s2 = px2 * D.ux + py2 * D.uy;
-        if (s2 < 0 && h[c] > 0.05 && z[c] + h[c] > wl) wl = z[c] + h[c];
-      }
+      // 湛水位：ダムの上流側（s < 0）で、ダムのセルに接する濡れたセルのうち、河床がいちばん低いセルの水位
       var lev = LD.slipLevel > 0 ? D.zc + LD.slipLevel * D.H : D.crest - 0.05 * D.H;
-      if (wl < lev) continue;
+      var wl = -1e30, zlo = 1e30, sTo = -1e30, cToe = -1, k, c, isD = this._isD || (this._isD = new Uint8Array(this.N));
+      for (k = 0; k < D.cells.length; k++) {
+        c = D.cells[k]; var px = (c % nx + 0.5) * dx - D.x0, py = (Math.floor(c / nx) + 0.5) * dx - D.y0, s = px * D.ux + py * D.uy;
+        if (z[c] - zfix[c] > 0.05) { isD[c] = 1; if (s > sTo) { sTo = s; cToe = c; } }
+      }
+      for (k = 0; k < D.cells.length; k++) {
+        c = D.cells[k]; if (!isD[c]) continue;
+        var ci2 = c % nx, cj2 = Math.floor(c / nx), nb = [ci2 > 0 ? c - 1 : -1, ci2 < nx - 1 ? c + 1 : -1, cj2 > 0 ? c - nx : -1, cj2 < this.ny - 1 ? c + nx : -1];
+        for (var q2 = 0; q2 < 4; q2++) {
+          var o = nb[q2]; if (o < 0 || isD[o] || h[o] <= 0.05) continue;
+          var so = ((o % nx + 0.5) * dx - D.x0) * D.ux + ((Math.floor(o / nx) + 0.5) * dx - D.y0) * D.uy;
+          if (so < 0 && z[o] < zlo) { zlo = z[o]; wl = z[o] + h[o]; }   // いちばん河床の低い所の水位（湛水の水面）。斜面を流れ下る水は除く
+        }
+      }
+      for (k = 0; k < D.cells.length; k++) isD[D.cells[k]] = 0;
+      if (wl < lev || cToe < 0) continue;
       D.slipped = true;
-      var al = Math.tan((LD.slipDeg > 0 ? LD.slipDeg : 20) * Math.PI / 180), tanD = Math.tan((LD.thDep > 0 ? LD.thDep : 10) * Math.PI / 180);
-      // 動く土
-      var sed = new Float64Array(K), Vb = 0, Wm = 0, n = this.P.porosity, ztoe = D.zc - 0;
+      // すべり面：下流の法尻（元の地盤）から、指定の角度で上流へ上がる平面。角度 0（既定）は法尻と上流側の天端の端を結ぶ面
+      var ztoe = zfix[cToe], sUp = -(D.L && D.L.Wc > 0 ? D.L.Wc : 0) / 2;
+      var al = LD.slipDeg > 0 ? Math.tan(LD.slipDeg * Math.PI / 180) : Math.max(0.05, (D.crest - ztoe) / Math.max(dx, sTo - sUp));
+      var tanD = Math.tan((LD.thDep > 0 ? LD.thDep : 10) * Math.PI / 180);
+      var sed = new Float64Array(K), Vb = 0, Wm = 0, n = this.P.porosity;
       for (k = 0; k < D.cells.length; k++) {
         c = D.cells[k]; var px3 = (c % nx + 0.5) * dx - D.x0, py3 = (Math.floor(c / nx) + 0.5) * dx - D.y0, s3 = px3 * D.ux + py3 * D.uy;
         var zp = ztoe + (sTo - s3) * al, base = Math.max(zfix[c], zp), ex = z[c] - base;

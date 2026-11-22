@@ -270,9 +270,9 @@
   };
 
   // 窪地の埋め（Priority-Flood + ε）。欠測（NaN）と DEM の端が出口
-  function fill(D) {
+  function fill(D, epsIn) {
     var nx = D.nx, ny = D.ny, N = nx * ny, z = D.z, zf = new Float64Array(N), done = new Uint8Array(N);
-    var H = new Heap(N), c, r, q, eps = 1e-5;
+    var H = new Heap(N), c, r, q, eps = epsIn > 0 ? epsIn : 1e-5;
     for (c = 0; c < N; c++) {
       zf[c] = z[c];
       if (!isFinite(z[c])) { done[c] = 1; continue; }
@@ -509,6 +509,9 @@
       }
       for (c = 0; c < N; c++) { var xc = c % nx; z[c] = xc === nx - 1 ? z[c] : zn[c]; }
     }
+    // 窪地は 1 % の勾配の斜面で埋める（例の地形に大きな平らな湖ができないように）
+    var zf2 = fill(D, 0.01 * cs);
+    for (c = 0; c < N; c++) z[c] = zf2[c];
     return D;
   }
 
