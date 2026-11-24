@@ -86,7 +86,7 @@
     else selectBasin(big.length ? big[0].id : -1, true);
     var zmin = Infinity, zmax = -Infinity; for (var c = 0; c < D.nx * D.ny; c++) { var v = D.z[c]; if (isFinite(v)) { if (v < zmin) zmin = v; if (v > zmax) zmax = v; } }
     info(ST.label + '：' + D.nx + ' × ' + D.ny + '（格子 ' + fmt(D.cs, 2) + ' m、標高 ' + fmt(zmin, 0) + '〜' + fmt(zmax, 0) + ' m）。谷頭 ' + A.heads.length + ' 点、出口ごとの流域 ' + A.basins.length + '（' + Math.round(performance.now() - t0) + ' ms）');
-    ST.img = null; draw();
+    ST.img = null; ST.det = null; ST.zst = null; ST.cam = null; draw();
   }
   function selectBasin(id, quiet) {
     var A = ST.A; if (!A || id < 0) { ST.mask = null; return; }
@@ -106,7 +106,8 @@
     ST.slides = ST.slides.filter(function (r) { return m[r.c]; });
     ST.ldams = ST.ldams.filter(function (r) { return m[r.c]; });
     if (!ST.src.length && ST.heads.length) topHeads(3);
-    ST.lat = null; ST.img = null;
+    ST.lat = null; ST.mcv = null;
+    if ($('dm_fit').checked && ST.D) fitBasin();
     renderTables(); draw();
     if (!quiet) selInfo();
   }
@@ -201,57 +202,160 @@
   function slideDefaults(type) { return type === 'deep' ? { R: 80, D: 20, phi: 30, coh: 30 } : { R: 25, D: 1.5, phi: 35, coh: 3 }; }
 
   // ------------------------------------------------------------ 地図
-  function shade(D, A) {
-    var nx = D.nx, ny = D.ny, f = Math.max(1, Math.ceil(Math.max(nx, ny) / 1100)), W = Math.ceil(nx / f), H = Math.ceil(ny / f);
-    var img = new ImageData(W, H), px = img.data, z = D.z, m = ST.mask, cs = D.cs * f;
-    var zmin = Infinity, zmax = -Infinity, c;
-    for (c = 0; c < nx * ny; c++) { var v = z[c]; if (isFinite(v)) { if (v < zmin) zmin = v; if (v > zmax) zmax = v; } }
-    for (var j = 0; j < H; j++) for (var i = 0; i < W; i++) {
-      var x = Math.min(nx - 1, i * f), y = Math.min(ny - 1, j * f); c = y * nx + x;
-      var p = (j * W + i) * 4, zz = z[c];
-      if (!isFinite(zz)) { px[p] = px[p + 1] = px[p + 2] = 235; px[p + 3] = 255; continue; }
-      var xe = Math.min(nx - 1, x + f), yn = Math.max(0, y - f);
-      var dzdx = (z[y * nx + xe] - zz) / cs, dzdy = (z[yn * nx + x] - zz) / cs;
-      if (!isFinite(dzdx)) dzdx = 0; if (!isFinite(dzdy)) dzdy = 0;
-      var hs = Math.max(0, Math.min(1, 0.55 + 0.45 * (-dzdx * 0.6 + dzdy * 0.6) / Math.sqrt(1 + dzdx * dzdx + dzdy * dzdy)));
-      var t = (zz - zmin) / Math.max(1e-6, zmax - zmin);
-      var r = 120 + 110 * t, g = 150 + 70 * t, b = 110 + 90 * t;
-      var inB = m ? m[c] : 1;
-      if (!inB) { var gr = (r + g + b) / 3; r = g = b = 0.6 * gr + 70; }
-      if (A && A.stream[c]) { var o = A.strahler[c]; r = inB ? 30 : 140; g = inB ? 110 + 10 * o : 160; b = inB ? 200 : 190; hs = 1; }
-      px[p] = r * hs; px[p + 1] = g * hs; px[p + 2] = b * hs; px[p + 3] = 255;
-    }
-    return { img: img, f: f, W: W, H: H };
+  // 地形の画像（流域の選択によらない）。表示は 陰影＋段彩・赤色立体風・傾斜・段彩のみ。等高線も描ける
+  // 全体は f×f セルごとに 1 画素（画素数 250 万以下）。拡大したときは見えている範囲を 1 セル 1 画素で描き直す（detail）
+  function shadeStats(D) {
+    if (ST.zst && ST.zst.D === D) return ST.zst;
+    var zmin = Infinity, zmax = -Infinity; for (var c = 0; c < D.nx * D.ny; c++) { var v = D.z[c]; if (v === v) { if (v < zmin) zmin = v; if (v > zmax) zmax = v; } }
+    var zr = Math.max(1e-6, zmax - zmin), ci = 1, nice = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000];
+    for (var k = 0; k < nice.length; k++) { ci = nice[k]; if (zr / ci <= 30) break; }
+    return (ST.zst = { D: D, zmin: zmin, zmax: zmax, zr: zr, ci: ci });
   }
-  function viewBox() {
-    var D = ST.D, x0 = 0, y0 = 0, x1 = D.nx, y1 = D.ny;
-    if ($('dm_fit').checked && ST.mask) {
-      x0 = D.nx; y0 = D.ny; x1 = 0; y1 = 0;
-      for (var c = 0; c < ST.mask.length; c++) if (ST.mask[c]) { var x = c % D.nx, y = (c / D.nx) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-      var mg = Math.max(4, 0.06 * Math.max(x1 - x0, y1 - y0)); x0 = Math.max(0, x0 - mg); y0 = Math.max(0, y0 - mg); x1 = Math.min(D.nx, x1 + mg + 1); y1 = Math.min(D.ny, y1 + mg + 1);
+  var TINT = [[0, 110, 165, 100], [0.25, 175, 200, 125], [0.5, 220, 200, 140], [0.75, 190, 150, 110], [1, 240, 236, 230]];
+  function shade(D, A, x0, y0, x1, y1, f, ciIn) {
+    var nx = D.nx, ny = D.ny, W = Math.ceil((x1 - x0) / f), H = Math.ceil((y1 - y0) / f);
+    var style = $('dm_shade') ? $('dm_shade').value : 'hs', cont = $('dm_cont') ? $('dm_cont').checked : true;
+    var st = shadeStats(D), zmin = st.zmin, zr = st.zr, ci = ciIn || st.ci, cs = D.cs * f, z = D.z, i, j, k;
+    var R = Math.max(2, Math.min(30, Math.round(75 / cs))), M = R + 1, WW = W + 2 * M, HH = H + 2 * M;
+    // 余白つきで間引いた標高（DEM の外は端の値）。欠測は NaN のまま
+    var Z = new Float64Array(WW * HH);
+    for (j = 0; j < HH; j++) {
+      var y = y0 + (j - M) * f + (f >> 1); y = y < 0 ? 0 : y >= ny ? ny - 1 : y; var row = y * nx;
+      for (i = 0; i < WW; i++) { var x = x0 + (i - M) * f + (f >> 1); x = x < 0 ? 0 : x >= nx ? nx - 1 : x; Z[j * WW + i] = z[row + x]; }
     }
-    return { x0: x0, y0: y0, x1: x1, y1: y1 };
+    // 谷筋（ブロック内の最大次数）
+    var S = new Uint8Array(W * H);
+    if (A) for (j = y0; j < Math.min(ny, y0 + H * f); j++) for (i = x0; i < Math.min(nx, x0 + W * f); i++) { var c = j * nx + i; if (A.stream[c]) { k = ((j - y0) / f | 0) * W + ((i - x0) / f | 0); if (A.strahler[c] > S[k]) S[k] = A.strahler[c]; } }
+    // TPI 用の積分画像
+    var I = new Float64Array((WW + 1) * (HH + 1)), N = new Float64Array((WW + 1) * (HH + 1));
+    for (j = 0; j < HH; j++) { var rs = 0, rn = 0, o1 = (j + 1) * (WW + 1), o0 = j * (WW + 1); for (i = 0; i < WW; i++) { var vv = Z[j * WW + i]; if (vv === vv) { rs += vv; rn++; } I[o1 + i + 1] = I[o0 + i + 1] + rs; N[o1 + i + 1] = N[o0 + i + 1] + rn; } }
+    var img = new ImageData(W, H), px = img.data, L = Math.SQRT1_2;
+    // 光源 4 方向（北西を主に）。重み × (sin, cos)
+    var AZ = [[315, 0.55], [270, 0.2], [0, 0.15], [225, 0.1]].map(function (q) { var t = q[0] * Math.PI / 180; return [q[1] * L * Math.sin(t), q[1] * L * Math.cos(t), q[1] * L]; });
+    var sr = 1 / (0.12 * R * cs), inv8 = 1 / (8 * cs);
+    for (j = 0; j < H; j++) for (i = 0; i < W; i++) {
+      var p = (j * W + i) * 4, q0 = (j + M) * WW + i + M, zz = Z[q0];
+      if (zz !== zz) { px[p] = px[p + 1] = px[p + 2] = 232; px[p + 3] = 255; continue; }
+      var a1 = Z[q0 - WW - 1], a2 = Z[q0 - WW], a3 = Z[q0 - WW + 1], a4 = Z[q0 - 1], a6 = Z[q0 + 1], a7 = Z[q0 + WW - 1], a8 = Z[q0 + WW], a9 = Z[q0 + WW + 1];
+      if (a1 !== a1) a1 = zz; if (a2 !== a2) a2 = zz; if (a3 !== a3) a3 = zz; if (a4 !== a4) a4 = zz; if (a6 !== a6) a6 = zz; if (a7 !== a7) a7 = zz; if (a8 !== a8) a8 = zz; if (a9 !== a9) a9 = zz;
+      // Horn の 3×3 勾配（gx：東向き、gy：北向き）
+      var gx = ((a3 + 2 * a6 + a9) - (a1 + 2 * a4 + a7)) * inv8, gy = ((a1 + 2 * a2 + a3) - (a7 + 2 * a8 + a9)) * inv8;
+      var g2 = gx * gx + gy * gy, nrm = 1 / Math.sqrt(1 + g2), hs = 0;
+      for (k = 0; k < 4; k++) { var h1 = (-gx * AZ[k][0] - gy * AZ[k][1] + AZ[k][2]) * nrm; if (h1 > 0) hs += h1; }
+      hs = hs > 0.72 ? 1 : hs / 0.72;
+      var ii0 = i + M - R, ii1 = i + M + R + 1, jj0 = j + M - R, jj1 = j + M + R + 1;   // 半径 R の窓（余白込みの座標）
+      var sm = I[jj1 * (WW + 1) + ii1] - I[jj0 * (WW + 1) + ii1] - I[jj1 * (WW + 1) + ii0] + I[jj0 * (WW + 1) + ii0];
+      var sn = N[jj1 * (WW + 1) + ii1] - N[jj0 * (WW + 1) + ii1] - N[jj1 * (WW + 1) + ii0] + N[jj0 * (WW + 1) + ii0];
+      var tpi = Math.tanh((zz - sm / (sn || 1)) * sr), r, g, b2;
+      if (style === 'red') {   // 赤色立体風：明るさ＝尾根・谷（TPI）、赤み＝傾斜
+        var slp = Math.atan(Math.sqrt(g2)) * 57.3, br = 0.5 + 0.5 * tpi, sat = slp > 50 ? 1 : slp / 50;
+        r = 255 * br; g = 255 * br * (1 - 0.8 * sat); b2 = 255 * br * (1 - 0.9 * sat);
+      } else if (style === 'slope') {   // 傾斜：急なほど濃い
+        var sl2 = Math.atan(Math.sqrt(g2)) * 57.3, gr = 255 * (1 - (sl2 > 55 ? 1 : sl2 / 55)) * (0.8 + 0.2 * hs);
+        r = g = b2 = gr;
+      } else {
+        var t = (zz - zmin) / zr, q = 1; while (q < 4 && t > TINT[q][0]) q++;
+        var A0 = TINT[q - 1], B0 = TINT[q], u = Math.max(0, Math.min(1, (t - A0[0]) / (B0[0] - A0[0])));
+        var cr = A0[1] + u * (B0[1] - A0[1]), cg = A0[2] + u * (B0[2] - A0[2]), cb = A0[3] + u * (B0[3] - A0[3]);
+        if (style === 'plain') { r = cr; g = cg; b2 = cb; }
+        else {   // 陰影は強め、尾根を少し明るく谷を少し暗く
+          var sh = (0.12 + 1.0 * hs) * (1 + 0.22 * tpi), w = 0.55;   // 色を少し薄めて陰影を見やすく
+          r = (w * cr + (1 - w) * 225) * sh; g = (w * cg + (1 - w) * 225) * sh; b2 = (w * cb + (1 - w) * 225) * sh;
+        }
+      }
+      if (cont) {   // 等高線（5 本ごとに濃い計曲線）
+        var lv = Math.floor(zz / ci), ln = Math.floor((a6 === a6 ? a6 : zz) / ci), ld = Math.floor((a8 === a8 ? a8 : zz) / ci);
+        if (lv !== ln || lv !== ld) { var mx = lv > ln ? (lv > ld ? lv : ld) : (ln > ld ? ln : ld), dk = mx % 5 === 0 ? 0.45 : 0.7; r *= dk; g *= dk; b2 *= dk; }
+      }
+      var so = S[j * W + i]; if (so) { r = 25; g = 95 + 12 * (so > 8 ? 8 : so); b2 = 215; }
+      px[p] = r; px[p + 1] = g; px[p + 2] = b2; px[p + 3] = 255;
+    }
+    var cv = document.createElement('canvas'); cv.width = W; cv.height = H; cv.getContext('2d').putImageData(img, 0, 0);
+    return { cv: cv, f: f, W: W, H: H, ci: ci, x0: x0, y0: y0 };
   }
+  function shadeAll(D, A) { var f = Math.max(1, Math.ceil(Math.sqrt(D.nx * D.ny / 2.5e6))); return shade(D, A, 0, 0, D.nx, D.ny, f); }
+  // 拡大したとき、見えている範囲を細かく描き直す（動かし終わって 0.25 秒後）
+  var detT = 0;
+  function wantDetail() {
+    clearTimeout(detT);
+    var I = ST.img, v = ST.view, D = ST.D; if (!I || !v || I.f === 1 || v.sc * I.f < 1.6) return;
+    detT = setTimeout(function () {
+      var v2 = ST.view; if (!v2) return;
+      var x0 = Math.max(0, Math.floor(v2.x0) - 2), y0 = Math.max(0, Math.floor(v2.y0) - 2), x1 = Math.min(D.nx, Math.ceil(v2.x0 + v2.W / v2.sc) + 2), y1 = Math.min(D.ny, Math.ceil(v2.y0 + v2.H / v2.sc) + 2);
+      if (x1 <= x0 || y1 <= y0 || (x1 - x0) * (y1 - y0) > 3e6) return;
+      var dt = ST.det; if (dt && dt.x0 <= x0 && dt.y0 <= y0 && dt.x0 + dt.W >= x1 && dt.y0 + dt.H >= y1) return;
+      var mg = Math.round(0.25 * Math.max(x1 - x0, y1 - y0));   // 少し広めに描いて、小さな移動で描き直さない
+      x0 = Math.max(0, x0 - mg); y0 = Math.max(0, y0 - mg); x1 = Math.min(D.nx, x1 + mg); y1 = Math.min(D.ny, y1 + mg);
+      ST.det = shade(D, ST.A, x0, y0, x1, y1, 1, I.ci); ST.detM = null; draw();
+    }, 250);
+  }
+  // 選んだ流域の外を白くかぶせる画像（画像 I と同じ範囲・間引き）
+  function maskImg(D, I) {
+    var W = I.W, H = I.H, f = I.f, im = new ImageData(W, H), px = im.data, m = ST.mask;
+    if (m) for (var j = 0; j < H; j++) for (var i = 0; i < W; i++) {
+      var c = Math.min(D.ny - 1, I.y0 + j * f + (f >> 1)) * D.nx + Math.min(D.nx - 1, I.x0 + i * f + (f >> 1));
+      if (!m[c]) { var p = (j * W + i) * 4; px[p] = px[p + 1] = px[p + 2] = 255; px[p + 3] = 120; }
+    }
+    var cv = document.createElement('canvas'); cv.width = W; cv.height = H; cv.getContext('2d').putImageData(im, 0, 0); return cv;
+  }
+  // ------------------------------------------------------------ 表示範囲（ズーム・移動）
+  // ST.cam = {cx, cy, sc}：中心のセル座標と 1 セルの画素数
+  function mapSize() {
+    var D = ST.D, Wc = $('demmap').parentNode.clientWidth || 600;
+    return [Wc, Math.round(Math.min(620, Math.max(320, Wc * D.ny / D.nx)))];
+  }
+  function fitBox(x0, y0, x1, y1) {
+    var s = mapSize(), sc = 0.98 * Math.min(s[0] / Math.max(1, x1 - x0), s[1] / Math.max(1, y1 - y0));
+    ST.cam = { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, sc: sc };
+  }
+  function fitAll() { fitBox(0, 0, ST.D.nx, ST.D.ny); }
+  function fitBasin() {
+    var D = ST.D; if (!ST.mask) { fitAll(); return; }
+    var x0 = D.nx, y0 = D.ny, x1 = 0, y1 = 0;
+    for (var c = 0; c < ST.mask.length; c++) if (ST.mask[c]) { var x = c % D.nx, y = (c / D.nx) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    var mg = Math.max(4, 0.06 * Math.max(x1 - x0, y1 - y0));
+    fitBox(x0 - mg, y0 - mg, x1 + mg + 1, y1 + mg + 1);
+  }
+  function scLimits() { var s = mapSize(), D = ST.D; return [0.5 * Math.min(s[0] / D.nx, s[1] / D.ny), 40]; }
+  function zoomAt(px, py, k) {
+    var v = ST.view, cam = ST.cam; if (!v || !cam) return;
+    var lim = scLimits(), sc = Math.max(lim[0], Math.min(lim[1], cam.sc * k));
+    var gx = v.x0 + px / v.sc, gy = v.y0 + py / v.sc;   // カーソルの下のセルを動かさない
+    cam.cx = gx - (px - v.W / 2) / sc; cam.cy = gy - (py - v.H / 2) / sc; cam.sc = sc; redraw();
+  }
+  var rq = 0; function redraw() { if (!rq) rq = requestAnimationFrame(function () { rq = 0; draw(); }); }
   function draw() {
     var cv = $('demmap'); if (!cv || $('demcard').hidden) return;
     var D = ST.D, dpr = window.devicePixelRatio || 1, Wc = cv.parentNode.clientWidth || 600;
     if (!D) { cv.width = Wc * dpr; cv.height = 120 * dpr; cv.style.height = '120px'; var c0 = cv.getContext('2d'); c0.setTransform(dpr, 0, 0, dpr, 0, 0); c0.clearRect(0, 0, Wc, 120); c0.fillStyle = '#888'; c0.font = '13px sans-serif'; c0.fillText('DEM を読み込むか「例の DEM」を押してください', 12, 60); return; }
-    if (!ST.img) ST.img = shade(D, ST.A);
-    var vb = viewBox(), vw = vb.x1 - vb.x0, vh = vb.y1 - vb.y0, Hc = Math.min(560, Math.max(220, Wc * vh / vw));
-    var sc = Math.min(Wc / vw, Hc / vh); Hc = vh * sc;
+    if (!ST.img) { ST.img = shadeAll(D, ST.A); ST.mcv = null; ST.det = null; }
+    if (!ST.mcv) { ST.mcv = maskImg(D, ST.img); ST.detM = null; }
+    if (!ST.cam) { if ($('dm_fit').checked) fitBasin(); else fitAll(); }
+    var ms = mapSize(), Hc = ms[1]; Wc = ms[0];
+    var sc = ST.cam.sc, vb = { x0: ST.cam.cx - Wc / 2 / sc, y0: ST.cam.cy - Hc / 2 / sc }; vb.x1 = vb.x0 + Wc / sc; vb.y1 = vb.y0 + Hc / sc;
     cv.width = Wc * dpr; cv.height = Hc * dpr; cv.style.height = Hc + 'px';
-    var ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, Wc, Hc);
-    var I = ST.img, tmp = ST.tmpCv || (ST.tmpCv = document.createElement('canvas'));
-    if (tmp.width !== I.W || tmp.height !== I.H || ST.tmpImg !== I) { tmp.width = I.W; tmp.height = I.H; tmp.getContext('2d').putImageData(I.img, 0, 0); ST.tmpImg = I; }
-    ctx.imageSmoothingEnabled = I.f > 1;
-    ctx.drawImage(tmp, vb.x0 / I.f, vb.y0 / I.f, vw / I.f, vh / I.f, 0, 0, vw * sc, vh * sc);
+    var ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = '#eceff1'; ctx.fillRect(0, 0, Wc, Hc);
+    // 画像 I の見えている部分を描く（DEM の外は描かない）
+    function blit(I, mcv) {
+      var ix1 = I.x0 + I.W * I.f, iy1 = I.y0 + I.H * I.f;
+      var cx0 = Math.max(I.x0, vb.x0), cy0 = Math.max(I.y0, vb.y0), cx1 = Math.min(Math.min(D.nx, ix1), vb.x1), cy1 = Math.min(Math.min(D.ny, iy1), vb.y1);
+      if (cx1 <= cx0 || cy1 <= cy0) return;
+      ctx.imageSmoothingEnabled = sc * I.f < 12;
+      var sx = (cx0 - I.x0) / I.f, sy = (cy0 - I.y0) / I.f, sw = (cx1 - cx0) / I.f, sh = (cy1 - cy0) / I.f;
+      var dx0 = (cx0 - vb.x0) * sc, dy0 = (cy0 - vb.y0) * sc, dw = (cx1 - cx0) * sc, dh = (cy1 - cy0) * sc;
+      ctx.drawImage(I.cv, sx, sy, sw, sh, dx0, dy0, dw, dh);
+      ctx.drawImage(mcv, sx, sy, sw, sh, dx0, dy0, dw, dh);
+    }
+    blit(ST.img, ST.mcv);
+    if (ST.det && sc * ST.img.f >= 1.6) { if (!ST.detM) ST.detM = maskImg(D, ST.det); blit(ST.det, ST.detM); }
     ST.view = { x0: vb.x0, y0: vb.y0, sc: sc, W: Wc, H: Hc };
+    wantDetail();
     function P(c) { return [((c % D.nx) + 0.5 - vb.x0) * sc, (((c / D.nx) | 0) + 0.5 - vb.y0) * sc]; }
     // 流域界（選んだ流域の縁）
     if (ST.mask) {
       ctx.fillStyle = 'rgba(200,40,40,0.9)';
       var m = ST.mask, step = Math.max(1, Math.floor(1 / sc));
-      for (var y = Math.floor(vb.y0); y < vb.y1; y += step) for (var x = Math.floor(vb.x0); x < vb.x1; x += step) {
+      for (var y = Math.max(0, Math.floor(vb.y0)); y < Math.min(D.ny, vb.y1); y += step) for (var x = Math.max(0, Math.floor(vb.x0)); x < Math.min(D.nx, vb.x1); x += step) {
         var c = y * D.nx + x; if (!m[c]) continue;
         if (x === 0 || y === 0 || x === D.nx - 1 || y === D.ny - 1 || !m[c - 1] || !m[c + 1] || !m[c - D.nx] || !m[c + D.nx]) ctx.fillRect((x - vb.x0) * sc, (y - vb.y0) * sc, Math.max(1.2, sc * step), Math.max(1.2, sc * step));
       }
@@ -261,9 +365,9 @@
     var selSet = {}; ST.src.forEach(function (r, i) { selSet[r.c] = i + 1; });
     ST.heads.forEach(function (c) {
       var p = P(c); if (p[0] < -5 || p[1] < -5 || p[0] > Wc + 5 || p[1] > Hc + 5) return;
-      var s = selSet[c];
-      ctx.beginPath(); ctx.arc(p[0], p[1], s ? 6 : 3.2, 0, 7);
-      ctx.fillStyle = s ? '#ef6c00' : '#fff'; ctx.fill(); ctx.lineWidth = 1.2; ctx.strokeStyle = '#333'; ctx.stroke();
+      var s = selSet[c], hr = s ? 6 : Math.max(1.3, Math.min(3.2, 4 * Math.sqrt(sc)));   // 縮小したときは小さく（地形が隠れないように）
+      ctx.beginPath(); ctx.arc(p[0], p[1], hr, 0, 7);
+      ctx.fillStyle = s ? '#ef6c00' : '#fff'; ctx.fill(); ctx.lineWidth = hr < 2.5 && !s ? 0.6 : 1.2; ctx.strokeStyle = '#333'; ctx.stroke();
       if (s) { ctx.fillStyle = '#000'; ctx.font = '600 11px sans-serif'; ctx.fillText(String(s), p[0] + 7, p[1] - 6); }
     });
     // 谷頭でない供給点（本川の途中など）
@@ -298,7 +402,7 @@
       ctx.strokeStyle = '#4e342e'; ctx.lineWidth = Math.max(4, r.Wc / D.cs * sc); ctx.beginPath(); ctx.moveTo(p[0] - nxv * wv, p[1] - nyv * wv); ctx.lineTo(p[0] + nxv * wv, p[1] + nyv * wv); ctx.stroke();
       ctx.fillStyle = '#3e2723'; ctx.font = '600 11px sans-serif'; ctx.fillText('ダム' + (i + 1), p[0] + wv + 3, p[1] + 4);
     });
-    $('dem_key').innerHTML = '<span><i style="border-color:#1e6ec8"></i>谷筋</span><span><i class="b" style="background:#fff;border:1px solid #333"></i>谷頭</span><span><i class="b" style="background:#ef6c00"></i>供給点</span><span><i style="border-color:#c62828"></i>流域界・出口</span><span><i class="b" style="background:rgba(255,152,0,0.5)"></i>斜面崩壊</span><span><i class="b" style="background:#4e342e"></i>天然ダム</span>';
+    $('dem_key').innerHTML = '<span><i style="border-color:#1e6ec8"></i>谷筋</span><span><i class="b" style="background:#fff;border:1px solid #333"></i>谷頭</span><span><i class="b" style="background:#ef6c00"></i>供給点</span><span><i style="border-color:#c62828"></i>流域界・出口</span><span><i class="b" style="background:rgba(255,152,0,0.5)"></i>斜面崩壊</span><span><i class="b" style="background:#4e342e"></i>天然ダム</span>' + ($('dm_cont').checked ? '<span>等高線 ' + ST.img.ci + ' m 間隔（太線は ' + 5 * ST.img.ci + ' m ごと）</span>' : '') + '<span style="color:#666">ホイールで拡大・縮小、ドラッグで移動</span>';
   }
   function cellAt(e) {
     var cv = $('demmap'), r = cv.getBoundingClientRect(), v = ST.view; if (!v || !ST.D) return -1;
@@ -357,6 +461,7 @@
     if (pg) polyMsg();
   }
   function onClick(e) {
+    if (ST.dragged) { ST.dragged = false; return; }
     var c = cellAt(e); if (c < 0) return;
     var mode = $('dm_mode').value, A = ST.A;
     if (mode === 'basin') { if (A.bid[c] >= 0) selectBasin(A.bid[c], false); return; }
@@ -550,7 +655,28 @@
     $('dem_file').onchange = function () { loadFiles(this.files); };
     $('dem_sample').onclick = function () { setDEM(SD.synthDEM({}), '例の DEM（架空）'); };
     $('dem_thr').onchange = analyze;
-    $('dm_fit').onchange = draw;
+    $('dm_fit').onchange = function () { if (!ST.D) return; if ($('dm_fit').checked) fitBasin(); else fitAll(); draw(); };
+    $('dm_shade').onchange = $('dm_cont').onchange = function () { ST.img = null; ST.det = null; draw(); };
+    $('dm_zin').onclick = function () { var v = ST.view; if (v) zoomAt(v.W / 2, v.H / 2, 1.6); };
+    $('dm_zout').onclick = function () { var v = ST.view; if (v) zoomAt(v.W / 2, v.H / 2, 1 / 1.6); };
+    $('dm_zall').onclick = function () { if (ST.D) { fitAll(); draw(); } };
+    $('dm_zbas').onclick = function () { if (ST.D) { fitBasin(); draw(); } };
+    // ホイールで拡大縮小（カーソルの位置を中心に）、ドラッグで移動。ドラッグのあとのクリックは無視
+    var mv = $('demmap'), drag = null;
+    mv.addEventListener('wheel', function (e) {
+      if (!ST.D) return; e.preventDefault();
+      var r = mv.getBoundingClientRect(), d = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+      zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-d * 0.0015));
+    }, { passive: false });
+    mv.addEventListener('pointerdown', function (e) { if (!ST.cam || e.button !== 0) return; drag = { x: e.clientX, y: e.clientY, cx: ST.cam.cx, cy: ST.cam.cy, moved: false, id: e.pointerId }; ST.dragged = false; });
+    window.addEventListener('pointermove', function (e) {
+      if (!drag || e.pointerId !== drag.id) return;
+      var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (!drag.moved && dx * dx + dy * dy < 25) return;
+      if (!drag.moved) { drag.moved = true; try { mv.setPointerCapture(drag.id); } catch (er) {} mv.style.cursor = 'grabbing'; $('dem_tip').hidden = true; }
+      ST.cam.cx = drag.cx - dx / ST.cam.sc; ST.cam.cy = drag.cy - dy / ST.cam.sc; redraw();
+    });
+    window.addEventListener('pointerup', function (e) { if (drag && e.pointerId === drag.id) { ST.dragged = drag.moved; drag = null; mv.style.cursor = 'crosshair'; } });
     $('demmap').addEventListener('click', onClick);
     $('demmap').addEventListener('dblclick', function (e) { if ($('dm_mode').value === 'slide' && $('dm_shape').value === 'poly') { e.preventDefault(); closePoly(); } });
     $('dm_mode').addEventListener('change', shapeUI); $('dm_shape').addEventListener('change', shapeUI);
@@ -573,7 +699,7 @@
     };
     $('gen_type').onchange = genNote;
     $('g_src').addEventListener('change', function () { show(this.value === 'dem'); });
-    window.addEventListener('resize', function () { if (!$('demcard').hidden) draw(); });
+    window.addEventListener('resize', function () { if (!$('demcard').hidden && ST.D) { if ($('dm_fit').checked) fitBasin(); else fitAll(); draw(); } });
     rainSwitch(); show($('g_src').value === 'dem');
   }
   window.SaboDEMUI = { params: params, state: ST, draw: draw, setDEM: setDEM, active: function () { return $('g_src').value === 'dem'; } };

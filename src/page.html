@@ -437,6 +437,11 @@ table.res th,table.res td{white-space:nowrap}
           <button type="button" id="dm_close" hidden>多角形を閉じる</button><button type="button" id="dm_undo" hidden>1 点戻す</button>
           <label><input type="checkbox" id="dm_fit" checked> 選んだ流域に寄せる</label>
         </div>
+        <div class="opts">
+          <label>地図 <select id="dm_shade"><option value="hs">陰影＋段彩</option><option value="red">赤色立体風（尾根が明るく谷が暗い・急なほど赤い）</option><option value="slope">傾斜</option><option value="plain">段彩のみ</option></select></label>
+          <label><input type="checkbox" id="dm_cont" checked> 等高線</label>
+          <button type="button" id="dm_zin" title="拡大">＋</button><button type="button" id="dm_zout" title="縮小">−</button><button type="button" id="dm_zbas">流域</button><button type="button" id="dm_zall">全体</button>
+        </div>
       </div>
       <div class="chartwrap"><canvas id="demmap" style="cursor:crosshair"></canvas><div class="tip" id="dem_tip" hidden></div></div>
       <div class="key" id="dem_key"></div>
