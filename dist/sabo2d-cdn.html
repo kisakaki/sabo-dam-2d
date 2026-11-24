@@ -245,7 +245,7 @@ table.res th,table.res td{white-space:nowrap}
       </div>
       <div id="g_dem" class="body" style="padding:0" hidden>
         <p class="note">DEM を読み込むと、窪地を埋め、流向（D8）・集水面積・谷筋・流域界を求め、谷頭（谷筋の最上流点＝水の供給点の候補）をすべて取り出します。右の「DEM と流域」の地図で、流域と供給点を選んでください。</p>
-        <div class="row"><label for="dem_file">DEM のファイル</label><input type="file" id="dem_file" multiple accept=".asc,.txt,.xyz,.csv,.xml,.tif,.tiff" style="font-size:12px"></div>
+        <div class="row"><label for="dem_file">DEM のファイル</label><input type="file" id="dem_file" multiple accept=".zip,.asc,.txt,.xyz,.csv,.xml,.tif,.tiff" style="font-size:12px"></div>
         <p class="note" style="margin:0">ESRI ASCII grid（.asc）、XYZ 点群（.xyz/.txt/.csv、x y z）、基盤地図情報 数値標高モデル（.xml、複数のタイル可）、GeoTIFF（非圧縮・LZW・Deflate、1 バンド）。座標は平面直角座標など m 単位を想定します（基盤地図情報は緯度経度から換算）。</p>
         <div class="btns"><button class="sm" id="dem_sample">例の DEM（架空の山地流域）</button></div>
         <div class="row"><label for="dem_thr">谷筋とみなす集水面積<span class="u">km²</span></label><input type="number" id="dem_thr" step="0.005" min="0.0005" value="0.02"></div>
@@ -710,9 +710,8 @@ table.res th,table.res td{white-space:nowrap}
     lo = lo.split(/\s+/).map(Number); up = up.split(/\s+/).map(Number); hi = hi.split(/\s+/).map(Number);
     var nx = hi[0] + 1, ny = hi[1] + 1, st = sp ? sp.split(/\s+/).map(Number) : [0, 0];
     var m = text.match(/<gml:tupleList>([\s\S]*?)<\/gml:tupleList>/);
-    if (!m) throw new Error('基盤地図情報の XML に tupleList がありません');
     var z = new Float64Array(nx * ny).fill(NaN), k = st[1] * nx + st[0];
-    var rows = m[1].split(/\r?\n/);
+    var rows = m ? m[1].split(/\r?\n/) : [];   // tupleList が無いタイル（全部欠測）は欠測のまま
     for (var i = 0; i < rows.length && k < nx * ny; i++) {
       var t = rows[i].trim(); if (!t) continue;
       var p = t.lastIndexOf(','), v = parseFloat(p >= 0 ? t.slice(p + 1) : t);
@@ -722,18 +721,30 @@ table.res th,table.res td{white-space:nowrap}
   }
   function parseGSIXML(texts) {
     if (!Array.isArray(texts)) texts = [texts];
-    var T = texts.map(parseGSIXMLOne);
-    var dlat = (T[0].lat1 - T[0].lat0) / T[0].ny, dlon = (T[0].lon1 - T[0].lon0) / T[0].nx;
+    // 読めないタイルは飛ばす（数を D.skipped に記録）
+    var T = [], bad = 0, msg = '';
+    texts.forEach(function (t) { try { T.push(parseGSIXMLOne(t)); } catch (e) { bad++; msg = e.message; } });
+    if (!T.length) throw new Error(msg || '基盤地図情報の XML が読めません');
+    // いちばん細かいタイルの間隔に合わせる（5m と 10m が混じるときなど）
+    var dlat = Infinity, dlon = Infinity;
+    T.forEach(function (t) { dlat = Math.min(dlat, (t.lat1 - t.lat0) / t.ny); dlon = Math.min(dlon, (t.lon1 - t.lon0) / t.nx); });
     var la0 = Infinity, la1 = -Infinity, lo0 = Infinity, lo1 = -Infinity;
     T.forEach(function (t) { la0 = Math.min(la0, t.lat0); la1 = Math.max(la1, t.lat1); lo0 = Math.min(lo0, t.lon0); lo1 = Math.max(lo1, t.lon1); });
     var NX = Math.round((lo1 - lo0) / dlon), NY = Math.round((la1 - la0) / dlat);
-    if (NX * NY > 4e7) throw new Error('つなげた格子が大きすぎます');
+    if (NX * NY > 4e7) throw new Error('つなげた格子が大きすぎます（' + NX + '×' + NY + '）。範囲が離れたタイルが混じっていないか確かめてください');
     var Z = new Float64Array(NX * NY).fill(NaN);
+    // 細かいタイルを先に置き、粗いタイルは欠測の所だけ埋める
+    T.sort(function (a, b) { return (a.lat1 - a.lat0) / a.ny - (b.lat1 - b.lat0) / b.ny; });
     T.forEach(function (t) {
-      var c0 = Math.round((t.lon0 - lo0) / dlon), r0 = Math.round((la1 - t.lat1) / dlat);
-      for (var r = 0; r < t.ny; r++) for (var c = 0; c < t.nx; c++) {
-        var v = t.z[r * t.nx + c]; if (!isFinite(v)) continue;
-        var R = r0 + r, C = c0 + c; if (R >= 0 && R < NY && C >= 0 && C < NX) Z[R * NX + C] = v;
+      var tl = (t.lat1 - t.lat0) / t.ny, tn = (t.lon1 - t.lon0) / t.nx, same = Math.abs(tl - dlat) < 1e-3 * dlat && Math.abs(tn - dlon) < 1e-3 * dlon;
+      var R0 = Math.round((la1 - t.lat1) / dlat), C0 = Math.round((t.lon0 - lo0) / dlon);
+      var R1 = Math.round((la1 - t.lat0) / dlat), C1 = Math.round((t.lon1 - lo0) / dlon);
+      for (var R = Math.max(0, R0); R < Math.min(NY, R1); R++) for (var C = Math.max(0, C0); C < Math.min(NX, C1); C++) {
+        var k = R * NX + C; if (!same && isFinite(Z[k])) continue;
+        var r = same ? R - R0 : Math.floor((la1 - (R + 0.5) * dlat - t.lat0) / tl), c = same ? C - C0 : Math.floor((lo0 + (C + 0.5) * dlon - t.lon0) / tn);
+        r = same ? r : t.ny - 1 - r;
+        if (r < 0 || r >= t.ny || c < 0 || c >= t.nx) continue;
+        var v = t.z[r * t.nx + c]; if (isFinite(v)) Z[k] = v;
       }
     });
     // 緯度経度 → 局所の平面（m）。正方形の格子に直す（小さい方の間隔）
@@ -743,9 +754,19 @@ table.res th,table.res td{white-space:nowrap}
     var csx = dlon * mx, csy = dlat * my;
     var D = mkDEM(NX, NY, csx, csy, lo0 * mx, la1 * my, Z, 'gsi');
     D.geo = { lat0: la0, lat1: la1, lon0: lo0, lon1: lo1 };
-    return squareCells(D);
+    var E = squareCells(D); E.skipped = bad; return E;
   }
 
+  // k × k セルを平均して粗くする（大きすぎる DEM 用。欠測は除いて平均）
+  function coarsen(D, k) {
+    var nx = Math.floor(D.nx / k), ny = Math.floor(D.ny / k), z = new Float64Array(nx * ny);
+    for (var r = 0; r < ny; r++) for (var c = 0; c < nx; c++) {
+      var s = 0, n = 0;
+      for (var a = 0; a < k; a++) for (var b = 0; b < k; b++) { var v = D.z[(r * k + a) * D.nx + c * k + b]; if (isFinite(v)) { s += v; n++; } }
+      z[r * nx + c] = n ? s / n : NaN;
+    }
+    var E = mkDEM(nx, ny, D.cs * k, D.cs * k, D.x0, D.yTop, z, D.src); E.cs = D.cs * k; E.geo = D.geo; return E;
+  }
   // 格子の間隔が縦横で違うときは、小さい方の間隔の正方形格子に直す（双一次補間）
   function squareCells(D) {
     if (Math.abs(D.csx - D.csy) < 1e-6 * D.csx) { D.cs = D.csx; return D; }
@@ -1050,7 +1071,7 @@ table.res th,table.res td{white-space:nowrap}
     var W = x1 - x0 + 1, H = y1 - y0 + 1;
     // 出口の流向 → 回転（時計回りに rot × 90°）
     var q = A.dir[outlet], ox = DC[q < 0 ? 0 : q], oy = DR[q < 0 ? 0 : q];
-    if (q < 0) {   // DEM の端（または欠測）へ出る出口：いちばん近い端の外向き
+    if (q < 0 || downOf(D, A.dir, outlet) < 0) {   // DEM の端（または欠測）へ出る出口：いちばん近い端の外向き（斜めに出る端のセルも）
       var cx = outlet % nx, cy = (outlet / nx) | 0, dl = [nx - 1 - cx, cy, cx, ny - 1 - cy], km = 0;
       for (var k0 = 1; k0 < 4; k0++) if (dl[k0] < dl[km]) km = k0;
       ox = [1, 0, -1, 0][km]; oy = [0, -1, 0, 1][km];
@@ -1156,7 +1177,7 @@ table.res th,table.res td{white-space:nowrap}
     parseASC: parseASC, parseXYZ: parseXYZ, parseGSIXML: parseGSIXML, parseTIFF: parseTIFF, lzw: lzw,
     fill: fill, flowDir: flowDir, accumulate: accumulate, order: order, analyze: analyze, upstream: upstream,
     downOf: downOf, localSlope: localSlope, hillslopes: hillslopes, prepareDomain: prepareDomain, synthDEM: synthDEM,
-    squareCells: squareCells, DC: DC, DR: DR, DL: DL
+    squareCells: squareCells, coarsen: coarsen, DC: DC, DR: DR, DL: DL
   };
 });
 
@@ -5909,22 +5930,66 @@ table.res th,table.res td{white-space:nowrap}
     var w = ds.writable.getWriter(); w.write(u8); w.close();
     return new Response(ds.readable).arrayBuffer().then(function (b) { return new Uint8Array(b); });
   }
+  // ZIP の展開（基盤地図情報のダウンロードは ZIP。ZIP の中の ZIP も開く）
+  function inflateRaw(u8) {
+    var ds = new DecompressionStream('deflate-raw');
+    var w = ds.writable.getWriter(); w.write(u8); w.close();
+    return new Response(ds.readable).arrayBuffer().then(function (b) { return new Uint8Array(b); });
+  }
+  function unzip(buf, depth) {
+    var u8 = new Uint8Array(buf), dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength), e = -1;
+    for (var i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+    if (e < 0) return Promise.reject(new Error('ZIP として読めません'));
+    var n = dv.getUint16(e + 10, true), p = dv.getUint32(e + 16, true), jobs = [];
+    for (var k = 0; k < n; k++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) break;
+      var meth = dv.getUint16(p + 10, true), csz = dv.getUint32(p + 20, true), nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), lo = dv.getUint32(p + 42, true);
+      var name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nl));
+      p += 46 + nl + xl + cl;
+      if (/\/$/.test(name)) continue;
+      var d0 = lo + 30 + dv.getUint16(lo + 26, true) + dv.getUint16(lo + 28, true), raw = u8.subarray(d0, d0 + csz);
+      (function (name, meth, raw) {
+        var pr = meth === 0 ? Promise.resolve(raw.slice()) : meth === 8 ? inflateRaw(raw) : Promise.reject(new Error(name + '：未対応の圧縮方式 ' + meth));
+        jobs.push(pr.then(function (b) {
+          if (/\.zip$/i.test(name) && (depth || 0) < 3) return unzip(b.buffer, (depth || 0) + 1);
+          return [{ name: name.split('/').pop(), data: b }];
+        }));
+      })(name, meth, raw);
+    }
+    return Promise.all(jobs).then(function (a) { return [].concat.apply([], a); });
+  }
   function loadFiles(files) {
     if (!files || !files.length) return;
     info('読み込み中…');
-    var arr = Array.prototype.slice.call(files), first = arr[0], name = first.name.toLowerCase();
-    var asText = function (f) { return new Promise(function (ok, ng) { var r = new FileReader(); r.onload = function () { ok(r.result); }; r.onerror = ng; r.readAsText(f); }); };
-    var p;
-    if (/\.tiff?$/.test(name)) p = first.arrayBuffer().then(function (b) { return SD.parseTIFF(b, inflateBrowser); });
-    else if (/\.xml$/.test(name)) p = Promise.all(arr.map(asText)).then(function (ts) { return SD.parseGSIXML(ts); });
-    else p = asText(first).then(function (t) { return /^\s*ncols/i.test(t) ? SD.parseASC(t) : SD.parseXYZ(t); });
-    p.then(function (D) { setDEM(D, first.name + (arr.length > 1 ? ' ほか ' + (arr.length - 1) + ' 個' : '')); })
-      .catch(function (e) { info('読み込めませんでした：' + e.message, true); });
+    var arr = Array.prototype.slice.call(files);
+    // ZIP は展開して中身のファイルに置き換える
+    Promise.all(arr.map(function (f) {
+      if (/\.zip$/i.test(f.name)) return f.arrayBuffer().then(function (b) { return unzip(b, 0); });
+      return f.arrayBuffer().then(function (b) { return [{ name: f.name, data: new Uint8Array(b) }]; });
+    })).then(function (a) {
+      var list = [].concat.apply([], a), dec = new TextDecoder();
+      var by = function (re) { return list.filter(function (f) { return re.test(f.name.toLowerCase()); }); };
+      var xml = by(/\.xml$/), tif = by(/\.tiff?$/), asc = by(/\.(asc|txt|xyz|csv|dat)$/);
+      var label = (arr.length === 1 ? arr[0].name : arr[0].name + ' ほか ' + (arr.length - 1) + ' 個');
+      // 基盤地図情報の XML を優先。標高の XML でないもの（メタデータなど）は除く
+      xml = xml.filter(function (f) { return /ElevationModel|DEM|tupleList/.test(dec.decode(f.data.subarray(0, 4000))) || /dem/i.test(f.name); });
+      if (xml.length) { label += '（XML ' + xml.length + ' 個）'; return { D: SD.parseGSIXML(xml.map(function (f) { return dec.decode(f.data); })), label: label }; }
+      if (tif.length) return SD.parseTIFF(tif[0].data.buffer.slice(tif[0].data.byteOffset, tif[0].data.byteOffset + tif[0].data.byteLength), inflateBrowser).then(function (D) { return { D: D, label: label }; });
+      if (asc.length) { var t = dec.decode(asc[0].data); return { D: /^\s*ncols/i.test(t) ? SD.parseASC(t) : SD.parseXYZ(t), label: label }; }
+      throw new Error('DEM のファイルが見つかりません（読めるのは 基盤地図情報の XML・GeoTIFF・ESRI ASCII・XYZ と、それらの ZIP）。中身：' + list.slice(0, 5).map(function (f) { return f.name; }).join('、'));
+    }).then(function (r) {
+      if (!r) return;
+      setDEM(r.D, r.label);
+    }).catch(function (e) { info('読み込めませんでした：' + (e && e.message || e), true); console.error(e); });
   }
   function setDEM(D, label) {
-    var N = D.nx * D.ny;
-    if (N > 9e6) { info('DEM が大きすぎます（' + D.nx + '×' + D.ny + '）。900 万セル以下に切り出してください。', true); return; }
-    ST.D = D; ST.label = label; analyze();
+    var N = D.nx * D.ny, k = 1;
+    while (N / (k * k) > 9e6) k++;
+    if (k > 1) { D = SD.coarsen(D, k); label += '、大きいので ' + k + '×' + k + ' セルを平均して粗くしました'; }
+    if (D.skipped) label += '、読めないタイル ' + D.skipped + ' 個を飛ばしました';
+    var nv = 0; for (var c = 0; c < D.nx * D.ny; c++) if (isFinite(D.z[c])) nv++;
+    if (nv < 100) { info('標高の値がほとんどありません（' + nv + ' セル）。ファイルを確かめてください。', true); return; }
+    ST.D = D; ST.label = label; ST.mask = null; ST.bid = -1; ST.outlet = -1; ST.src = []; ST.slides = []; ST.ldams = []; ST.draft = []; analyze();
   }
   function analyze() {
     var D = ST.D; if (!D) return;
@@ -6161,12 +6226,15 @@ table.res th,table.res td{white-space:nowrap}
     list.forEach(function (o) { var dx = o % D.nx - x, dy = ((o / D.nx) | 0) - y, d = Math.sqrt(dx * dx + dy * dy); if (d < bd) { bd = d; best = o; } });
     return bd <= lim ? best : -1;
   }
+  // クリックした点の近くの谷筋のセル。画面上の距離（px）から、次数 1 ごとに 1.5 px、DEM の端へ出る末端の出口なら 4 px を引いた値が最小のもの
+  // （本川の近くをクリックしたとき細い支流に吸い寄せられず、末端の出口の近くなら出口そのものを選ぶ）
   function nearStream(c, r) {
-    var D = ST.D, A = ST.A, x = c % D.nx, y = (c / D.nx) | 0, best = -1, bd = Infinity;
+    var D = ST.D, A = ST.A, x = c % D.nx, y = (c / D.nx) | 0, best = -1, bs = Infinity, sc = ST.view ? ST.view.sc : 1;
     for (var dy = -r; dy <= r; dy++) for (var dx = -r; dx <= r; dx++) {
       var xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= D.nx || yy >= D.ny) continue;
       var o = yy * D.nx + xx; if (!A.stream[o]) continue;
-      var d = dx * dx + dy * dy; if (d < bd || (d === bd && A.acc[o] > A.acc[best])) { bd = d; best = o; }
+      var sco = Math.sqrt(dx * dx + dy * dy) * sc - 1.5 * A.strahler[o] - (SD.downOf(D, A.dir, o) < 0 ? 4 : 0);
+      if (sco < bs || (sco === bs && A.acc[o] > A.acc[best])) { bs = sco; best = o; }
     }
     return best;
   }
@@ -6207,7 +6275,7 @@ table.res th,table.res td{white-space:nowrap}
     var c = cellAt(e); if (c < 0) return;
     var mode = $('dm_mode').value, A = ST.A;
     if (mode === 'basin') { if (A.bid[c] >= 0) selectBasin(A.bid[c], false); return; }
-    if (mode === 'outlet') { var s = nearStream(c, Math.max(3, Math.round(14 / ST.view.sc))); if (s >= 0) selectOutlet(s); else $('dem_sel').textContent = '谷筋（青い線）の近くをクリックしてください。'; return; }
+    if (mode === 'outlet') { var s = nearStream(c, Math.max(2, Math.min(40, Math.round(10 / ST.view.sc)))); if (s >= 0) selectOutlet(s); else $('dem_sel').textContent = '谷筋（青い線）の近くをクリックしてください。'; return; }
     if (!ST.mask || !ST.mask[c]) { $('dem_sel').textContent = '選んだ流域の中をクリックしてください。'; return; }
     if (mode === 'src') {
       var h = nearest(c, ST.heads, 14); if (h < 0) return;
@@ -6221,7 +6289,7 @@ table.res th,table.res td{white-space:nowrap}
       }
       ST.slides.push(newSlide(c, null));
     } else if (mode === 'ldam') {
-      var s2 = nearStream(c, Math.max(3, Math.round(14 / ST.view.sc))); if (s2 < 0) { $('dem_sel').textContent = '谷筋（青い線）の近くをクリックしてください。'; return; }
+      var s2 = nearStream(c, Math.max(2, Math.min(40, Math.round(10 / ST.view.sc)))); if (s2 < 0) { $('dem_sel').textContent = '谷筋（青い線）の近くをクリックしてください。'; return; }
       ST.ldams.push({ c: s2, H: 15, Wc: 10, up: 30, dn: 25 });
     }
     renderTables(); draw(); selInfo();

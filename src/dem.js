@@ -78,9 +78,8 @@
     lo = lo.split(/\s+/).map(Number); up = up.split(/\s+/).map(Number); hi = hi.split(/\s+/).map(Number);
     var nx = hi[0] + 1, ny = hi[1] + 1, st = sp ? sp.split(/\s+/).map(Number) : [0, 0];
     var m = text.match(/<gml:tupleList>([\s\S]*?)<\/gml:tupleList>/);
-    if (!m) throw new Error('基盤地図情報の XML に tupleList がありません');
     var z = new Float64Array(nx * ny).fill(NaN), k = st[1] * nx + st[0];
-    var rows = m[1].split(/\r?\n/);
+    var rows = m ? m[1].split(/\r?\n/) : [];   // tupleList が無いタイル（全部欠測）は欠測のまま
     for (var i = 0; i < rows.length && k < nx * ny; i++) {
       var t = rows[i].trim(); if (!t) continue;
       var p = t.lastIndexOf(','), v = parseFloat(p >= 0 ? t.slice(p + 1) : t);
@@ -90,18 +89,30 @@
   }
   function parseGSIXML(texts) {
     if (!Array.isArray(texts)) texts = [texts];
-    var T = texts.map(parseGSIXMLOne);
-    var dlat = (T[0].lat1 - T[0].lat0) / T[0].ny, dlon = (T[0].lon1 - T[0].lon0) / T[0].nx;
+    // 読めないタイルは飛ばす（数を D.skipped に記録）
+    var T = [], bad = 0, msg = '';
+    texts.forEach(function (t) { try { T.push(parseGSIXMLOne(t)); } catch (e) { bad++; msg = e.message; } });
+    if (!T.length) throw new Error(msg || '基盤地図情報の XML が読めません');
+    // いちばん細かいタイルの間隔に合わせる（5m と 10m が混じるときなど）
+    var dlat = Infinity, dlon = Infinity;
+    T.forEach(function (t) { dlat = Math.min(dlat, (t.lat1 - t.lat0) / t.ny); dlon = Math.min(dlon, (t.lon1 - t.lon0) / t.nx); });
     var la0 = Infinity, la1 = -Infinity, lo0 = Infinity, lo1 = -Infinity;
     T.forEach(function (t) { la0 = Math.min(la0, t.lat0); la1 = Math.max(la1, t.lat1); lo0 = Math.min(lo0, t.lon0); lo1 = Math.max(lo1, t.lon1); });
     var NX = Math.round((lo1 - lo0) / dlon), NY = Math.round((la1 - la0) / dlat);
-    if (NX * NY > 4e7) throw new Error('つなげた格子が大きすぎます');
+    if (NX * NY > 4e7) throw new Error('つなげた格子が大きすぎます（' + NX + '×' + NY + '）。範囲が離れたタイルが混じっていないか確かめてください');
     var Z = new Float64Array(NX * NY).fill(NaN);
+    // 細かいタイルを先に置き、粗いタイルは欠測の所だけ埋める
+    T.sort(function (a, b) { return (a.lat1 - a.lat0) / a.ny - (b.lat1 - b.lat0) / b.ny; });
     T.forEach(function (t) {
-      var c0 = Math.round((t.lon0 - lo0) / dlon), r0 = Math.round((la1 - t.lat1) / dlat);
-      for (var r = 0; r < t.ny; r++) for (var c = 0; c < t.nx; c++) {
-        var v = t.z[r * t.nx + c]; if (!isFinite(v)) continue;
-        var R = r0 + r, C = c0 + c; if (R >= 0 && R < NY && C >= 0 && C < NX) Z[R * NX + C] = v;
+      var tl = (t.lat1 - t.lat0) / t.ny, tn = (t.lon1 - t.lon0) / t.nx, same = Math.abs(tl - dlat) < 1e-3 * dlat && Math.abs(tn - dlon) < 1e-3 * dlon;
+      var R0 = Math.round((la1 - t.lat1) / dlat), C0 = Math.round((t.lon0 - lo0) / dlon);
+      var R1 = Math.round((la1 - t.lat0) / dlat), C1 = Math.round((t.lon1 - lo0) / dlon);
+      for (var R = Math.max(0, R0); R < Math.min(NY, R1); R++) for (var C = Math.max(0, C0); C < Math.min(NX, C1); C++) {
+        var k = R * NX + C; if (!same && isFinite(Z[k])) continue;
+        var r = same ? R - R0 : Math.floor((la1 - (R + 0.5) * dlat - t.lat0) / tl), c = same ? C - C0 : Math.floor((lo0 + (C + 0.5) * dlon - t.lon0) / tn);
+        r = same ? r : t.ny - 1 - r;
+        if (r < 0 || r >= t.ny || c < 0 || c >= t.nx) continue;
+        var v = t.z[r * t.nx + c]; if (isFinite(v)) Z[k] = v;
       }
     });
     // 緯度経度 → 局所の平面（m）。正方形の格子に直す（小さい方の間隔）
@@ -111,9 +122,19 @@
     var csx = dlon * mx, csy = dlat * my;
     var D = mkDEM(NX, NY, csx, csy, lo0 * mx, la1 * my, Z, 'gsi');
     D.geo = { lat0: la0, lat1: la1, lon0: lo0, lon1: lo1 };
-    return squareCells(D);
+    var E = squareCells(D); E.skipped = bad; return E;
   }
 
+  // k × k セルを平均して粗くする（大きすぎる DEM 用。欠測は除いて平均）
+  function coarsen(D, k) {
+    var nx = Math.floor(D.nx / k), ny = Math.floor(D.ny / k), z = new Float64Array(nx * ny);
+    for (var r = 0; r < ny; r++) for (var c = 0; c < nx; c++) {
+      var s = 0, n = 0;
+      for (var a = 0; a < k; a++) for (var b = 0; b < k; b++) { var v = D.z[(r * k + a) * D.nx + c * k + b]; if (isFinite(v)) { s += v; n++; } }
+      z[r * nx + c] = n ? s / n : NaN;
+    }
+    var E = mkDEM(nx, ny, D.cs * k, D.cs * k, D.x0, D.yTop, z, D.src); E.cs = D.cs * k; E.geo = D.geo; return E;
+  }
   // 格子の間隔が縦横で違うときは、小さい方の間隔の正方形格子に直す（双一次補間）
   function squareCells(D) {
     if (Math.abs(D.csx - D.csy) < 1e-6 * D.csx) { D.cs = D.csx; return D; }
@@ -418,7 +439,7 @@
     var W = x1 - x0 + 1, H = y1 - y0 + 1;
     // 出口の流向 → 回転（時計回りに rot × 90°）
     var q = A.dir[outlet], ox = DC[q < 0 ? 0 : q], oy = DR[q < 0 ? 0 : q];
-    if (q < 0) {   // DEM の端（または欠測）へ出る出口：いちばん近い端の外向き
+    if (q < 0 || downOf(D, A.dir, outlet) < 0) {   // DEM の端（または欠測）へ出る出口：いちばん近い端の外向き（斜めに出る端のセルも）
       var cx = outlet % nx, cy = (outlet / nx) | 0, dl = [nx - 1 - cx, cy, cx, ny - 1 - cy], km = 0;
       for (var k0 = 1; k0 < 4; k0++) if (dl[k0] < dl[km]) km = k0;
       ox = [1, 0, -1, 0][km]; oy = [0, -1, 0, 1][km];
@@ -524,6 +545,6 @@
     parseASC: parseASC, parseXYZ: parseXYZ, parseGSIXML: parseGSIXML, parseTIFF: parseTIFF, lzw: lzw,
     fill: fill, flowDir: flowDir, accumulate: accumulate, order: order, analyze: analyze, upstream: upstream,
     downOf: downOf, localSlope: localSlope, hillslopes: hillslopes, prepareDomain: prepareDomain, synthDEM: synthDEM,
-    squareCells: squareCells, DC: DC, DR: DR, DL: DL
+    squareCells: squareCells, coarsen: coarsen, DC: DC, DR: DR, DL: DL
   };
 });

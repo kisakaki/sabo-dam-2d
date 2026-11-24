@@ -15,22 +15,66 @@
     var w = ds.writable.getWriter(); w.write(u8); w.close();
     return new Response(ds.readable).arrayBuffer().then(function (b) { return new Uint8Array(b); });
   }
+  // ZIP の展開（基盤地図情報のダウンロードは ZIP。ZIP の中の ZIP も開く）
+  function inflateRaw(u8) {
+    var ds = new DecompressionStream('deflate-raw');
+    var w = ds.writable.getWriter(); w.write(u8); w.close();
+    return new Response(ds.readable).arrayBuffer().then(function (b) { return new Uint8Array(b); });
+  }
+  function unzip(buf, depth) {
+    var u8 = new Uint8Array(buf), dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength), e = -1;
+    for (var i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+    if (e < 0) return Promise.reject(new Error('ZIP として読めません'));
+    var n = dv.getUint16(e + 10, true), p = dv.getUint32(e + 16, true), jobs = [];
+    for (var k = 0; k < n; k++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) break;
+      var meth = dv.getUint16(p + 10, true), csz = dv.getUint32(p + 20, true), nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), lo = dv.getUint32(p + 42, true);
+      var name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nl));
+      p += 46 + nl + xl + cl;
+      if (/\/$/.test(name)) continue;
+      var d0 = lo + 30 + dv.getUint16(lo + 26, true) + dv.getUint16(lo + 28, true), raw = u8.subarray(d0, d0 + csz);
+      (function (name, meth, raw) {
+        var pr = meth === 0 ? Promise.resolve(raw.slice()) : meth === 8 ? inflateRaw(raw) : Promise.reject(new Error(name + '：未対応の圧縮方式 ' + meth));
+        jobs.push(pr.then(function (b) {
+          if (/\.zip$/i.test(name) && (depth || 0) < 3) return unzip(b.buffer, (depth || 0) + 1);
+          return [{ name: name.split('/').pop(), data: b }];
+        }));
+      })(name, meth, raw);
+    }
+    return Promise.all(jobs).then(function (a) { return [].concat.apply([], a); });
+  }
   function loadFiles(files) {
     if (!files || !files.length) return;
     info('読み込み中…');
-    var arr = Array.prototype.slice.call(files), first = arr[0], name = first.name.toLowerCase();
-    var asText = function (f) { return new Promise(function (ok, ng) { var r = new FileReader(); r.onload = function () { ok(r.result); }; r.onerror = ng; r.readAsText(f); }); };
-    var p;
-    if (/\.tiff?$/.test(name)) p = first.arrayBuffer().then(function (b) { return SD.parseTIFF(b, inflateBrowser); });
-    else if (/\.xml$/.test(name)) p = Promise.all(arr.map(asText)).then(function (ts) { return SD.parseGSIXML(ts); });
-    else p = asText(first).then(function (t) { return /^\s*ncols/i.test(t) ? SD.parseASC(t) : SD.parseXYZ(t); });
-    p.then(function (D) { setDEM(D, first.name + (arr.length > 1 ? ' ほか ' + (arr.length - 1) + ' 個' : '')); })
-      .catch(function (e) { info('読み込めませんでした：' + e.message, true); });
+    var arr = Array.prototype.slice.call(files);
+    // ZIP は展開して中身のファイルに置き換える
+    Promise.all(arr.map(function (f) {
+      if (/\.zip$/i.test(f.name)) return f.arrayBuffer().then(function (b) { return unzip(b, 0); });
+      return f.arrayBuffer().then(function (b) { return [{ name: f.name, data: new Uint8Array(b) }]; });
+    })).then(function (a) {
+      var list = [].concat.apply([], a), dec = new TextDecoder();
+      var by = function (re) { return list.filter(function (f) { return re.test(f.name.toLowerCase()); }); };
+      var xml = by(/\.xml$/), tif = by(/\.tiff?$/), asc = by(/\.(asc|txt|xyz|csv|dat)$/);
+      var label = (arr.length === 1 ? arr[0].name : arr[0].name + ' ほか ' + (arr.length - 1) + ' 個');
+      // 基盤地図情報の XML を優先。標高の XML でないもの（メタデータなど）は除く
+      xml = xml.filter(function (f) { return /ElevationModel|DEM|tupleList/.test(dec.decode(f.data.subarray(0, 4000))) || /dem/i.test(f.name); });
+      if (xml.length) { label += '（XML ' + xml.length + ' 個）'; return { D: SD.parseGSIXML(xml.map(function (f) { return dec.decode(f.data); })), label: label }; }
+      if (tif.length) return SD.parseTIFF(tif[0].data.buffer.slice(tif[0].data.byteOffset, tif[0].data.byteOffset + tif[0].data.byteLength), inflateBrowser).then(function (D) { return { D: D, label: label }; });
+      if (asc.length) { var t = dec.decode(asc[0].data); return { D: /^\s*ncols/i.test(t) ? SD.parseASC(t) : SD.parseXYZ(t), label: label }; }
+      throw new Error('DEM のファイルが見つかりません（読めるのは 基盤地図情報の XML・GeoTIFF・ESRI ASCII・XYZ と、それらの ZIP）。中身：' + list.slice(0, 5).map(function (f) { return f.name; }).join('、'));
+    }).then(function (r) {
+      if (!r) return;
+      setDEM(r.D, r.label);
+    }).catch(function (e) { info('読み込めませんでした：' + (e && e.message || e), true); console.error(e); });
   }
   function setDEM(D, label) {
-    var N = D.nx * D.ny;
-    if (N > 9e6) { info('DEM が大きすぎます（' + D.nx + '×' + D.ny + '）。900 万セル以下に切り出してください。', true); return; }
-    ST.D = D; ST.label = label; analyze();
+    var N = D.nx * D.ny, k = 1;
+    while (N / (k * k) > 9e6) k++;
+    if (k > 1) { D = SD.coarsen(D, k); label += '、大きいので ' + k + '×' + k + ' セルを平均して粗くしました'; }
+    if (D.skipped) label += '、読めないタイル ' + D.skipped + ' 個を飛ばしました';
+    var nv = 0; for (var c = 0; c < D.nx * D.ny; c++) if (isFinite(D.z[c])) nv++;
+    if (nv < 100) { info('標高の値がほとんどありません（' + nv + ' セル）。ファイルを確かめてください。', true); return; }
+    ST.D = D; ST.label = label; ST.mask = null; ST.bid = -1; ST.outlet = -1; ST.src = []; ST.slides = []; ST.ldams = []; ST.draft = []; analyze();
   }
   function analyze() {
     var D = ST.D; if (!D) return;
@@ -267,12 +311,15 @@
     list.forEach(function (o) { var dx = o % D.nx - x, dy = ((o / D.nx) | 0) - y, d = Math.sqrt(dx * dx + dy * dy); if (d < bd) { bd = d; best = o; } });
     return bd <= lim ? best : -1;
   }
+  // クリックした点の近くの谷筋のセル。画面上の距離（px）から、次数 1 ごとに 1.5 px、DEM の端へ出る末端の出口なら 4 px を引いた値が最小のもの
+  // （本川の近くをクリックしたとき細い支流に吸い寄せられず、末端の出口の近くなら出口そのものを選ぶ）
   function nearStream(c, r) {
-    var D = ST.D, A = ST.A, x = c % D.nx, y = (c / D.nx) | 0, best = -1, bd = Infinity;
+    var D = ST.D, A = ST.A, x = c % D.nx, y = (c / D.nx) | 0, best = -1, bs = Infinity, sc = ST.view ? ST.view.sc : 1;
     for (var dy = -r; dy <= r; dy++) for (var dx = -r; dx <= r; dx++) {
       var xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= D.nx || yy >= D.ny) continue;
       var o = yy * D.nx + xx; if (!A.stream[o]) continue;
-      var d = dx * dx + dy * dy; if (d < bd || (d === bd && A.acc[o] > A.acc[best])) { bd = d; best = o; }
+      var sco = Math.sqrt(dx * dx + dy * dy) * sc - 1.5 * A.strahler[o] - (SD.downOf(D, A.dir, o) < 0 ? 4 : 0);
+      if (sco < bs || (sco === bs && A.acc[o] > A.acc[best])) { bs = sco; best = o; }
     }
     return best;
   }
@@ -313,7 +360,7 @@
     var c = cellAt(e); if (c < 0) return;
     var mode = $('dm_mode').value, A = ST.A;
     if (mode === 'basin') { if (A.bid[c] >= 0) selectBasin(A.bid[c], false); return; }
-    if (mode === 'outlet') { var s = nearStream(c, Math.max(3, Math.round(14 / ST.view.sc))); if (s >= 0) selectOutlet(s); else $('dem_sel').textContent = '谷筋（青い線）の近くをクリックしてください。'; return; }
+    if (mode === 'outlet') { var s = nearStream(c, Math.max(2, Math.min(40, Math.round(10 / ST.view.sc)))); if (s >= 0) selectOutlet(s); else $('dem_sel').textContent = '谷筋（青い線）の近くをクリックしてください。'; return; }
     if (!ST.mask || !ST.mask[c]) { $('dem_sel').textContent = '選んだ流域の中をクリックしてください。'; return; }
     if (mode === 'src') {
       var h = nearest(c, ST.heads, 14); if (h < 0) return;
@@ -327,7 +374,7 @@
       }
       ST.slides.push(newSlide(c, null));
     } else if (mode === 'ldam') {
-      var s2 = nearStream(c, Math.max(3, Math.round(14 / ST.view.sc))); if (s2 < 0) { $('dem_sel').textContent = '谷筋（青い線）の近くをクリックしてください。'; return; }
+      var s2 = nearStream(c, Math.max(2, Math.min(40, Math.round(10 / ST.view.sc)))); if (s2 < 0) { $('dem_sel').textContent = '谷筋（青い線）の近くをクリックしてください。'; return; }
       ST.ldams.push({ c: s2, H: 15, Wc: 10, up: 30, dn: 25 });
     }
     renderTables(); draw(); selInfo();

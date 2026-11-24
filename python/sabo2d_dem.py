@@ -75,7 +75,7 @@ def _gsi_one(text):
     lo = [float(v) for v in tag('lowerCorner').split()]; up = [float(v) for v in tag('upperCorner').split()]
     hi = [int(v) for v in tag('high').split()]; sp = tag('startPoint'); st = [int(v) for v in sp.split()] if sp else [0, 0]
     nx, ny = hi[0] + 1, hi[1] + 1
-    body = re.search(r'<gml:tupleList>([\s\S]*?)</gml:tupleList>', text).group(1)
+    mb = re.search(r'<gml:tupleList>([\s\S]*?)</gml:tupleList>', text); body = mb.group(1) if mb else ''
     z = np.full(nx * ny, np.nan); k = st[1] * nx + st[0]
     for ln in body.splitlines():
         ln = ln.strip()
@@ -91,21 +91,41 @@ def _gsi_one(text):
 def parse_gsi_xml(texts):
     if isinstance(texts, str):
         texts = [texts]
-    T = [_gsi_one(t) for t in texts]
-    dlat = (T[0]['lat1'] - T[0]['lat0']) / T[0]['ny']; dlon = (T[0]['lon1'] - T[0]['lon0']) / T[0]['nx']
+    T = []; bad = 0; msg = ''
+    for t in texts:   # 読めないタイルは飛ばす
+        try:
+            T.append(_gsi_one(t))
+        except Exception as e:
+            bad += 1; msg = str(e)
+    if not T:
+        raise ValueError(msg or '基盤地図情報の XML が読めません')
+    # いちばん細かいタイルの間隔に合わせ、細かいタイルを先に置く（粗いタイルは欠測の所だけ埋める）
+    res = lambda t: ((t['lat1'] - t['lat0']) / t['ny'], (t['lon1'] - t['lon0']) / t['nx'])
+    dlat = min(res(t)[0] for t in T); dlon = min(res(t)[1] for t in T)
+    T.sort(key=lambda t: res(t)[0])
     la0 = min(t['lat0'] for t in T); la1 = max(t['lat1'] for t in T); lo0 = min(t['lon0'] for t in T); lo1 = max(t['lon1'] for t in T)
     NX = int(round((lo1 - lo0) / dlon)); NY = int(round((la1 - la0) / dlat))
     Z = np.full((NY, NX), np.nan)
     for t in T:
-        c0 = int(round((t['lon0'] - lo0) / dlon)); r0 = int(round((la1 - t['lat1']) / dlat))
-        zz = t['z'].reshape(t['ny'], t['nx']); m = np.isfinite(zz)
-        sub = Z[r0:r0 + t['ny'], c0:c0 + t['nx']]; sub[m] = zz[m]
+        tl, tn = res(t); zz = t['z'].reshape(t['ny'], t['nx'])
+        R0 = int(round((la1 - t['lat1']) / dlat)); C0 = int(round((t['lon0'] - lo0) / dlon))
+        R1 = int(round((la1 - t['lat0']) / dlat)); C1 = int(round((t['lon1'] - lo0) / dlon))
+        if abs(tl - dlat) < 1e-3 * dlat and abs(tn - dlon) < 1e-3 * dlon:
+            m = np.isfinite(zz); sub = Z[R0:R0 + t['ny'], C0:C0 + t['nx']]; sub[m[:sub.shape[0], :sub.shape[1]]] = zz[:sub.shape[0], :sub.shape[1]][m[:sub.shape[0], :sub.shape[1]]]
+        else:
+            Rs = np.arange(max(0, R0), min(NY, R1)); Cs = np.arange(max(0, C0), min(NX, C1))
+            rr = t['ny'] - 1 - np.floor((la1 - (Rs + 0.5) * dlat - t['lat0']) / tl).astype(int)
+            cc = np.floor((lo0 + (Cs + 0.5) * dlon - t['lon0']) / tn).astype(int)
+            ok_r = (rr >= 0) & (rr < t['ny']); ok_c = (cc >= 0) & (cc < t['nx'])
+            Rs, rr = Rs[ok_r], rr[ok_r]; Cs, cc = Cs[ok_c], cc[ok_c]
+            v = zz[np.ix_(rr, cc)]; sub = Z[np.ix_(Rs, Cs)]; put = ~np.isfinite(sub) & np.isfinite(v); sub[put] = v[put]; Z[np.ix_(Rs, Cs)] = sub
     latm = (la0 + la1) / 2 * math.pi / 180
     my = 111132.92 - 559.82 * math.cos(2 * latm) + 1.175 * math.cos(4 * latm)
     mx = 111412.84 * math.cos(latm) - 93.5 * math.cos(3 * latm)
     D = DEM(NX, NY, dlon * mx, dlat * my, lo0 * mx, la1 * my, Z, 'gsi')
     D.geo = dict(lat0=la0, lat1=la1, lon0=lo0, lon1=lo1)
-    return _square(D)
+    E = _square(D); E.skipped = bad
+    return E
 
 
 def _lzw(src):
@@ -197,16 +217,40 @@ def parse_tiff(buf):
     return _square(DEM(W, H, csx, csy, tie[3] - tie[0] * csx, tie[4] + tie[1] * csy, z, 'tif'))
 
 
+def _expand(paths):
+    """ZIP（中の ZIP も）を展開して (名前, バイト列) の並びにする"""
+    import zipfile, io
+    out = []
+
+    def add(name, data, depth):
+        if name.lower().endswith('.zip') and depth < 3:
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                for n in z.namelist():
+                    if not n.endswith('/'):
+                        add(n, z.read(n), depth + 1)
+        else:
+            out.append((name.split('/')[-1], data))
+    for p in paths:
+        add(p, open(p, 'rb').read(), 0)
+    return out
+
+
 def load(paths):
-    """DEM のファイル（1 つ、または基盤地図情報の XML の並び）を読む"""
+    """DEM のファイル（1 つ、基盤地図情報の XML の並び、またはそれらの ZIP）を読む。
+    XML を優先し、標高の XML でないものは除く"""
     if isinstance(paths, str):
         paths = [paths]
-    p0 = paths[0].lower()
-    if p0.endswith(('.tif', '.tiff')):
-        return parse_tiff(open(paths[0], 'rb').read())
-    if p0.endswith('.xml'):
-        return parse_gsi_xml([open(p, encoding='utf-8', errors='replace').read() for p in paths])
-    t = open(paths[0], encoding='utf-8', errors='replace').read()
+    fs = _expand(paths)
+    xml = [(n, d) for n, d in fs if n.lower().endswith('.xml') and (b'tupleList' in d[:200000] or b'ElevationModel' in d[:4000] or 'dem' in n.lower())]
+    if xml:
+        return parse_gsi_xml([d.decode('utf-8', errors='replace') for n, d in xml])
+    tif = [(n, d) for n, d in fs if n.lower().endswith(('.tif', '.tiff'))]
+    if tif:
+        return parse_tiff(tif[0][1])
+    oth = [(n, d) for n, d in fs if n.lower().endswith(('.asc', '.txt', '.xyz', '.csv', '.dat'))]
+    if not oth:
+        raise ValueError('DEM のファイルが見つかりません：' + ', '.join(n for n, d in fs[:5]))
+    t = oth[0][1].decode('utf-8', errors='replace')
     return parse_asc(t) if re.match(r'^\s*ncols', t, re.I) else parse_xyz(t)
 
 
@@ -357,7 +401,7 @@ def prepare_domain(D, A, mask, outlet, fill_dem=True):
     x0 = max(0, xs.min() - 2); y0 = max(0, ys.min() - 2); x1 = min(nx - 1, xs.max() + 2); y1 = min(ny - 1, ys.max() + 2)
     W = x1 - x0 + 1; H = y1 - y0 + 1
     q = A.dir[outlet]
-    if q >= 0:
+    if q >= 0 and down_of(D, A.dir, outlet) >= 0:
         ox, oy = DC[q], DR[q]
     else:
         cx = outlet % nx; cy = outlet // nx; dl = [nx - 1 - cx, cy, cx, ny - 1 - cy]; km = int(np.argmin(dl))

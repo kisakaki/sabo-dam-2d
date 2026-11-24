@@ -229,7 +229,7 @@ table.res th,table.res td{white-space:nowrap}
       </div>
       <div id="g_dem" class="body" style="padding:0" hidden>
         <p class="note">DEM を読み込むと、窪地を埋め、流向（D8）・集水面積・谷筋・流域界を求め、谷頭（谷筋の最上流点＝水の供給点の候補）をすべて取り出します。右の「DEM と流域」の地図で、流域と供給点を選んでください。</p>
-        <div class="row"><label for="dem_file">DEM のファイル</label><input type="file" id="dem_file" multiple accept=".asc,.txt,.xyz,.csv,.xml,.tif,.tiff" style="font-size:12px"></div>
+        <div class="row"><label for="dem_file">DEM のファイル</label><input type="file" id="dem_file" multiple accept=".zip,.asc,.txt,.xyz,.csv,.xml,.tif,.tiff" style="font-size:12px"></div>
         <p class="note" style="margin:0">ESRI ASCII grid（.asc）、XYZ 点群（.xyz/.txt/.csv、x y z）、基盤地図情報 数値標高モデル（.xml、複数のタイル可）、GeoTIFF（非圧縮・LZW・Deflate、1 バンド）。座標は平面直角座標など m 単位を想定します（基盤地図情報は緯度経度から換算）。</p>
         <div class="btns"><button class="sm" id="dem_sample">例の DEM（架空の山地流域）</button></div>
         <div class="row"><label for="dem_thr">谷筋とみなす集水面積<span class="u">km²</span></label><input type="number" id="dem_thr" step="0.005" min="0.0005" value="0.02"></div>
