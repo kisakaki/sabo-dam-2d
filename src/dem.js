@@ -457,9 +457,14 @@
     }
     // 出口から右端まで水路（出口の勾配で下げる）
     var Iout = Math.max(0.01, localSlope(D, A, outlet, 4)), zo = zz2[outlet];
+    // 幅は 5 セル（中央が谷筋）。1 セル幅だと、格子を粗くしたとき両側の山と混ざって通路がふさがるため
     for (i = po[0] + 1; i < NW; i++) {
-      var dd = (i - po[0]) * D.cs;
-      rows[po[1]][i] = zo - Iout * dd; bas[po[1]][i] = 1; chn[po[1]][i] = 1;
+      var dd = (i - po[0]) * D.cs, zc = zo - Iout * dd;
+      for (var dj = -2; dj <= 2; dj++) {
+        var jj = po[1] + dj; if (jj < 0 || jj >= RH) continue;
+        if (dj && bas[jj][i] && rows[jj][i] < zc) continue;
+        rows[jj][i] = zc; bas[jj][i] = 1; if (!dj) chn[jj][i] = 1;
+      }
     }
     return {
       rows: rows, cs: D.cs, basin: bas, chan: chn, cellOf: src, rot: rot, x0: x0, y0: y0, W: W, H: H, nx: NW, ny: RH,

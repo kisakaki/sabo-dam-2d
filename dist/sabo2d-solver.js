@@ -1790,21 +1790,62 @@
   // 斜面崩壊・天然ダム
   // ======================================================================================
   // 崩壊の範囲：中心 (x, y)、半径 R。表層：一様な深さ D（無限長斜面）。深層：深さ D のさじ形のすべり面（中心で D、縁で 0）
+  // 点が多角形の中か（偶奇則）
+  function inPoly(P, x, y) {
+    var n = P.length, a = false;
+    for (var i = 0, j = n - 1; i < n; j = i++) {
+      var xi = P[i][0], yi = P[i][1], xj = P[j][0], yj = P[j][1];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) a = !a;
+    }
+    return a;
+  }
+  // 点から多角形の辺までの最短距離
+  function edgeDist(P, x, y) {
+    var n = P.length, m = 1e30;
+    for (var i = 0, j = n - 1; i < n; j = i++) {
+      var ax = P[j][0], ay = P[j][1], bx = P[i][0] - ax, by = P[i][1] - ay, L2 = bx * bx + by * by;
+      var t = L2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * bx + (y - ay) * by) / L2)) : 0;
+      var ex = ax + t * bx - x, ey = ay + t * by - y; m = Math.min(m, Math.sqrt(ex * ex + ey * ey));
+    }
+    return m;
+  }
   Sim.prototype.setupSlides = function () {
     var P = this.P, N = this.N, dx = this.dx, nx = this.nx, ny = this.ny, z = this.z, kind = this.kind, self = this;
     this.slides = []; this.dep = new Uint8Array(N); this.depOn = false; this.ldamList = []; this.depK = 0; this._chkT = 0;
     (P.slides || []).forEach(function (S, q) {
       var R = Math.max(dx, S.R || 20), D = Math.max(0.1, S.D || 2), deep = S.type === 'deep', cells = [], zs = [];
-      var i0 = Math.max(0, Math.floor((S.x - R) / dx)), i1 = Math.min(nx - 1, Math.floor((S.x + R) / dx));
-      var j0 = Math.max(0, Math.floor((S.y - R) / dx)), j1 = Math.min(ny - 1, Math.floor((S.y + R) / dx));
+      var poly = S.poly && S.poly.length >= 3 ? S.poly : null, i0, i1, j0, j1, i, j, c;
       var zt = -1e30, sx = 0, sy = 0;
-      for (var j = j0; j <= j1; j++) for (var i = i0; i <= i1; i++) {
-        var c = j * nx + i; if (kind[c] === 2 || (self.basin && !self.basin[c])) continue;
-        var rx = (i + 0.5) * dx - S.x, ry = (j + 0.5) * dx - S.y, rr = Math.sqrt(rx * rx + ry * ry) / R;
-        if (rr > 1) continue;
-        var th = deep ? D * Math.sqrt(Math.max(0, 1 - rr * rr)) : D;
-        if (th < 0.05) continue;
-        cells.push(c); zs.push(z[c] - th); if (z[c] > zt) zt = z[c]; sx += i; sy += j;
+      if (poly) {
+        // 多角形：中の格子を選ぶ。深さは表層なら一様、深層なら縁からの距離でスプーン形
+        var xa = 1e30, xb = -1e30, ya = 1e30, yb = -1e30, pc = [], de = [], dmx = 0;
+        poly.forEach(function (v) { xa = Math.min(xa, v[0]); xb = Math.max(xb, v[0]); ya = Math.min(ya, v[1]); yb = Math.max(yb, v[1]); });
+        i0 = Math.max(0, Math.floor(xa / dx)); i1 = Math.min(nx - 1, Math.floor(xb / dx));
+        j0 = Math.max(0, Math.floor(ya / dx)); j1 = Math.min(ny - 1, Math.floor(yb / dx));
+        for (j = j0; j <= j1; j++) for (i = i0; i <= i1; i++) {
+          c = j * nx + i; if (kind[c] === 2 || (self.basin && !self.basin[c])) continue;
+          var px = (i + 0.5) * dx, py = (j + 0.5) * dx;
+          if (!inPoly(poly, px, py)) continue;
+          var d = edgeDist(poly, px, py); pc.push(c); de.push(d); if (d > dmx) dmx = d;
+        }
+        dmx = Math.max(dmx, 0.5 * dx);
+        for (var k = 0; k < pc.length; k++) {
+          var u = Math.min(1, de[k] / dmx), th = deep ? D * Math.sqrt(Math.max(0, 1 - (1 - u) * (1 - u))) : D;
+          if (th < 0.05) th = 0.05;
+          c = pc[k]; cells.push(c); zs.push(z[c] - th); if (z[c] > zt) zt = z[c]; sx += c % nx; sy += (c - c % nx) / nx;
+        }
+        R = Math.max(dx, Math.sqrt(cells.length * dx * dx / Math.PI));   // 等価半径（到達距離に使う）
+      } else {
+        i0 = Math.max(0, Math.floor((S.x - R) / dx)); i1 = Math.min(nx - 1, Math.floor((S.x + R) / dx));
+        j0 = Math.max(0, Math.floor((S.y - R) / dx)); j1 = Math.min(ny - 1, Math.floor((S.y + R) / dx));
+        for (j = j0; j <= j1; j++) for (i = i0; i <= i1; i++) {
+          c = j * nx + i; if (kind[c] === 2 || (self.basin && !self.basin[c])) continue;
+          var rx = (i + 0.5) * dx - S.x, ry = (j + 0.5) * dx - S.y, rr = Math.sqrt(rx * rx + ry * ry) / R;
+          if (rr > 1) continue;
+          var th2 = deep ? D * Math.sqrt(Math.max(0, 1 - rr * rr)) : D;
+          if (th2 < 0.05) continue;
+          cells.push(c); zs.push(z[c] - th2); if (z[c] > zt) zt = z[c]; sx += i; sy += j;
+        }
       }
       if (!cells.length) return;
       var ne = S.ne > 0 ? S.ne : (deep ? 0.05 : 0.15), m0 = S.m0 >= 0 ? S.m0 : 0.2;

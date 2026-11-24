@@ -21,7 +21,7 @@
 - 勾配の折れ点を何段でも入れられる
 - DEM（ASCII grid・XYZ・GeoTIFF・基盤地図情報 XML）から流域界・谷筋・谷頭を求め、流域と水の供給点を地図で選ぶ。供給点ごとにハイドロを設定
 - 雨（一様なハイエトグラフか格子の雨）から、損失（流出係数・f1/Rsa・浸透能）と合理式・貯留関数法で谷へ水を集める。格子に直接降らせることもできる
-- 斜面崩壊（表層：無限長斜面、深層：Hovland の 3 次元簡便法）。地下水で安全率を求めて崩し、流動化（土石流化）か土塊の移動・堆積
+- 斜面崩壊（範囲は円か多角形。表層：無限長斜面、深層：Hovland の 3 次元簡便法）。地下水で安全率を求めて崩し、流動化（土石流化）か土塊の移動・堆積
 - 天然ダム：越流侵食・進行性崩壊（堤体の透水性で決まる）・すべり破壊。土石流の発生形態を渓床侵食型・崩壊型・天然ダム決壊型から選ぶ
 - 堰堤の位置・堤高・水通し幅を自由に設定。向き・中心・天端標高・堤長も指定できる
 - 地形は 4 通り：数値で指定（川幅の変化・湾曲・狭窄・澪筋・支渓の扇状地）、横断・縦断の測量値、格子 CSV、DEM から流域を選ぶ
@@ -69,6 +69,7 @@ python sabo2d.py --preset A --bank-h 2 --collapse hasegawa --secondary --seconda
 python sabo2d.py --preset A --debris --debris-peak 60 --slope-table "0:20,300:60" --dams "400:6:0:grid:0.8"   # 土石流の一波、勾配の折れ点、鋼製格子型
 python sabo2d.py --preset A --tribs "250:L:6:8:0.3:1:0:60" --gw   # 支川（合流角 60°）と伏流
 python sabo2d.py --dem synth --debris --rain "0:50,10:80,20:0" --slide "600,800,30,2,shallow,time,30,fluid"   # 例の DEM：谷頭から土石流、雨、斜面崩壊
+python sabo2d.py --dem z1/*.xml z2/*.xml --dem-outlet "12317374,4073666" --dx 10 --debris --slide-poly "12317363,4072160;12317390,4072148;12317417,4072161;12317432,4072191;12317422,4072214;12317378,4072207;12317360,4072182@2,shallow,time,120,fluid"   # 基盤地図情報 DEM5A（2 メッシュを結合）：小流域に多角形の崩壊
 python sabo2d.py --dem dem.tif --dem-outlet "X,Y" --ldam "X2,Y2,20" --ldam-k 0.01   # DEM の小流域に天然ダム（座標は DEM の座標）
 python sabo2d.py --params sabo2d_params.json   # ブラウザ版の「計算条件を JSON で保存」で保存した条件をそのまま計算
 python sabo2d.py --preset A --snap-every 5          # 5 分ごとの結果を result/snapshots_long.csv と result/snapshots/ に書く

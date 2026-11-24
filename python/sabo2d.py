@@ -411,6 +411,28 @@ def _jround(x):
 # =============================================================================
 # 計算本体
 # =============================================================================
+def _in_poly(P, x, y):
+    """点が多角形の中か（偶奇則）"""
+    a = False; n = len(P); j = n - 1
+    for i in range(n):
+        xi, yi = P[i][0], P[i][1]; xj, yj = P[j][0], P[j][1]
+        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
+            a = not a
+        j = i
+    return a
+
+
+def _edge_dist(P, x, y):
+    """点から多角形の辺までの最短距離"""
+    m = 1e30; n = len(P); j = n - 1
+    for i in range(n):
+        ax, ay = P[j][0], P[j][1]; bx = P[i][0] - ax; by = P[i][1] - ay; L2 = bx * bx + by * by
+        t = max(0.0, min(1.0, ((x - ax) * bx + (y - ay) * by) / L2)) if L2 > 0 else 0.0
+        ex = ax + t * bx - x; ey = ay + t * by - y; m = min(m, math.sqrt(ex * ex + ey * ey))
+        j = i
+    return m
+
+
 class Sim:
     """平面2次元河床変動計算。配列は (ny, nx)。j は横断方向（j が大きいほど左岸側）、i は流下方向。"""
 
@@ -1742,24 +1764,50 @@ class Sim:
         for q, S in enumerate(P.get('slides') or []):
             R = max(dx, S.get('R') or 20.0); D = max(0.1, S.get('D') or 2.0); deep = S.get('type') == 'deep'
             cells = []; zs = []
-            i0 = max(0, int(math.floor((S['x'] - R) / dx))); i1 = min(nx - 1, int(math.floor((S['x'] + R) / dx)))
-            j0 = max(0, int(math.floor((S['y'] - R) / dx))); j1 = min(ny - 1, int(math.floor((S['y'] + R) / dx)))
+            poly = S.get('poly') if S.get('poly') and len(S['poly']) >= 3 else None
             zt = -1e30; sx = 0; sy = 0
-            for j in range(j0, j1 + 1):
-                for i in range(i0, i1 + 1):
-                    c = j * nx + i
-                    if kind[c] == 2 or (bas is not None and not bas[c]):
-                        continue
-                    rx = (i + 0.5) * dx - S['x']; ry = (j + 0.5) * dx - S['y']; rr = math.sqrt(rx * rx + ry * ry) / R
-                    if rr > 1:
-                        continue
-                    th = D * math.sqrt(max(0.0, 1 - rr * rr)) if deep else D
-                    if th < 0.05:
-                        continue
+            if poly:
+                # 多角形：中の格子。深さは表層なら一様、深層なら縁からの距離でスプーン形
+                xa = min(v[0] for v in poly); xb = max(v[0] for v in poly); ya = min(v[1] for v in poly); yb = max(v[1] for v in poly)
+                i0 = max(0, int(math.floor(xa / dx))); i1 = min(nx - 1, int(math.floor(xb / dx)))
+                j0 = max(0, int(math.floor(ya / dx))); j1 = min(ny - 1, int(math.floor(yb / dx)))
+                pc = []; de = []; dmx = 0.0
+                for j in range(j0, j1 + 1):
+                    for i in range(i0, i1 + 1):
+                        c = j * nx + i
+                        if kind[c] == 2 or (bas is not None and not bas[c]):
+                            continue
+                        px = (i + 0.5) * dx; py = (j + 0.5) * dx
+                        if not _in_poly(poly, px, py):
+                            continue
+                        d = _edge_dist(poly, px, py); pc.append(c); de.append(d); dmx = max(dmx, d)
+                dmx = max(dmx, 0.5 * dx)
+                for c, d in zip(pc, de):
+                    u = min(1.0, d / dmx); th = D * math.sqrt(max(0.0, 1 - (1 - u) * (1 - u))) if deep else D
+                    th = max(th, 0.05)
                     cells.append(c); zs.append(z[c] - th)
                     if z[c] > zt:
                         zt = z[c]
-                    sx += i; sy += j
+                    sx += c % nx; sy += c // nx
+                R = max(dx, math.sqrt(len(cells) * dx * dx / math.pi))
+            else:
+                i0 = max(0, int(math.floor((S['x'] - R) / dx))); i1 = min(nx - 1, int(math.floor((S['x'] + R) / dx)))
+                j0 = max(0, int(math.floor((S['y'] - R) / dx))); j1 = min(ny - 1, int(math.floor((S['y'] + R) / dx)))
+                for j in range(j0, j1 + 1):
+                    for i in range(i0, i1 + 1):
+                        c = j * nx + i
+                        if kind[c] == 2 or (bas is not None and not bas[c]):
+                            continue
+                        rx = (i + 0.5) * dx - S['x']; ry = (j + 0.5) * dx - S['y']; rr = math.sqrt(rx * rx + ry * ry) / R
+                        if rr > 1:
+                            continue
+                        th = D * math.sqrt(max(0.0, 1 - rr * rr)) if deep else D
+                        if th < 0.05:
+                            continue
+                        cells.append(c); zs.append(z[c] - th)
+                        if z[c] > zt:
+                            zt = z[c]
+                        sx += i; sy += j
             if not cells:
                 continue
             ne = S['ne'] if (S.get('ne') or 0) > 0 else (0.05 if deep else 0.15)
@@ -3448,6 +3496,16 @@ def dem_params(P, a):
         P['slides'].append({'x': xy[0], 'y': xy[1], 'R': float(f[2]) if len(f) > 2 else 25.0, 'D': float(f[3]) if len(f) > 3 else 1.5, 'type': 'deep' if deep else 'shallow',
                             'trigger': f[5] if len(f) > 5 else 'time', 't': float(f[6]) if len(f) > 6 else 30.0, 'move': f[7] if len(f) > 7 else 'auto',
                             'phi': 30.0 if deep else 35.0, 'c': 30.0 if deep else 3.0, 'm0': 0.9, 'thDep': 10.0, 'CL': 0.5})
+    for s_ in a.slide_poly or []:
+        vs, _, opt = s_.partition('@'); f = opt.split(',') if opt else []
+        pts = [cell_of(float(v.split(',')[0]), float(v.split(',')[1])) for v in vs.split(';') if v.strip()]
+        if len(pts) < 3:
+            continue
+        poly = [dom.toXY(c) for c in pts]; deep = len(f) > 1 and f[1] == 'deep'
+        cx = sum(q[0] for q in poly) / len(poly); cy = sum(q[1] for q in poly) / len(poly)
+        P['slides'].append({'x': cx, 'y': cy, 'poly': poly, 'R': 25.0, 'D': float(f[0]) if f and f[0] else 1.5, 'type': 'deep' if deep else 'shallow',
+                            'trigger': f[2] if len(f) > 2 else 'time', 't': float(f[3]) if len(f) > 3 else 30.0, 'move': f[4] if len(f) > 4 else 'auto',
+                            'phi': 30.0 if deep else 35.0, 'c': 30.0 if deep else 3.0, 'm0': 0.9, 'thDep': 10.0, 'CL': 0.5})
     P['ldams'] = []
     for s_ in a.ldam or []:
         f = s_.split(','); c = near_stream(cell_of(float(f[0]), float(f[1])))
@@ -3515,6 +3573,7 @@ def main(argv=None):
     ap.add_argument('--rain-method', choices=['lumped', 'grid'], default='lumped', help='谷への集め方（斜面で流出計算 / 格子に直接降らせる）')
     ap.add_argument('--rain-loss', default='f:0.8', help='損失 "f:0.8" / "f1rsa:f1:Rsa" / "ks:ks:D"')
     ap.add_argument('--rain-route', default='rational', help='斜面の流出 "rational[:到達時間 分]" / "storage:K:P"')
+    ap.add_argument('--slide-poly', action='append', help='多角形の斜面崩壊 "X1,Y1;X2,Y2;X3,Y3[;...]@深さ,shallow|deep,fs|time,時刻s,auto|fluid|block"（DEM の座標）')
     ap.add_argument('--slide', action='append', help='斜面崩壊 "X,Y,半径,深さ,shallow|deep,fs|time,時刻s,auto|fluid|block"（DEM の座標）')
     ap.add_argument('--ldam', action='append', help='天然ダム "X,Y,高さ[,天端幅]"（DEM の座標。谷筋に置く）')
     ap.add_argument('--ldam-k', type=float, default=1e-3, help='天然ダムの堤体の透水係数 [m/s]')

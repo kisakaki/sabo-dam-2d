@@ -28,6 +28,8 @@ P = base(); P.rain = { on: true, method: 'grid', mode: 'uniform', table: [[0, 60
 P = base(); const L = HY.lateralInflow(M, D, A, mask, { mode: 'uniform', table: [[0, 50], [10, 0]] }, { loss: { type: 'f1rsa', f1: 0.6, Rsa: 20 }, route: { type: 'storage', K: 8, P: 0.6 }, dt: 60, tEnd: 300 });
 P.latIn = { dt: L.dt, pts: L.cells.map(c => { const xy = dom.toXY(c), u = dom.dirXY(c); return [xy[0], xy[1], u[0], u[1], 0.05]; }), Q: L.Q.map(a => Array.from(a)) }; run('雨の横流入', P);
 const hp = dom.toXY(heads[1]);
+{ P = base(); const v = [[-10, -25], [40, -20], [55, 20], [20, 45], [-15, 25]].map(q => [hp[0] + 15 + q[0], hp[1] + 15 + q[1]]);
+  P.slides = [{ poly: v, x: 0, y: 0, D: 6, type: 'deep', trigger: 'time', t: 20, move: 'block' }]; run('崩壊 多角形', P); }
 for (const mv of ['fluid', 'block']) { P = base(); P.slides = [{ x: hp[0] + 15, y: hp[1] + 15, R: 35, D: 2, type: 'shallow', trigger: 'time', t: 20, move: mv }]; run('崩壊 ' + mv, P); }
 let sc = heads[0]; for (let q = 0; q < 100; q++) { const d = M.downOf(D, A.dir, sc); if (d < 0) break; sc = d; }
 const lp = dom.toXY(sc), lu = dom.dirXY(sc);

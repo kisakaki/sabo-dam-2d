@@ -382,8 +382,18 @@ def prepare_domain(D, A, mask, outlet, fill_dem=True):
             bas[j, i] = 1 if mask[oc] else 0; chn[j, i] = 1 if (mask[oc] and st[oc]) else 0; cellOf[j, i] = oc
         rows[j, RW:] = rows[j, RW - 1]
     Iout = max(0.01, local_slope(D, A, outlet, 4)); zo = zz2[outlet]
+    # 幅は 5 セル（中央が谷筋）。1 セル幅だと、格子を粗くしたとき両側の山と混ざって通路がふさがるため
     for i in range(po[0] + 1, NW):
-        rows[po[1], i] = zo - Iout * (i - po[0]) * D.cs; bas[po[1], i] = 1; chn[po[1], i] = 1
+        zc = zo - Iout * (i - po[0]) * D.cs
+        for dj in range(-2, 3):
+            jj = po[1] + dj
+            if jj < 0 or jj >= RH:
+                continue
+            if dj and bas[jj, i] and rows[jj, i] < zc:
+                continue
+            rows[jj, i] = zc; bas[jj, i] = 1
+            if not dj:
+                chn[jj, i] = 1
 
     class Dom:
         pass

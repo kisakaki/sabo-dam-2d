@@ -99,7 +99,7 @@
     ST.slides.forEach(function (r, i) {
       var tr = document.createElement('tr');
       tr.innerHTML = '<td>' + (i + 1) + '</td><td><select data-k="type">' + opt(r.type, [['shallow', '表層'], ['deep', '深層']]) + '</select></td>' +
-        '<td><input type="number" step="any" value="' + r.R + '" data-k="R"></td><td><input type="number" step="any" value="' + r.D + '" data-k="D"></td>' +
+        (r.poly ? '<td title="多角形（頂点 ' + r.poly.length + '）">' + fmt(polyArea(r.poly), 0) + ' m²</td>' : '<td><input type="number" step="any" value="' + r.R + '" data-k="R"></td>') + '<td><input type="number" step="any" value="' + r.D + '" data-k="D"></td>' +
         '<td><select data-k="trigger">' + opt(r.trigger, [['fs', '安全率'], ['time', '時刻']]) + '</select></td><td><input type="number" step="any" value="' + r.t + '" data-k="t"></td>' +
         '<td><select data-k="move">' + opt(r.move, [['auto', '自動'], ['fluid', '土石流化'], ['block', '土塊']]) + '</select></td>' +
         '<td><input type="number" step="any" value="' + r.phi + '" data-k="phi"></td><td><input type="number" step="any" value="' + r.coh + '" data-k="coh"></td><td><input type="number" step="any" value="' + r.m0 + '" data-k="m0"></td>' +
@@ -230,11 +230,23 @@
       ctx.fillStyle = '#000'; ctx.font = '600 11px sans-serif'; ctx.fillText(String(i + 1), p[0] + 7, p[1] - 6);
     });
     // 斜面崩壊
+    function polyPath(list) { ctx.beginPath(); list.forEach(function (c, k) { var q = P(c); if (k) ctx.lineTo(q[0], q[1]); else ctx.moveTo(q[0], q[1]); }); }
     ST.slides.forEach(function (r, i) {
-      var p = P(r.c), R = r.R / D.cs * sc;
-      ctx.beginPath(); ctx.arc(p[0], p[1], Math.max(4, R), 0, 7); ctx.fillStyle = r.type === 'deep' ? 'rgba(121,85,72,0.45)' : 'rgba(255,152,0,0.4)'; ctx.fill();
-      ctx.strokeStyle = '#5d4037'; ctx.lineWidth = 1.5; ctx.stroke(); ctx.fillStyle = '#3e2723'; ctx.font = '600 11px sans-serif'; ctx.fillText('崩' + (i + 1), p[0] + Math.max(4, R) + 2, p[1]);
+      var fillC = r.type === 'deep' ? 'rgba(121,85,72,0.45)' : 'rgba(255,152,0,0.4)', p, R;
+      if (r.poly) {
+        polyPath(r.poly); ctx.closePath(); ctx.fillStyle = fillC; ctx.fill(); ctx.strokeStyle = '#5d4037'; ctx.lineWidth = 1.5; ctx.stroke();
+        var xm = -1e9; r.poly.forEach(function (c) { var q = P(c); if (q[0] > xm) xm = q[0]; }); p = P(r.c); R = xm - p[0];
+      } else {
+        p = P(r.c); R = Math.max(4, r.R / D.cs * sc);
+        ctx.beginPath(); ctx.arc(p[0], p[1], R, 0, 7); ctx.fillStyle = fillC; ctx.fill(); ctx.strokeStyle = '#5d4037'; ctx.lineWidth = 1.5; ctx.stroke();
+      }
+      ctx.fillStyle = '#3e2723'; ctx.font = '600 11px sans-serif'; ctx.fillText('崩' + (i + 1), p[0] + R + 2, p[1]);
     });
+    // 描きかけの多角形
+    if (ST.draft && ST.draft.length) {
+      polyPath(ST.draft); ctx.strokeStyle = '#d84315'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); if (ST.draft.length > 2) ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
+      ST.draft.forEach(function (c) { var q = P(c); ctx.beginPath(); ctx.arc(q[0], q[1], 3.5, 0, 7); ctx.fillStyle = '#d84315'; ctx.fill(); });
+    }
     // 天然ダム
     ST.ldams.forEach(function (r, i) {
       var p = P(r.c), q = ST.A.dir[r.c], dxv = q >= 0 ? SD.DC[q] : 1, dyv = q >= 0 ? SD.DR[q] : 0, L = Math.sqrt(dxv * dxv + dyv * dyv), wv = Math.max(8, r.H * 3 / D.cs * sc);
@@ -264,6 +276,39 @@
     }
     return best;
   }
+  function newSlide(c, poly) {
+    var tp = $('gen_type').value === 'ldam' ? 'deep' : 'shallow', d = slideDefaults(tp);
+    var r = { c: c, type: tp, R: d.R, D: d.D, trigger: $('rn_on').checked ? 'fs' : 'time', t: 30, move: tp === 'deep' ? 'block' : 'auto', phi: d.phi, coh: d.coh, m0: $('rn_on').checked ? 0.2 : 0.9 };
+    if (poly) { r.poly = poly; r.R = Math.round(Math.sqrt(polyArea(poly) / Math.PI)); }
+    return r;
+  }
+  // 多角形の面積 [m²]（頂点は DEM のセル番号）
+  function polyArea(poly) {
+    var D = ST.D, a = 0;
+    for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      var xi = poly[i] % D.nx, yi = (poly[i] / D.nx) | 0, xj = poly[j] % D.nx, yj = (poly[j] / D.nx) | 0;
+      a += xj * yi - xi * yj;
+    }
+    return Math.abs(a) / 2 * D.cs * D.cs;
+  }
+  function polyMsg() {
+    var n = (ST.draft || []).length;
+    $('dem_sel').textContent = n < 3 ? '多角形の頂点をクリックしてください（いま ' + n + ' 点。3 点以上で閉じられます）。' : '頂点 ' + n + ' 点、面積 ' + fmt(polyArea(ST.draft), 0) + ' m²。ダブルクリックか「多角形を閉じる」で確定します。';
+  }
+  function closePoly() {
+    var dr = ST.draft || []; if (dr.length < 3) { polyMsg(); return; }
+    var D = ST.D, sx = 0, sy = 0; dr.forEach(function (c) { sx += c % D.nx; sy += (c / D.nx) | 0; });
+    var cc = Math.round(sy / dr.length) * D.nx + Math.round(sx / dr.length);
+    if (!ST.mask[cc]) cc = dr[0];
+    ST.slides.push(newSlide(cc, dr.slice())); ST.draft = [];
+    renderTables(); draw(); selInfo();
+  }
+  function shapeUI() {
+    var on = $('dm_mode').value === 'slide', pg = on && $('dm_shape').value === 'poly';
+    $('dm_shapew').hidden = !on; $('dm_close').hidden = !pg; $('dm_undo').hidden = !pg;
+    if (!pg && ST.draft && ST.draft.length) { ST.draft = []; draw(); }
+    if (pg) polyMsg();
+  }
   function onClick(e) {
     var c = cellAt(e); if (c < 0) return;
     var mode = $('dm_mode').value, A = ST.A;
@@ -275,8 +320,12 @@
       var k = -1; ST.src.forEach(function (r, i) { if (r.c === h) k = i; });
       if (k >= 0) ST.src.splice(k, 1); else ST.src.push(srcDefault(h));
     } else if (mode === 'slide') {
-      var d = slideDefaults($('gen_type').value === 'ldam' ? 'deep' : 'shallow');
-      ST.slides.push({ c: c, type: $('gen_type').value === 'ldam' ? 'deep' : 'shallow', R: d.R, D: d.D, trigger: $('rn_on').checked ? 'fs' : 'time', t: 30, move: $('gen_type').value === 'ldam' ? 'block' : 'auto', phi: d.phi, coh: d.coh, m0: $('rn_on').checked ? 0.2 : 0.9 });
+      if ($('dm_shape').value === 'poly') {
+        ST.draft = ST.draft || [];
+        if (ST.draft[ST.draft.length - 1] !== c) ST.draft.push(c);   // ダブルクリックの 2 回目は足さない
+        polyMsg(); draw(); return;
+      }
+      ST.slides.push(newSlide(c, null));
     } else if (mode === 'ldam') {
       var s2 = nearStream(c, Math.max(3, Math.round(14 / ST.view.sc))); if (s2 < 0) { $('dem_sel').textContent = '谷筋（青い線）の近くをクリックしてください。'; return; }
       ST.ldams.push({ c: s2, H: 15, Wc: 10, up: 30, dn: 25 });
@@ -414,7 +463,7 @@
     var thD = +$('sl_dep').value || 10, mu = +$('sl_mu').value || 0, CL = +$('sl_cl').value || 0.5;
     p.slides = ST.slides.map(function (r) {
       var xy = dom.toXY(r.c);
-      return { x: xy[0], y: xy[1], R: r.R, D: r.D, type: r.type, trigger: r.trigger, t: r.t, move: r.move, phi: r.phi, c: r.coh, m0: r.m0, thDep: thD, mu: mu, CL: CL, Tk: r.type === 'deep' ? +$('sl_tk2').value : +$('sl_tk1').value };
+      return { x: xy[0], y: xy[1], poly: r.poly ? r.poly.map(function (c) { return dom.toXY(c); }) : undefined, R: r.R, D: r.D, type: r.type, trigger: r.trigger, t: r.t, move: r.move, phi: r.phi, c: r.coh, m0: r.m0, thDep: thD, mu: mu, CL: CL, Tk: r.type === 'deep' ? +$('sl_tk2').value : +$('sl_tk1').value };
     });
     p.ldams = ST.ldams.map(function (r) { var xy = dom.toXY(r.c), u = dom.dirXY(r.c); return { x: xy[0], y: xy[1], ux: u[0], uy: u[1], H: r.H, Wc: r.Wc, up: r.up, dn: r.dn }; });
     p.ldam = { k: Math.max(0, +$('ld_k').value || 0), fail: $('ld_fail').value, slipLevel: +$('ld_lev').value || 0.9, slipDeg: 0, thDep: thD, phi: +$('ld_phi').value || 35, c: +$('ld_c').value || 0, gs: 20, Ts: 0.5, s0: 0 };
@@ -430,6 +479,7 @@
       : '斜面崩壊（土塊）か、直接置いた天然ダムが谷をふさぎ、湛水したあと決壊する場合です。決壊の形（越流侵食・進行性崩壊）は堤体の透水係数で決まり、すべり破壊は湛水位で指定できます。伏流は自動で有効になります。';
     if (g === 'slide') $('dm_mode').value = 'slide';
     if (g === 'ldam') $('dm_mode').value = 'ldam';
+    shapeUI();
   }
   function rainSwitch() {
     $('rn_box').hidden = !$('rn_on').checked;
@@ -455,6 +505,10 @@
     $('dem_thr').onchange = analyze;
     $('dm_fit').onchange = draw;
     $('demmap').addEventListener('click', onClick);
+    $('demmap').addEventListener('dblclick', function (e) { if ($('dm_mode').value === 'slide' && $('dm_shape').value === 'poly') { e.preventDefault(); closePoly(); } });
+    $('dm_mode').addEventListener('change', shapeUI); $('dm_shape').addEventListener('change', shapeUI);
+    $('dm_close').onclick = closePoly;
+    $('dm_undo').onclick = function () { if (ST.draft && ST.draft.length) { ST.draft.pop(); polyMsg(); draw(); } };
     $('demmap').addEventListener('mousemove', onMove);
     $('demmap').addEventListener('mouseleave', function () { $('dem_tip').hidden = true; });
     $('src_all').onclick = function () { if (!ST.src.length) return; var f = ST.src[0]; ST.src.forEach(function (r) { ['mode', 'Qb', 'Qp', 't0', 'tr', 'tf', 'C'].forEach(function (k) { r[k] = f[k]; }); }); renderTables(); };
