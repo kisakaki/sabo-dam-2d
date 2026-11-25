@@ -719,12 +719,57 @@
   }
 
   // ------------------------------------------------------------ 計算条件へ
+  // ------------------------------------------------------------ 縦断の線（本川・支川）
+  // 本川：出口から集水の大きい方へ谷頭まで。支川：本川（と 1 次の支川）に合流する谷筋で、集水面積が流域の 3 % 以上のもの。
+  // 上流 → 下流の順に、計算領域の座標で返す。本川は出口から右端まで（出口の水路）を足す
+  function upMain(c) {
+    var D = ST.D, A = ST.A, x0 = c % D.nx, y0 = (c / D.nx) | 0, bu = -1, ba = 0;
+    for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) {
+      if (!dx && !dy) continue; var xx = x0 + dx, yy = y0 + dy; if (xx < 0 || yy < 0 || xx >= D.nx || yy >= D.ny) continue;
+      var o = yy * D.nx + xx; if (ST.mask[o] && SD.downOf(D, A.dir, o) === c && A.acc[o] > ba) { ba = A.acc[o]; bu = o; }
+    }
+    return bu;
+  }
+  function traceUp(c) { var p = [c], k = 0; while (k++ < 1e6) { var u = upMain(c); if (u < 0) break; p.push(u); c = u; } return p; }   // 下流 → 上流
+  function buildPaths(dom) {
+    var D = ST.D, A = ST.A, a1 = D.cs * D.cs, aB = A.acc[ST.outlet] * a1, minA = Math.max(0.03 * aB, 4 * (parseFloat($('dem_thr').value) || 0.02) * 1e6);
+    var main = traceUp(ST.outlet), out = [], s0 = 0;
+    function addTribs(path, level, parent) {   // path：下流 → 上流（支川は先頭が合流点。合流点は見ない）
+      var dist = 0;
+      for (var k = 0; k < path.length; k++) {
+        if (level > 1 && k === 0) continue;
+        var c = path[k], nxt = path[k + 1], x0 = c % D.nx, y0 = (c / D.nx) | 0;
+        if (k) dist += Math.hypot(c % D.nx - path[k - 1] % D.nx, ((c / D.nx) | 0) - ((path[k - 1] / D.nx) | 0)) * D.cs;
+        for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue; var xx = x0 + dx, yy = y0 + dy; if (xx < 0 || yy < 0 || xx >= D.nx || yy >= D.ny) continue;
+          var o = yy * D.nx + xx; if (o === nxt || !ST.mask[o] || SD.downOf(D, A.dir, o) !== c || A.acc[o] * a1 < minA) continue;
+          var tp = traceUp(o); tp.unshift(c);
+          var t = { cells: tp, area: A.acc[o] * a1, level: level, at: dist, parent: parent }; out.push(t);
+          if (level < 2) addTribs(tp, level + 1, t);
+        }
+      }
+    }
+    addTribs(main, 1, null);
+    out.sort(function (a, b) { return b.area - a.area; }); out = out.slice(0, 20);
+    var paths = [{ name: '本川（流域 ' + fmt(aB / 1e6, aB < 1e6 ? 3 : 2) + ' km²）', cells: main }];
+    out.forEach(function (t, i) { t.no = i + 1; });
+    out.forEach(function (t) {
+      var pn = t.parent ? (t.parent.no ? '支川 ' + t.parent.no : '支川') : '本川';
+      t.name = '支川 ' + t.no + '（流域 ' + fmt(t.area / 1e6, t.area < 1e6 ? 3 : 2) + ' km²、' + pn + 'の下流端から ' + fmt(t.at, 0) + ' m で合流）'; paths.push(t);
+    });
+    ST.paths = paths.map(function (p, q) {
+      var pts = p.cells.slice().reverse().map(function (c) { return dom.toXY(c); });   // 上流 → 下流
+      if (q === 0) { var e = pts[pts.length - 1]; pts.push([dom.nx * dom.cs - 0.5 * dom.cs, e[1]]); }   // 出口の水路
+      return { name: p.name, pts: pts };
+    });
+  }
   function params(p) {
     if (!ST.D || !ST.mask) throw new Error('DEM を読み込み、流域を選んでください');
     var D = ST.D, A = ST.A;
     if (!(p.dx >= D.cs)) p.dx = D.cs;
     var dom = SD.prepareDomain(D, A, ST.mask, ST.outlet, { fill: $('dem_fill').checked, dx: p.dx });
     ST.dom = dom;
+    try { buildPaths(dom); } catch (e) { ST.paths = null; }
     p.terrain = { rows: dom.rows, cs: dom.cs, basin: dom.basin, chan: dom.chan, Iout: dom.Iout };
     p.csvSlope = 0; p.L = dom.nx * dom.cs; p.sideCells = 0; p.dams = []; p.tribs = []; p.prefill = 0;
     var dur = Math.max(1, +$('dem_dur').value || 30) * 60;
@@ -857,6 +902,6 @@
     window.addEventListener('resize', function () { if (!$('demcard').hidden && ST.D) { if ($('dm_fit').checked) fitBasin(); else fitAll(); draw(); } });
     rainSwitch(); show($('g_src').value === 'dem');
   }
-  window.SaboDEMUI = { params: params, state: ST, draw: draw, setDEM: setDEM, active: function () { return $('g_src').value === 'dem'; } };
+  window.SaboDEMUI = { params: params, state: ST, draw: draw, setDEM: setDEM, paths: function () { return ST.paths; }, active: function () { return $('g_src').value === 'dem'; } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire); else wire();
 })();

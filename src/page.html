@@ -485,7 +485,7 @@ table.res th,table.res td{white-space:nowrap}
       <div class="hd"><h2 id="xs_title">横断</h2>
         <div class="opts"><label for="xs_x">位置</label><input type="range" id="xs_x" min="0" max="400" step="1" value="200" style="width:200px"><span id="xs_val" style="font-family:var(--mono)"></span></div>
       </div>
-      <p class="note" style="margin:-4px 0 6px">平面図をクリックしても位置を変えられます。下流を向いて見た横断で、左が左岸です。</p>
+      <p class="note" style="margin:-4px 0 6px">平面図をクリックしても位置を変えられます。下流を向いて見た横断で、左が左岸です。DEM の流域では、縦断の線（本川・支川）に直角な横断で、平面図をクリックするといちばん近い線のその点に移ります。</p>
       <div class="chartwrap"><canvas id="xsec"></canvas><div class="tip" hidden></div></div>
       <div class="key" id="xs_key"></div>
     </div>
@@ -493,6 +493,7 @@ table.res th,table.res td{white-space:nowrap}
     <div class="card">
       <div class="hd"><h2>縦断</h2>
         <div class="opts">
+          <label id="l_pathw" hidden>線 <select id="l_path" style="max-width:320px"></select></label>
           <button class="sm" id="pz_in" aria-label="縦断図を拡大">＋</button><button class="sm" id="pz_out" aria-label="縦断図を縮小">－</button><button class="sm" id="pz_all">全体</button>
           <label><input type="checkbox" id="l_det"> 初期勾配を差し引く</label>
           <label>河床 <select id="l_bed"><option value="mean">横断平均</option><option value="min">最深</option></select></label>

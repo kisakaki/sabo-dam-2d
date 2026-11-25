@@ -119,6 +119,18 @@
     return lines.join('\r\n');
   }
   function profileCSV() {
+    if (pathMode()) {   // DEM：選んだ線（本川・支川）に沿って、谷底の帯（±谷筋の幅の半分）の最深値と平均値
+      var PSc = pathSamples(), Sn = sim.snaps, hw = Math.max(sim.dx, ((sim.P.dem && sim.P.dem.chW) || 6) / 2 + 0.5 * sim.dx), hd2 = ['s_m', 'x_m', 'y_m'], rw = [];
+      Sn.forEach(function (sn) { hd2.push('最深河床高_' + snapLabel(sn.t) + '分'); }); Sn.forEach(function (sn) { hd2.push('平均河床高_' + snapLabel(sn.t) + '分'); });
+      for (var k = 0; k < PSc.x.length; k++) {
+        var cl = [], seen = {}, nxv = -PSc.ty[k], nyv = PSc.tx[k];
+        for (var u = -hw; u <= hw + 1e-9; u += sim.dx / 2) { var c0 = cellXY(PSc.px[k] + nxv * u, PSc.py[k] + nyv * u); if (inBasin(c0) && !seen[c0] && sim.kind[c0] !== 2) { seen[c0] = 1; cl.push(c0); } }
+        var mi = [], me = [];
+        Sn.forEach(function (sn) { var mn = Infinity, sm = 0; cl.forEach(function (c1) { var zz = sim.z0[c1] + sn.dz[c1]; if (zz < mn) mn = zz; sm += zz; }); mi.push(cl.length ? mn.toFixed(3) : ''); me.push(cl.length ? (sm / cl.length).toFixed(3) : ''); });
+        rw.push([PSc.x[k].toFixed(2), PSc.px[k].toFixed(2), PSc.py[k].toFixed(2)].concat(mi, me).join(','));
+      }
+      return ['# 時刻別の縦断（' + DP[PI].name + '）。s は線の上流端からの距離、x・y は計算領域の座標。谷底の帯のセルの最深値と平均値。堰堤のセルは除く', hd2.join(',')].concat(rw).join('\r\n');
+    }
     var nx = sim.nx, ny = sim.ny, S = sim.snaps, z0 = sim.z0, hd = ['x_m'], rows = [];
     S.forEach(function (sn) { hd.push('最深河床高_' + snapLabel(sn.t) + '分'); });
     S.forEach(function (sn) { hd.push('平均河床高_' + snapLabel(sn.t) + '分'); });
@@ -623,6 +635,7 @@
   };
   function hash(c) { var x = Math.sin(c * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); }
   function trend(x) { return sim.zbAt ? sim.zbAt(x) : sim.trA + sim.trB * x; }
+  var trendX = trend;
   function relZ(c) { return sim.z[c] - trend((c % sim.nx + 0.5) * sim.dx); }
   // 表層の粒度：out[0] 平均粒径, out[1] d84 [m]
   function gstat(c, out) {
@@ -913,8 +926,26 @@
     });
     ctx.restore();
     if ($('p_core').checked) drawCores(ctx, sx, sy, cv.height, dpr, real);
+    // 縦断の線と横断の位置（DEM）
+    if (pathMode()) {
+      var PSm = pathSamples(), Hc = cv.height;
+      ctx.save(); ctx.lineJoin = 'round';
+      DP.forEach(function (pth, q) {
+        if (q === PI) return; ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1.2 * dpr; ctx.beginPath();
+        pth.pts.forEach(function (pt, k) { var X1 = pt[0] * sx, Y1 = Hc - pt[1] * sy; if (k) ctx.lineTo(X1, Y1); else ctx.moveTo(X1, Y1); }); ctx.stroke();
+      });
+      ctx.strokeStyle = 'rgba(255,214,0,.95)'; ctx.lineWidth = 2.4 * dpr; ctx.beginPath();
+      DP[PI].pts.forEach(function (pt, k) { var X1 = pt[0] * sx, Y1 = Hc - pt[1] * sy; if (k) ctx.lineTo(X1, Y1); else ctx.moveTo(X1, Y1); }); ctx.stroke();
+      if (xsS != null) {
+        var kx = Math.max(0, Math.min(PSm.x.length - 1, Math.round(xsS / (PSm.L / PSm.x.length) - 0.5))), ux = -PSm.ty[kx], uy = PSm.tx[kx], Lh = 150;
+        ctx.setLineDash([6 * dpr, 4 * dpr]); ctx.lineWidth = 1.5 * dpr; ctx.strokeStyle = 'rgba(255,255,255,.95)'; ctx.beginPath();
+        ctx.moveTo((PSm.px[kx] + ux * Lh) * sx, Hc - (PSm.py[kx] + uy * Lh) * sy); ctx.lineTo((PSm.px[kx] - ux * Lh) * sx, Hc - (PSm.py[kx] - uy * Lh) * sy); ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineDashOffset = 5 * dpr; ctx.stroke();
+      }
+      ctx.restore();
+    }
     // 横断の位置
-    if (xsX != null) {
+    else if (xsX != null) {
       ctx.save(); ctx.setLineDash([6 * dpr, 4 * dpr]); ctx.lineWidth = 1.5 * dpr; ctx.strokeStyle = 'rgba(255,255,255,.95)';
       ctx.beginPath(); ctx.moveTo(xsX * sx, 0); ctx.lineTo(xsX * sx, cv.height); ctx.stroke();
       ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineDashOffset = 5 * dpr; ctx.stroke(); ctx.restore();
@@ -1015,8 +1046,43 @@
     ctx.restore();
   }
   // ------------------------------------------------------------ 横断図
+  // 谷筋に直角な横断（下流を向いて左が左岸）。幅は流域の外に出るか ±400 m まで
+  function drawXsecPath() {
+    var S = pathSamples(), n = S.x.length, dx = sim.dx; if (xsS == null || xsS > S.L) xsS = S.L * 0.55;
+    var k = Math.max(0, Math.min(n - 1, Math.round(xsS / (S.L / n) - 0.5))), nxv = -S.ty[k], nyv = S.tx[k], st = dx / 2, ext = [0, 0];
+    [1, -1].forEach(function (sg, q) { var u = 0; while (u < 400) { var c = cellXY(S.px[k] + nxv * sg * (u + st), S.py[k] + nyv * sg * (u + st)); if (!inBasin(c)) break; u += st; } ext[q] = u; });
+    var yy = [], zb = [], z0 = [], ws = [], dmA = [], gs = [0, 0], isDam = false;
+    for (var u = ext[0]; u >= -ext[1] - 1e-9; u -= st) {
+      var c = cellXY(S.px[k] + nxv * u, S.py[k] + nyv * u); if (c < 0) continue;
+      yy.push(ext[0] - u); zb.push(sim.z[c]); z0.push(sim.z0[c]); ws.push(sim.h[c] > 0.01 ? sim.z[c] + sim.h[c] : NaN);
+      dmA.push(sim.kind[c] !== 2 && gstat(c, gs) ? gs[0] : NaN); if (sim.kind[c] === 2) isDam = true;
+    }
+    var nm = DP[PI].name.replace(/（.*$/, '');
+    $('xs_title').textContent = '横断（' + nm + '、上流端から ' + S.x[k].toFixed(0) + ' m' + (isDam ? '、堰堤の位置' : '') + '）';
+    $('xs_val').textContent = S.x[k].toFixed(0) + ' m';
+    var dlo = sim.d[0], dhi = sim.dmax, colr = [0, 0, 0], W = ext[0] + ext[1];
+    chart($('xsec'), {
+      series: [
+        { x: yy, y: zb, color: css('--sed'), fill: css('--sed') + '55', label: '河床', w: 2 },
+        { x: yy, y: z0, color: css('--ink3'), label: '初期河床', w: 1.2 },
+        { x: yy, y: ws, color: css('--s1'), label: '水面', w: 1.6 }
+      ], x0: 0, x1: Math.max(W, dx), zoom: 'xs', xlabel: '左岸側の端からの距離 [m]（谷筋は ' + ext[0].toFixed(0) + ' m）', xname: '左から', xunit: ' m', height: 220,
+      over: function (ctx, X, Y) {
+        for (var q = 0; q < yy.length; q++) {
+          if (dmA[q] !== dmA[q]) continue;
+          seqOr(Math.log(dmA[q] / dlo) / Math.log(dhi / dlo || 2), colr);
+          ctx.fillStyle = 'rgb(' + (colr[0] | 0) + ',' + (colr[1] | 0) + ',' + (colr[2] | 0) + ')';
+          var xa = X(yy[q] - st / 2), xb = X(yy[q] + st / 2); ctx.fillRect(xa, Y(zb[q]) + 1, xb - xa + 0.5, 5);
+        }
+        ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = css('--ink3'); ctx.beginPath(); ctx.moveTo(X(ext[0]), 0); ctx.lineTo(X(ext[0]), 600); ctx.stroke(); ctx.restore();
+      }
+    });
+    $('xs_key').innerHTML = keyHTML([{ color: css('--sed'), label: '河床' }, { color: css('--ink3'), label: '初期河床' }, { color: css('--s1'), label: '水面' }]) +
+      '<span><i class="b" style="background:linear-gradient(90deg,#fbe9df,#eb8457,#7a3013)"></i>表層の平均粒径 ' + fmt(dlo * 1000) + '〜' + fmt(dhi * 1000) + ' mm（対数）</span><span>点線：谷筋（縦断の線）の位置</span>';
+  }
   function drawXsec() {
     if (!sim) return;
+    if (pathMode()) { drawXsecPath(); return; }
     if (xsX == null || xsX > sim.Lx) xsX = sim.Lx / 2;
     var nx = sim.nx, ny = sim.ny, dx = sim.dx, i = Math.min(nx - 1, Math.max(0, Math.floor(xsX / dx))), Ly = sim.Ly;
     var yy = new Float64Array(ny), zb = new Float64Array(ny), z0 = new Float64Array(ny), ws = new Float64Array(ny), dmA = new Float64Array(ny), gs = [0, 0], isDam = false;
@@ -1059,7 +1125,7 @@
       tip.hidden = false; var tx = e.clientX - r.left + 12; if (tx > r.width - 230) tx = r.width - 230; tip.style.left = Math.max(0, tx) + 'px'; tip.style.top = (e.clientY - r.top + 14) + 'px';
     });
     cv.addEventListener('pointerleave', function () { tip.hidden = true; });
-    cv.addEventListener('click', function (e) { if (!sim) return; var r = cv.getBoundingClientRect(); xsX = Math.max(0, Math.min(sim.Lx - 1e-6, (e.clientX - r.left) / r.width * sim.Lx)); $('xs_x').value = xsX; drawXsec(); drawPlan(); drawProfile(); });
+    cv.addEventListener('click', function (e) { if (!sim) return; var r = cv.getBoundingClientRect(); if (pathMode()) { setXsFromPlan((e.clientX - r.left) / r.width * sim.Lx, (1 - (e.clientY - r.top) / r.height) * sim.Ly); drawXsec(); drawPlan(); drawProfile(); return; } xsX = Math.max(0, Math.min(sim.Lx - 1e-6, (e.clientX - r.left) / r.width * sim.Lx)); $('xs_x').value = xsX; drawXsec(); drawPlan(); drawProfile(); });
   })();
 
   // ------------------------------------------------------------ 折れ線グラフ
@@ -1135,12 +1201,81 @@
   function keyHTML(items) { return items.map(function (k) { return '<span><i class="' + (k.dash ? 'd' : k.box ? 'b' : '') + '" style="' + (k.box ? 'background:' : 'border-color:') + k.color + '"></i>' + k.label + '</span>'; }).join(''); }
 
   var prof = null;
+  // ------------------------------------------------------------ DEM：谷に沿った縦断と、それに直角な横断
+  var DP = null, PI = 0, xsS = null, PS = null;   // 線の一覧、選んだ線、横断の位置（上流端からの距離）、標本の控え
+  function pathMode() { return !!(DP && DP.length && sim && sim.demMode); }
+  // 選んだ線を dx おきの点に分ける。点ごとに位置と下流向きの単位ベクトル
+  function pathSamples() {
+    if (PS && PS.pi === PI && PS.sim === sim) return PS;
+    var pts = DP[PI].pts, cum = [0], k;
+    for (k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
+    var L = cum[cum.length - 1], dx = sim.dx, n = Math.max(2, Math.floor(L / dx)), S = { pi: PI, sim: sim, L: L, x: new Float64Array(n), px: [], py: [], tx: [], ty: [] }, q = 0;
+    function at(s) { while (q < cum.length - 2 && cum[q + 1] < s) q++; while (q > 0 && cum[q] > s) q--; var a = pts[q], b = pts[q + 1], u = (s - cum[q]) / Math.max(1e-9, cum[q + 1] - cum[q]); return [a[0] + u * (b[0] - a[0]), a[1] + u * (b[1] - a[1])]; }
+    for (k = 0; k < n; k++) {
+      var sk = (k + 0.5) * L / n, p = at(sk), pa = at(Math.max(0, sk - 1.5 * dx)), pb = at(Math.min(L, sk + 1.5 * dx));
+      var tx = pb[0] - pa[0], ty = pb[1] - pa[1], tl = Math.hypot(tx, ty) || 1;
+      S.x[k] = sk; S.px.push(p[0]); S.py.push(p[1]); S.tx.push(tx / tl); S.ty.push(ty / tl);
+    }
+    return (PS = S);
+  }
+  function cellXY(x, y) { var i = Math.floor(x / sim.dx), j = Math.floor(y / sim.dx); return i < 0 || j < 0 || i >= sim.nx || j >= sim.ny ? -1 : j * sim.nx + i; }
+  function inBasin(c) { return c >= 0 && (!sim.basin || sim.basin[c]); }
+  // 縦断：各点で、谷筋に直角な線の上の谷底の帯（±谷筋の幅の半分）から最深・平均の河床、水面、水面幅、表層の粒径、流砂量
+  function pathProfile() {
+    var S = pathSamples(), n = S.x.length, dx = sim.dx, K = sim.K, nx = sim.nx, z = sim.z, z0 = sim.z0, h = sim.h, kind = sim.kind;
+    var hw = Math.max(dx, ((sim.P.dem && sim.P.dem.chW) || 6) / 2 + 0.5 * dx), ww = Math.max(3 * hw, 30);
+    var R = { x: S.x, zmin: new Float64Array(n), zmean: new Float64Array(n), z0min: new Float64Array(n), z0mean: new Float64Array(n), ws: new Float64Array(n), dm: new Float64Array(n), wet: new Float64Array(n), qs: new Float64Array(n), hmax: new Float64Array(n), isDam: new Uint8Array(n) };
+    for (var k = 0; k < n; k++) {
+      var nxv = -S.ty[k], nyv = S.tx[k], mn = 1e30, m0 = 1e30, sm = 0, s0 = 0, cnt = 0, wsum = 0, wcnt = 0, ds = 0, dc = 0, hm = 0, wet = 0, q = 0, seen = {}, dam = false, gs = [0, 0];
+      for (var u = -ww; u <= ww + 1e-9; u += dx / 2) {
+        var c = cellXY(S.px[k] + nxv * u, S.py[k] + nyv * u); if (!inBasin(c) || seen[c]) continue; seen[c] = 1;
+        if (kind[c] === 2) { if (Math.abs(u) <= hw) dam = true; continue; }
+        if (h[c] > 0.03) wet += dx;
+        if (Math.abs(u) > hw) continue;
+        if (z[c] < mn) mn = z[c]; if (z0[c] < m0) m0 = z0[c]; sm += z[c]; s0 += z0[c]; cnt++;
+        if (h[c] > 0.03) { wsum += (z[c] + h[c]) * h[c]; wcnt += h[c]; if (h[c] > hm) hm = h[c]; if (gstat(c, gs)) { ds += gs[0]; dc++; } }
+        var i = c % nx, j = (c - i) / nx, fx = 0, fy = 0;
+        for (var kk = 0; kk < K; kk++) { fx += 0.5 * (sim.SFx[(j * (nx + 1) + i) * K + kk] + sim.SFx[(j * (nx + 1) + i + 1) * K + kk]); fy += 0.5 * (sim.SFy[(j * nx + i) * K + kk] + sim.SFy[((j + 1) * nx + i) * K + kk]); }
+        q += (fx * S.tx[k] + fy * S.ty[k]) * dx;
+      }
+      if (cnt) { R.zmin[k] = mn; R.z0min[k] = m0; R.zmean[k] = sm / cnt; R.z0mean[k] = s0 / cnt; } else { R.zmin[k] = R.z0min[k] = R.zmean[k] = R.z0mean[k] = NaN; }
+      R.ws[k] = wcnt > 0 ? wsum / wcnt : NaN; R.dm[k] = dc ? ds / dc : NaN; R.wet[k] = wet; R.qs[k] = q; R.hmax[k] = hm; R.isDam[k] = dam ? 1 : 0;
+    }
+    // 初期河床（最深）の直線の当てはめ：「初期勾配を差し引く」に使う
+    var sx = 0, sy = 0, sxx = 0, sxy = 0, m = 0;
+    for (k = 0; k < n; k++) if (R.z0min[k] === R.z0min[k]) { sx += S.x[k]; sy += R.z0min[k]; sxx += S.x[k] * S.x[k]; sxy += S.x[k] * R.z0min[k]; m++; }
+    var bb = m > 1 ? (m * sxy - sx * sy) / Math.max(1e-9, m * sxx - sx * sx) : 0; R.trB = bb; R.trA = m ? (sy - bb * sx) / m : 0;
+    // 線の近くの堰堤：線上の最も近い点
+    R.dams = [];
+    sim.dams.forEach(function (D) {
+      var best = -1, bd = 1e30; for (var k2 = 0; k2 < n; k2++) { var d = Math.hypot(S.px[k2] - D.cx, S.py[k2] - D.cy); if (d < bd) { bd = d; best = k2; } }
+      if (best >= 0 && bd <= Math.max(2 * dx, D.ext)) R.dams.push({ s: S.x[best], crest: D.crest });
+    });
+    return R;
+  }
+  function pathOptions() {
+    var sel = $('l_path'), on = pathMode();
+    $('l_pathw').hidden = !on; if (!on) return;
+    sel.innerHTML = DP.map(function (p, q) { return '<option value="' + q + '"' + (q === PI ? ' selected' : '') + '>' + p.name + '</option>'; }).join('');
+  }
+  function setXsFromPlan(x, y) {   // 平面図のクリック：いちばん近い線の上の点へ（いまの線を優先）
+    var best = -1, bs = 0, bd = 1e30, keep = PI;
+    for (var q = 0; q < DP.length; q++) {
+      PI = q; var S = pathSamples();
+      for (var k = 0; k < S.x.length; k++) { var d = Math.hypot(S.px[k] - x, S.py[k] - y) - (q === keep ? 2 * sim.dx : 0); if (d < bd) { bd = d; best = q; bs = S.x[k]; } }
+    }
+    PI = best >= 0 ? best : keep; xsS = bs; PS = null; pathOptions(); var S2 = pathSamples(); $('xs_x').max = S2.L; $('xs_x').value = xsS;
+  }
   function drawProfile() {
-    prof = sim.profile();
-    var det = $('l_det').checked, useMin = $('l_bed').value === 'min', nx = sim.nx, I = sim.I, L = sim.Lx;
+    var PM = pathMode();
+    prof = PM ? pathProfile() : sim.profile();
+    var det = $('l_det').checked, useMin = $('l_bed').value === 'min', nx = PM ? prof.x.length : sim.nx, I = sim.I, L = PM ? pathSamples().L : sim.Lx;
+    var trend = PM ? function (x) { return prof.trA + prof.trB * x; } : trendX;
     var tr = function (zarr, i) { return det ? zarr[i] - trend(prof.x[i]) : zarr[i]; };
     var zb = new Float64Array(nx), z0 = new Float64Array(nx), ws = new Float64Array(nx), i;
-    var isDam = new Uint8Array(nx); sim.dams.forEach(function (D) { isDam[D.i] = 1; });
+    var isDam = PM ? prof.isDam : new Uint8Array(nx); if (!PM) sim.dams.forEach(function (D) { isDam[D.i] = 1; });
+    var damMarks = PM ? prof.dams.map(function (d) { return { x: d.s, crest: d.crest }; }) : sim.dams.map(function (D) { return { x: D.x, crest: D.crest }; });
+    var xsPos = PM ? xsS : xsX, xlab = PM ? '谷に沿った距離（' + DP[PI].name.replace(/（.*$/, '') + 'の上流端から）[m]' : '上流端からの距離 [m]';
     for (i = 0; i < nx; i++) {
       zb[i] = isDam[i] ? NaN : tr(useMin ? prof.zmin : prof.zmean, i); z0[i] = isDam[i] ? NaN : tr(useMin ? prof.z0min : prof.z0mean, i);
       ws[i] = prof.ws[i] === prof.ws[i] ? (det ? prof.ws[i] - trend(prof.x[i]) : prof.ws[i]) : NaN;
@@ -1151,28 +1286,28 @@
       { x: prof.x, y: z0, color: css('--ink3'), label: '初期河床', w: 1.2 },
       { x: prof.x, y: ws, color: css('--s1'), label: '水面', w: 1.6 }
     ];
-    if (ref && ref.nx === nx && ref.dx === sim.dx) {
+    if (!PM && ref && ref.nx === nx && ref.dx === sim.dx) {
       var zr = new Float64Array(nx); for (i = 0; i < nx; i++) zr[i] = ref.isDam[i] ? NaN : (det ? (useMin ? ref.zmin[i] : ref.zmean[i]) - trend(prof.x[i]) : (useMin ? ref.zmin[i] : ref.zmean[i]));
       series.push({ x: prof.x, y: zr, color: css('--sref'), dash: true, label: '比較', w: 1.6 });
     }
     chart($('prof'), {
-      series: series, x0: 0, x1: L, xlabel: '上流端からの距離 [m]', xname: 'x', xunit: ' m', height: 260, zoom: 'prof',
+      series: series, x0: 0, x1: L, xlabel: xlab, xname: PM ? 's' : 'x', xunit: ' m', height: 260, zoom: 'prof',
       over: function (ctx, X, Y, y0) {
         ctx.fillStyle = css('--ink2');
-        if (xsX != null) { ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = css('--ink2'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(X(xsX), 0); ctx.lineTo(X(xsX), 600); ctx.stroke(); ctx.restore(); }
-        sim.dams.forEach(function (D) { var top = det ? D.crest - trend(D.x) : D.crest, w = Math.max(3, X(sim.dx) - X(0)); ctx.fillRect(X(D.x) - w / 2, Y(top), w, Y(y0) - Y(top)); });
+        if (xsPos != null) { ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = css('--ink2'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(X(xsPos), 0); ctx.lineTo(X(xsPos), 600); ctx.stroke(); ctx.restore(); }
+        damMarks.forEach(function (D) { var top = det ? D.crest - trend(D.x) : D.crest, w = Math.max(3, X(sim.dx) - X(0)); ctx.fillRect(X(D.x) - w / 2, Y(top), w, Y(y0) - Y(top)); });
       }
     });
-    var key = [{ color: css('--sed'), label: '河床（' + (useMin ? '最深' : '横断平均') + '）' }, { color: css('--ink3'), label: '初期河床' }, { color: css('--s1'), label: '水面' }, { color: css('--ink2'), box: true, label: '堰堤' }];
+    var key = [{ color: css('--sed'), label: '河床（' + (useMin ? '最深' : PM ? '谷底の帯の平均' : '横断平均') + '）' }, { color: css('--ink3'), label: '初期河床' }, { color: css('--s1'), label: '水面' }, { color: css('--ink2'), box: true, label: '堰堤' }];
     if (series.length > 3) key.push({ color: css('--sref'), dash: true, label: '比較（' + ref.label + '）' });
     $('prof_key').innerHTML = keyHTML(key);
     // 縦断分布
     var lv = $('l_var').value, y = new Float64Array(nx), lab = { dm: '平均粒径 mm', qs: '流砂量 m³/s', wet: '水面幅 m', dz: 'Δz m' }[lv];
     for (i = 0; i < nx; i++) y[i] = lv === 'dm' ? prof.dm[i] * 1000 : lv === 'qs' ? prof.qs[i] : lv === 'wet' ? prof.wet[i] : (isDam[i] ? NaN : prof.zmean[i] - prof.z0mean[i]);
     var ss = [{ x: prof.x, y: y, color: lv === 'dz' ? css('--sed') : css('--s3'), label: lab }];
-    if (ref && ref.nx === nx && ref.dx === sim.dx && ref[lv]) ss.push({ x: prof.x, y: ref[lv], color: css('--sref'), dash: true, label: '比較', w: 1.5 });
-    chart($('strip'), { series: ss, x0: 0, x1: L, xlabel: '上流端からの距離 [m]', xname: 'x', xunit: ' m', height: 150, zoom: 'prof', zero: lv !== 'dz' && lv !== 'dm',
-      under: function (ctx, X, Y) { ctx.strokeStyle = css('--line'); ctx.lineWidth = 1; ctx.setLineDash([2, 3]); sim.dams.forEach(function (D) { ctx.beginPath(); ctx.moveTo(X(D.x), 0); ctx.lineTo(X(D.x), 400); ctx.stroke(); }); ctx.setLineDash([]); } });
+    if (!PM && ref && ref.nx === nx && ref.dx === sim.dx && ref[lv]) ss.push({ x: prof.x, y: ref[lv], color: css('--sref'), dash: true, label: '比較', w: 1.5 });
+    chart($('strip'), { series: ss, x0: 0, x1: L, xlabel: xlab, xname: PM ? 's' : 'x', xunit: ' m', height: 150, zoom: 'prof', zero: lv !== 'dz' && lv !== 'dm',
+      under: function (ctx, X, Y) { ctx.strokeStyle = css('--line'); ctx.lineWidth = 1; ctx.setLineDash([2, 3]); damMarks.forEach(function (D) { ctx.beginPath(); ctx.moveTo(X(D.x), 0); ctx.lineTo(X(D.x), 400); ctx.stroke(); }); ctx.setLineDash([]); } });
   }
   function drawSeries() {
     var S = sim.series, T = sim.duration() / 60, tm = S.t.map(function (t) { return t / 60; });
@@ -1636,7 +1771,9 @@
       if ($('g_src').value === 'csv') $('csv_info').textContent = e.message; if ($('g_src').value === 'survey') $('sv_info').textContent = e.message;
       if (sim) refresh(true); return;
     }
-    $('xs_x').max = sim.Lx; $('xs_x').step = sim.dx; if (xsX == null || xsX > sim.Lx) xsX = Math.round(sim.Lx * 0.55); $('xs_x').value = xsX;
+    DP = sim.demMode && window.SaboDEMUI && window.SaboDEMUI.paths ? window.SaboDEMUI.paths() : null; PI = 0; PS = null; xsS = null; pathOptions();
+    if (pathMode()) { var PS0 = pathSamples(); xsS = Math.round(PS0.L * 0.55); $('xs_x').max = PS0.L; $('xs_x').step = sim.dx; $('xs_x').value = xsS; }
+    else { $('xs_x').max = sim.Lx; $('xs_x').step = sim.dx; if (xsX == null || xsX > sim.Lx) xsX = Math.round(sim.Lx * 0.55); $('xs_x').value = xsX; }
     $('gridinfo').textContent = '格子 ' + sim.nx + ' × ' + sim.ny + '（' + sim.N.toLocaleString() + ' セル、幅 ' + sim.dx + ' m）　粒径階 ' + sim.K + '　堰堤 ' + sim.dams.length + ' 基' + (sim.fromCSV ? '　CSV 地形（平均勾配 1/' + (1 / sim.I).toFixed(0) + '）' : '') + (sim.I > 0.1 + 1e-9 && sim.P.transport !== 'debris' ? '　注意：勾配 1/' + (1 / sim.I).toFixed(0) + ' は掃流砂の式の適用範囲（1/10 程度より緩い）を超えます。' : '') + (sim.warn.length ? '　注意：' + sim.warn.join(' ') : '');
     if (P.prefill > 0) $('gridinfo').textContent += '　はじめから満砂（比 ' + P.prefill + '）';
     if (sim.demMode) {
@@ -1761,7 +1898,8 @@
     var done = function () { $('csv_copy').textContent = 'コピーしました'; setTimeout(function () { $('csv_copy').textContent = 'CSV をコピー'; }, 1500); };
     try { navigator.clipboard.writeText(t.value).then(done, function () { t.hidden = false; t.select(); }); } catch (e) { t.select(); }
   };
-  $('xs_x').oninput = function () { xsX = +this.value; drawXsec(); drawPlan(); drawProfile(); };
+  $('xs_x').oninput = function () { if (pathMode()) xsS = +this.value; else xsX = +this.value; drawXsec(); drawPlan(); drawProfile(); };
+  $('l_path').onchange = function () { PI = +this.value; PS = null; var S0 = pathSamples(); xsS = Math.round(S0.L * 0.55); $('xs_x').max = S0.L; $('xs_x').value = xsS; drawXsec(); drawPlan(); drawProfile(); };
   $('dam_add').onclick = function () { var L = num('g_L', 400); $('damtab').tBodies[0].appendChild(damRow({ x: Math.round(L / 2), H: 1.2, b: 0 })); };
   $('w_add').onclick = function () { var L = num('g_L', 400), B = num('g_B', 50), n = $('wtab').tBodies[0].rows.length; $('wtab').tBodies[0].appendChild(wRow(n ? [Math.round(L / 2), B] : [0, B])); };
   $('w_ex').onclick = function () { var L = num('g_L', 400), B = num('g_B', 50); setW([[0, B], [Math.round(L * 0.35), B], [Math.round(L * 0.5), Math.round(B * 0.4)], [Math.round(L * 0.6), Math.round(B * 0.4)], [Math.round(L * 0.75), Math.round(B * 1.4)], [L, Math.round(B * 1.4)]]); };
