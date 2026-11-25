@@ -513,8 +513,10 @@
       if (rot === 2) return [x0 + W - 1 - i, y0 + H - 1 - j];
       return [x0 + W - 1 - j, y0 + i];
     }
-    var po = fwd(outlet % nx, (outlet / nx) | 0), extra = RW - 1 - po[0] + 3;   // 出口から右端まで＋3 列
-    var NW = RW + 3, rows = [], bas = [], chn = [], src = [];
+    // 右に足す列：3 列か、計算格子の 4 セル分の長い方（出口の先に緩衝の水路をとり、その先で水を抜くため）
+    var nAdd = Math.max(3, Math.ceil(4 * ((opt && opt.dx) || D.cs) / D.cs));
+    var po = fwd(outlet % nx, (outlet / nx) | 0), extra = RW - 1 - po[0] + nAdd;   // 出口から右端まで
+    var NW = RW + nAdd, rows = [], bas = [], chn = [], src = [];
     var zmaxB = -Infinity;
     for (c = 0; c < nx * ny; c++) if (mask[c] && D.z[c] > zmaxB) zmaxB = D.z[c];
     for (var j = 0; j < RH; j++) {
@@ -537,12 +539,12 @@
       for (var dj = -2; dj <= 2; dj++) {
         var jj = po[1] + dj; if (jj < 0 || jj >= RH) continue;
         if (dj && bas[jj][i] && rows[jj][i] < zc) continue;
-        if (!bas[jj][i]) cor[jj][i] = 1;   // 出口の先の水路（流域の外だったセル）
+        if (!bas[jj][i]) cor[jj][i] = i - po[0];   // 出口の先の水路（流域の外だったセル）。値は出口からの列数
         rows[jj][i] = zc; bas[jj][i] = 1; if (!dj) chn[jj][i] = 1;
       }
     }
     return {
-      rows: rows, cs: D.cs, basin: bas, chan: chn, corr: cor, cellOf: src, rot: rot, x0: x0, y0: y0, W: W, H: H, nx: NW, ny: RH,
+      rows: rows, cs: D.cs, basin: bas, chan: chn, corr: cor, cellOf: src, outXY: [(po[0] + 0.5) * D.cs, (RH - po[1] - 0.5) * D.cs], rot: rot, x0: x0, y0: y0, W: W, H: H, nx: NW, ny: RH,
       outlet: po, Iout: Iout, zTop: zmaxB, extra: extra,
       // DEM のセル → 計算領域の座標（m、x は右、y は上が正。ソルバーの座標）
       toXY: function (cell) { var p = fwd(cell % nx, (cell / nx) | 0); return [(p[0] + 0.5) * D.cs, (RH - p[1] - 0.5) * D.cs]; },

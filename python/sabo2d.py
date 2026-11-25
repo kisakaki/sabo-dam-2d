@@ -1700,8 +1700,12 @@ class Sim:
         # 出口の先の水路のセル：自由流出（P['dem']['outlet'] = 'sink'、既定）ならここで抜く
         sink = np.zeros((ny, nx), bool)
         if T.get('corr') is not None and DM.get('outlet') != 'channel':
-            Tk = np.asarray(T['corr']) != 0; nK = np.zeros(N); np.add.at(nK, cc[Tk[ok]], 1.0)
-            sink = np.where(has, (nK > 0).reshape(ny, nx), Tk[r, q]) & bas
+            Tv = np.asarray(T['corr'], dtype=float); Tk = (Tv > 0) & (Tv * cs >= 3 * dx)   # 出口から 3 セル以上先（手前は緩衝区間）
+            nK = np.zeros(N); np.add.at(nK, cc[Tk[ok]], 1.0); nKa = np.zeros(N); np.add.at(nKa, cc[(Tv > 0)[ok]], 1.0)
+            sink = np.where(has, (nK > 0).reshape(ny, nx), Tk[r, q])
+            lastc = np.zeros((ny, nx), bool); lastc[:, nx - 1] = True
+            anyK = np.where(has, (nKa > 0).reshape(ny, nx), Tv[r, q] > 0)
+            sink = (sink | (lastc & anyK)) & bas
         # 計算格子での窪地埋め（4 近傍の Priority-Flood。右端と出口の先から）
         if DM.get('fill', True) is not False:
             zc_ = np.ascontiguousarray(z, dtype=float); self.nFill = _fill4(zc_, bas, sink, nx, ny, 1e-3); z[:] = zc_
@@ -1729,6 +1733,8 @@ class Sim:
             zo2 = self.zOut.reshape(ny, nx).astype(float)
             zo2 = np.where(has, np.maximum(zo2, xA.reshape(ny, nx)), zo2)   # 入る DEM のセルの最高値（細い尾根を平均で消さない）
             ring = ~bas & ~sink & nbB & np.isfinite(zo2) & (zo2 < wallZ)
+            if T.get('outXY') is not None:   # 出口のまわり（計算格子 4 セル以内）は出口の水路に任せる
+                ring &= np.hypot(XX - T['outXY'][0], YY - T['outXY'][1]) >= 4 * dx
             zfix[ring] = zo2[ring]; self.nEdge = int(ring.sum())
             sink = sink | ring
             self._ringZ = (ring, zo2[ring])
@@ -3642,7 +3648,7 @@ def dem_params(P, a):
         mask = SD.upstream(D, A, out)
     else:
         b = max(A.basins, key=lambda b: b['area']); out = b['outlet']; mask = A.bid == b['id']
-    dom = SD.prepare_domain(D, A, mask, out)
+    dom = SD.prepare_domain(D, A, mask, out, dx=a.dx)
     P['terrain'] = SD.terrain_params(dom); P['csvSlope'] = 0; P['dams'] = []; P['tribs'] = []; P['prefill'] = 0
     P['dx'] = max(P['dx'], D.cs)
     dur = a.dem_minutes * 60

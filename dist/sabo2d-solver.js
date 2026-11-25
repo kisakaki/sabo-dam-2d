@@ -1702,13 +1702,13 @@
     // DEM の格子 → 計算格子：計算格子のセルに中心が入る DEM のセルを集める。谷筋のセルがあればその最低値（狭い谷を
     // ふさがない）、なければ流域内のセルの平均。流域かどうかは、谷筋を含むか、半分以上が流域か。
     // 入る DEM のセルがない（計算格子が DEM より細かい）ときは、最も近い DEM のセル（谷筋なら値そのもの、ほかは双一次補間）
-    var xA = new Float64Array(N).fill(-1e30), nK = new Float64Array(N), nT = new Float64Array(N), nB = new Float64Array(N), sB = new Float64Array(N), sA = new Float64Array(N), nC = new Float64Array(N), mC = new Float64Array(N).fill(1e30);
+    var xA = new Float64Array(N).fill(-1e30), nKa = new Float64Array(N), nK = new Float64Array(N), nT = new Float64Array(N), nB = new Float64Array(N), sB = new Float64Array(N), sA = new Float64Array(N), nC = new Float64Array(N), mC = new Float64Array(N).fill(1e30);
     for (r = 0; r < nr; r++) {
       var jy = Math.floor((Ly - (r + 0.5) * cs) / dx); if (jy < 0 || jy >= ny) continue;
       var rowZ = T.rows[r], rowB = T.basin[r], rowC = T.chan ? T.chan[r] : null, rowK = T.corr ? T.corr[r] : null;
       for (q = 0; q < nc; q++) {
         var ix = Math.floor((q + 0.5) * cs / dx); if (ix < 0 || ix >= nx) continue;
-        c = jy * nx + ix; var v = rowZ[q]; nT[c]++; sA[c] += v; if (v > xA[c]) xA[c] = v; if (rowK && rowK[q]) nK[c]++;
+        c = jy * nx + ix; var v = rowZ[q]; nT[c]++; sA[c] += v; if (v > xA[c]) xA[c] = v; if (rowK && rowK[q]) { nKa[c]++; if (rowK[q] * cs >= 3 * dx) nK[c]++; }
         if (rowB[q]) { nB[c]++; sB[c] += v; if (rowC && rowC[q]) { nC[c]++; if (v < mC[c]) mC[c] = v; } }
       }
     }
@@ -1730,7 +1730,10 @@
     var sinkL = [];
     var isSink = new Uint8Array(N);
     if (T.corr && DM.outlet !== 'channel') for (c = 0; c < N; c++) {
-      var isK = nT[c] > 0 ? nK[c] > 0 : !!T.corr[Math.min(nr - 1, Math.max(0, Math.floor((Ly - (((c - c % nx) / nx) + 0.5) * dx) / cs)))][Math.min(nc - 1, Math.max(0, Math.floor(((c % nx) + 0.5) * dx / cs)))];
+      // 出口から計算格子で 3 セル以上離れた水路のセル（その手前は緩衝区間：出口で水面が急に下がって流速が跳ね上がるのを防ぐ）
+      var kv = T.corr[Math.min(nr - 1, Math.max(0, Math.floor((Ly - (((c - c % nx) / nx) + 0.5) * dx) / cs)))][Math.min(nc - 1, Math.max(0, Math.floor(((c % nx) + 0.5) * dx / cs)))];
+      var isK = nT[c] > 0 ? nK[c] > 0 : (kv > 0 && kv * cs >= 3 * dx);
+      if (!isK && c % nx === nx - 1 && (nT[c] > 0 ? nKa[c] > 0 : kv > 0)) isK = true;   // 右端の列は必ず抜く
       if (isK && bas[c]) { sinkL.push(c); isSink[c] = 1; }
     }
     this.sinkCells = sinkL;
@@ -1762,6 +1765,8 @@
     this.nEdge = 0;
     if (DM.edgeOut !== false) for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {
       c = j * nx + i; if (bas[c] || isSink[c]) continue;
+      // 出口のまわり（出口から計算格子 4 セル以内）は出口の水路に任せる（ここで抜くと出口で水面が急に下がる）
+      if (T.outXY && Math.hypot((i + 0.5) * dx - T.outXY[0], (j + 0.5) * dx - T.outXY[1]) < 4 * dx) continue;
       if (!((i > 0 && bas[c - 1]) || (i < nx - 1 && bas[c + 1]) || (j > 0 && bas[c - nx]) || (j < ny - 1 && bas[c + nx]))) continue;
       // 高さは、そのセルに入る DEM のセルの最高値（細い尾根＝分水界を平均で消さない。外へ出るのは分水界を越える水だけ）
       var zo_ = nT[c] > 0 ? Math.max(this.zOut[c], xA[c]) : this.zOut[c]; if (!(zo_ === zo_) || zo_ >= wallZ) continue;

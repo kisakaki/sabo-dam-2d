@@ -1178,8 +1178,10 @@ table.res th,table.res td{white-space:nowrap}
       if (rot === 2) return [x0 + W - 1 - i, y0 + H - 1 - j];
       return [x0 + W - 1 - j, y0 + i];
     }
-    var po = fwd(outlet % nx, (outlet / nx) | 0), extra = RW - 1 - po[0] + 3;   // 出口から右端まで＋3 列
-    var NW = RW + 3, rows = [], bas = [], chn = [], src = [];
+    // 右に足す列：3 列か、計算格子の 4 セル分の長い方（出口の先に緩衝の水路をとり、その先で水を抜くため）
+    var nAdd = Math.max(3, Math.ceil(4 * ((opt && opt.dx) || D.cs) / D.cs));
+    var po = fwd(outlet % nx, (outlet / nx) | 0), extra = RW - 1 - po[0] + nAdd;   // 出口から右端まで
+    var NW = RW + nAdd, rows = [], bas = [], chn = [], src = [];
     var zmaxB = -Infinity;
     for (c = 0; c < nx * ny; c++) if (mask[c] && D.z[c] > zmaxB) zmaxB = D.z[c];
     for (var j = 0; j < RH; j++) {
@@ -1202,12 +1204,12 @@ table.res th,table.res td{white-space:nowrap}
       for (var dj = -2; dj <= 2; dj++) {
         var jj = po[1] + dj; if (jj < 0 || jj >= RH) continue;
         if (dj && bas[jj][i] && rows[jj][i] < zc) continue;
-        if (!bas[jj][i]) cor[jj][i] = 1;   // 出口の先の水路（流域の外だったセル）
+        if (!bas[jj][i]) cor[jj][i] = i - po[0];   // 出口の先の水路（流域の外だったセル）。値は出口からの列数
         rows[jj][i] = zc; bas[jj][i] = 1; if (!dj) chn[jj][i] = 1;
       }
     }
     return {
-      rows: rows, cs: D.cs, basin: bas, chan: chn, corr: cor, cellOf: src, rot: rot, x0: x0, y0: y0, W: W, H: H, nx: NW, ny: RH,
+      rows: rows, cs: D.cs, basin: bas, chan: chn, corr: cor, cellOf: src, outXY: [(po[0] + 0.5) * D.cs, (RH - po[1] - 0.5) * D.cs], rot: rot, x0: x0, y0: y0, W: W, H: H, nx: NW, ny: RH,
       outlet: po, Iout: Iout, zTop: zmaxB, extra: extra,
       // DEM のセル → 計算領域の座標（m、x は右、y は上が正。ソルバーの座標）
       toXY: function (cell) { var p = fwd(cell % nx, (cell / nx) | 0); return [(p[0] + 0.5) * D.cs, (RH - p[1] - 0.5) * D.cs]; },
@@ -3107,13 +3109,13 @@ table.res th,table.res td{white-space:nowrap}
     // DEM の格子 → 計算格子：計算格子のセルに中心が入る DEM のセルを集める。谷筋のセルがあればその最低値（狭い谷を
     // ふさがない）、なければ流域内のセルの平均。流域かどうかは、谷筋を含むか、半分以上が流域か。
     // 入る DEM のセルがない（計算格子が DEM より細かい）ときは、最も近い DEM のセル（谷筋なら値そのもの、ほかは双一次補間）
-    var xA = new Float64Array(N).fill(-1e30), nK = new Float64Array(N), nT = new Float64Array(N), nB = new Float64Array(N), sB = new Float64Array(N), sA = new Float64Array(N), nC = new Float64Array(N), mC = new Float64Array(N).fill(1e30);
+    var xA = new Float64Array(N).fill(-1e30), nKa = new Float64Array(N), nK = new Float64Array(N), nT = new Float64Array(N), nB = new Float64Array(N), sB = new Float64Array(N), sA = new Float64Array(N), nC = new Float64Array(N), mC = new Float64Array(N).fill(1e30);
     for (r = 0; r < nr; r++) {
       var jy = Math.floor((Ly - (r + 0.5) * cs) / dx); if (jy < 0 || jy >= ny) continue;
       var rowZ = T.rows[r], rowB = T.basin[r], rowC = T.chan ? T.chan[r] : null, rowK = T.corr ? T.corr[r] : null;
       for (q = 0; q < nc; q++) {
         var ix = Math.floor((q + 0.5) * cs / dx); if (ix < 0 || ix >= nx) continue;
-        c = jy * nx + ix; var v = rowZ[q]; nT[c]++; sA[c] += v; if (v > xA[c]) xA[c] = v; if (rowK && rowK[q]) nK[c]++;
+        c = jy * nx + ix; var v = rowZ[q]; nT[c]++; sA[c] += v; if (v > xA[c]) xA[c] = v; if (rowK && rowK[q]) { nKa[c]++; if (rowK[q] * cs >= 3 * dx) nK[c]++; }
         if (rowB[q]) { nB[c]++; sB[c] += v; if (rowC && rowC[q]) { nC[c]++; if (v < mC[c]) mC[c] = v; } }
       }
     }
@@ -3135,7 +3137,10 @@ table.res th,table.res td{white-space:nowrap}
     var sinkL = [];
     var isSink = new Uint8Array(N);
     if (T.corr && DM.outlet !== 'channel') for (c = 0; c < N; c++) {
-      var isK = nT[c] > 0 ? nK[c] > 0 : !!T.corr[Math.min(nr - 1, Math.max(0, Math.floor((Ly - (((c - c % nx) / nx) + 0.5) * dx) / cs)))][Math.min(nc - 1, Math.max(0, Math.floor(((c % nx) + 0.5) * dx / cs)))];
+      // 出口から計算格子で 3 セル以上離れた水路のセル（その手前は緩衝区間：出口で水面が急に下がって流速が跳ね上がるのを防ぐ）
+      var kv = T.corr[Math.min(nr - 1, Math.max(0, Math.floor((Ly - (((c - c % nx) / nx) + 0.5) * dx) / cs)))][Math.min(nc - 1, Math.max(0, Math.floor(((c % nx) + 0.5) * dx / cs)))];
+      var isK = nT[c] > 0 ? nK[c] > 0 : (kv > 0 && kv * cs >= 3 * dx);
+      if (!isK && c % nx === nx - 1 && (nT[c] > 0 ? nKa[c] > 0 : kv > 0)) isK = true;   // 右端の列は必ず抜く
       if (isK && bas[c]) { sinkL.push(c); isSink[c] = 1; }
     }
     this.sinkCells = sinkL;
@@ -3167,6 +3172,8 @@ table.res th,table.res td{white-space:nowrap}
     this.nEdge = 0;
     if (DM.edgeOut !== false) for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {
       c = j * nx + i; if (bas[c] || isSink[c]) continue;
+      // 出口のまわり（出口から計算格子 4 セル以内）は出口の水路に任せる（ここで抜くと出口で水面が急に下がる）
+      if (T.outXY && Math.hypot((i + 0.5) * dx - T.outXY[0], (j + 0.5) * dx - T.outXY[1]) < 4 * dx) continue;
       if (!((i > 0 && bas[c - 1]) || (i < nx - 1 && bas[c + 1]) || (j > 0 && bas[c - nx]) || (j < ny - 1 && bas[c + nx]))) continue;
       // 高さは、そのセルに入る DEM のセルの最高値（細い尾根＝分水界を平均で消さない。外へ出るのは分水界を越える水だけ）
       var zo_ = nT[c] > 0 ? Math.max(this.zOut[c], xA[c]) : this.zOut[c]; if (!(zo_ === zo_) || zo_ >= wallZ) continue;
@@ -6084,7 +6091,9 @@ table.res th,table.res td{white-space:nowrap}
         eta = 1e30;
         if (i > 0 && h[c - 1] > 0.006) eta = Math.min(eta, z[c - 1] + h[c - 1]); if (i < nx - 1 && h[c + 1] > 0.006) eta = Math.min(eta, z[c + 1] + h[c + 1]);
         if (j > 0 && h[c - nx] > 0.006) eta = Math.min(eta, z[c - nx] + h[c - nx]); if (j < ny - 1 && h[c + nx] > 0.006) eta = Math.min(eta, z[c + nx] + h[c + nx]);
-        eta = eta > 1e29 ? z[c] - 0.4 : Math.min(eta, z[c] - 0.02); hh = 0;
+        // 水のないセルの水面は、描いている地面（DEM の流域の外は元の標高）より下に置く。計算の z（流域の外は高い壁）を使うと、
+        // 濡れたセルとの三角形が壁の高さまで伸びて、水の柱のように見えるため
+        eta = eta > 1e29 ? zz - 0.4 : Math.min(eta, zz - 0.02); hh = 0;
       }
       wp[p] = tp[p]; wp[p + 1] = (eta - zmid) * vex + 0.01; wp[p + 2] = tp[p + 2];
       var uu = hh > 0.01 ? sim.qx[c] / hh : 0, vv = hh > 0.01 ? sim.qy[c] / hh : 0, fr = hh > 0.01 ? Math.hypot(uu, vv) / Math.sqrt(G * hh) : 0;
@@ -7231,7 +7240,7 @@ table.res th,table.res td{white-space:nowrap}
     var dom = SD.prepareDomain(D, A, ST.mask, ST.outlet, { fill: $('dem_fill').checked, dx: p.dx });
     ST.dom = dom;
     try { buildPaths(dom); } catch (e) { ST.paths = null; }
-    p.terrain = { rows: dom.rows, cs: dom.cs, basin: dom.basin, chan: dom.chan, corr: dom.corr, Iout: dom.Iout };
+    p.terrain = { rows: dom.rows, cs: dom.cs, basin: dom.basin, chan: dom.chan, corr: dom.corr, outXY: dom.outXY, Iout: dom.Iout };
     p.csvSlope = 0; p.L = dom.nx * dom.cs; p.sideCells = 0; p.dams = []; p.tribs = []; p.prefill = 0;
     var dur = Math.max(1, +$('dem_dur').value || 30) * 60;
     p.dem = { soilD: Math.max(0.1, +$('dem_soil').value || 1), chW: Math.max(1, +$('dem_chw').value || 10), ks: Math.max(0, +$('dem_ks').value || 0), s0: 0.3, duration: dur, outlet: $('dem_out').value, smooth: ST.D && ST.D.smooth || 0, fill: $('dem_fill').checked, edgeOut: $('dem_edge').checked, pit: Math.max(0, +$('dem_pit').value || 0) };

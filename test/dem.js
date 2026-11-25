@@ -4,11 +4,11 @@ const M = require('../src/dem.js'), HY = require('../src/hydro.js');
 const { Sim, defaultParams } = require('../src/sabo2d-solver.js');
 const D = M.synthDEM({}), A = M.analyze(D, { thrArea: 20000 });
 const b0 = A.basins.slice().sort((a, b) => b.area - a.area)[0], mask = M.upstream(D, A, b0.outlet);
-const dom = M.prepareDomain(D, A, mask, b0.outlet, {}), heads = A.heads.filter(c => mask[c]);
+const dom = M.prepareDomain(D, A, mask, b0.outlet, { dx: 10 }), heads = A.heads.filter(c => mask[c]);
 console.log('DEM', D.nx, 'x', D.ny, '谷頭', A.heads.length, '流域', A.basins.length, '選んだ流域の谷頭', heads.length);
 function base() {
   const P = defaultParams();
-  P.terrain = { rows: dom.rows, cs: dom.cs, basin: dom.basin, chan: dom.chan, corr: dom.corr, Iout: dom.Iout };
+  P.terrain = { rows: dom.rows, cs: dom.cs, basin: dom.basin, chan: dom.chan, corr: dom.corr, outXY: dom.outXY, Iout: dom.Iout };
   P.dx = 10; P.csvSlope = 0; P.transport = 'debris'; P.dams = []; P.tribs = []; P.snapEvery = 0; P.dem.duration = 300;
   P.grains = [{ d: 0.01, bed: 0.3, feed: 0.3 }, { d: 0.05, bed: 0.4, feed: 0.4 }, { d: 0.2, bed: 0.3, feed: 0.3 }];
   return P;

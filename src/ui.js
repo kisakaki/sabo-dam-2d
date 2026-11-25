@@ -1691,7 +1691,9 @@
         eta = 1e30;
         if (i > 0 && h[c - 1] > 0.006) eta = Math.min(eta, z[c - 1] + h[c - 1]); if (i < nx - 1 && h[c + 1] > 0.006) eta = Math.min(eta, z[c + 1] + h[c + 1]);
         if (j > 0 && h[c - nx] > 0.006) eta = Math.min(eta, z[c - nx] + h[c - nx]); if (j < ny - 1 && h[c + nx] > 0.006) eta = Math.min(eta, z[c + nx] + h[c + nx]);
-        eta = eta > 1e29 ? z[c] - 0.4 : Math.min(eta, z[c] - 0.02); hh = 0;
+        // 水のないセルの水面は、描いている地面（DEM の流域の外は元の標高）より下に置く。計算の z（流域の外は高い壁）を使うと、
+        // 濡れたセルとの三角形が壁の高さまで伸びて、水の柱のように見えるため
+        eta = eta > 1e29 ? zz - 0.4 : Math.min(eta, zz - 0.02); hh = 0;
       }
       wp[p] = tp[p]; wp[p + 1] = (eta - zmid) * vex + 0.01; wp[p + 2] = tp[p + 2];
       var uu = hh > 0.01 ? sim.qx[c] / hh : 0, vv = hh > 0.01 ? sim.qy[c] / hh : 0, fr = hh > 0.01 ? Math.hypot(uu, vv) / Math.sqrt(G * hh) : 0;

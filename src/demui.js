@@ -780,7 +780,7 @@
     var dom = SD.prepareDomain(D, A, ST.mask, ST.outlet, { fill: $('dem_fill').checked, dx: p.dx });
     ST.dom = dom;
     try { buildPaths(dom); } catch (e) { ST.paths = null; }
-    p.terrain = { rows: dom.rows, cs: dom.cs, basin: dom.basin, chan: dom.chan, corr: dom.corr, Iout: dom.Iout };
+    p.terrain = { rows: dom.rows, cs: dom.cs, basin: dom.basin, chan: dom.chan, corr: dom.corr, outXY: dom.outXY, Iout: dom.Iout };
     p.csvSlope = 0; p.L = dom.nx * dom.cs; p.sideCells = 0; p.dams = []; p.tribs = []; p.prefill = 0;
     var dur = Math.max(1, +$('dem_dur').value || 30) * 60;
     p.dem = { soilD: Math.max(0.1, +$('dem_soil').value || 1), chW: Math.max(1, +$('dem_chw').value || 10), ks: Math.max(0, +$('dem_ks').value || 0), s0: 0.3, duration: dur, outlet: $('dem_out').value, smooth: ST.D && ST.D.smooth || 0, fill: $('dem_fill').checked, edgeOut: $('dem_edge').checked, pit: Math.max(0, +$('dem_pit').value || 0) };

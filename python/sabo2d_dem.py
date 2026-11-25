@@ -441,7 +441,7 @@ def local_slope(D, A, c, n=3):
     return max(1e-3, (z0 - A.zf[cc]) / L) if L > 0 else 1e-2
 
 
-def prepare_domain(D, A, mask, outlet, fill_dem=True):
+def prepare_domain(D, A, mask, outlet, fill_dem=True, dx=None):
     """流域を切り出し、出口の流向が右（+x）になるよう回して、出口から右端まで水路を掘る（dem.js の prepareDomain と同じ）"""
     nx, ny = D.nx, D.ny; N = nx * ny
     zz2 = (A.zf if fill_dem else D.z).copy(); st = A.stream.copy()
@@ -479,7 +479,8 @@ def prepare_domain(D, A, mask, outlet, fill_dem=True):
 
     def inv(i, j):
         return [(x0 + i, y0 + j), (x0 + j, y0 + H - 1 - i), (x0 + W - 1 - i, y0 + H - 1 - j), (x0 + W - 1 - j, y0 + i)][rot]
-    po = fwd(outlet % nx, outlet // nx); NW = RW + 3
+    nAdd = max(3, int(math.ceil(4 * (dx or D.cs) / D.cs)))   # 出口の先に緩衝の水路（計算格子の 4 セル分以上）
+    po = fwd(outlet % nx, outlet // nx); NW = RW + nAdd
     zmaxB = float(np.nanmax(np.where(mask, D.z, np.nan)))
     rows = np.zeros((RH, NW)); bas = np.zeros((RH, NW), np.uint8); chn = np.zeros((RH, NW), np.uint8); cellOf = np.full((RH, NW), -1, np.int64)
     for j in range(RH):
@@ -501,7 +502,7 @@ def prepare_domain(D, A, mask, outlet, fill_dem=True):
             if dj and bas[jj, i] and rows[jj, i] < zc:
                 continue
             if not bas[jj, i]:
-                cor[jj, i] = 1   # 出口の先の水路（流域の外だったセル）
+                cor[jj, i] = i - po[0]   # 出口の先の水路（流域の外だったセル）。値は出口からの列数
             rows[jj, i] = zc; bas[jj, i] = 1
             if not dj:
                 chn[jj, i] = 1
@@ -511,6 +512,7 @@ def prepare_domain(D, A, mask, outlet, fill_dem=True):
     dom = Dom()
     dom.rows, dom.cs, dom.basin, dom.chan, dom.cellOf, dom.rot, dom.nx, dom.ny, dom.outlet, dom.Iout = rows, D.cs, bas, chn, cellOf, rot, NW, RH, po, Iout
     dom.corr = cor
+    dom.outXY = [(po[0] + 0.5) * D.cs, (RH - po[1] - 0.5) * D.cs]   # 出口（計算領域の座標）
 
     def toXY(cell):
         p = fwd(cell % nx, cell // nx)
@@ -529,7 +531,7 @@ def prepare_domain(D, A, mask, outlet, fill_dem=True):
 
 
 def terrain_params(dom):
-    return {'rows': dom.rows.tolist(), 'cs': dom.cs, 'basin': dom.basin.tolist(), 'chan': dom.chan.tolist(), 'corr': dom.corr.tolist(), 'Iout': dom.Iout}
+    return {'rows': dom.rows.tolist(), 'cs': dom.cs, 'basin': dom.basin.tolist(), 'chan': dom.chan.tolist(), 'corr': dom.corr.tolist(), 'Iout': dom.Iout, 'outXY': dom.outXY}
 
 
 def synth_dem(nx=160, ny=120, cs=10.0, seed=3, iters=40):
