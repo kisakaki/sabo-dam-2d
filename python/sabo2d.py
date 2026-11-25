@@ -86,7 +86,7 @@ def default_params():
         # 伏流（河床への浸透と地下水の流れ。Darcy 則・Dupuit 近似）。k = 0 なら粒度から Kozeny–Carman 式
         'gw': {'on': False, 'k': 0.0, 'kMax': 0.05, 's0': 0.0},
         # ---- DEM の流域（地形を DEM から切り出したとき）
-        'dem': {'soilD': 1.0, 'chW': 6.0, 'ks': 1e-5, 's0': 0.3, 'duration': 3600.0, 'outlet': 'sink', 'fill': True, 'pit': 0.5},
+        'dem': {'soilD': 1.0, 'chW': 6.0, 'ks': 1e-5, 's0': 0.3, 'duration': 3600.0, 'outlet': 'sink', 'fill': True, 'pit': 0.5, 'edgeOut': True},
         'sources': [],      # 点の流入 [{x, y, ux, uy, I, hydro}]
         'latIn': None,      # 雨の横流入 {dt, pts: [[x, y, ux, uy, I]], Q: [[...]]}
         'rain': {'on': False, 'method': 'lumped', 'mode': 'uniform', 'table': [], 'frames': [], 'loss': {'type': 'f', 'f': 0.8}},
@@ -1690,10 +1690,13 @@ class Sim:
         ok = (jy >= 0) & (jy < ny) & (ix >= 0) & (ix < nx)
         cc = (jy * nx + ix)[ok]; vv = rows[ok]; bb = Tb[ok]; ch_ = Tc[ok] & bb
         nT = np.zeros(N); sA = np.zeros(N); nB = np.zeros(N); sB = np.zeros(N); nC = np.zeros(N); mC = np.full(N, 1e30)
+        xA = np.full(N, -1e30); np.maximum.at(xA, cc, vv)
         np.add.at(nT, cc, 1.0); np.add.at(sA, cc, vv); np.add.at(nB, cc[bb], 1.0); np.add.at(sB, cc[bb], vv[bb]); np.add.at(nC, cc[ch_], 1.0); np.minimum.at(mC, cc[ch_], vv[ch_])
         has = (nT > 0).reshape(ny, nx); nT2 = nT.reshape(ny, nx); nB2 = nB.reshape(ny, nx); nC2 = nC.reshape(ny, nx)
-        zA = np.where(nC > 0, mC, np.where(nB > 0, sB / np.maximum(nB, 1), sA / np.maximum(nT, 1))).reshape(ny, nx)
-        z[has] = zA[has]; ch[has] = (nC2 > 0)[has]; bas[has] = ((nC2 > 0) | (2 * nB2 >= nT2))[has]
+        bA = (nC > 0) | (2 * nB >= nT)
+        zIn = np.where(nC > 0, mC, sB / np.maximum(nB, 1)); zOutA = np.where(nT > nB, (sA - sB) / np.maximum(nT - nB, 1), sA / np.maximum(nT, 1))
+        zA = np.where(bA, zIn, zOutA).reshape(ny, nx)   # 流域の外のセルは流域の外の DEM のセルの平均（谷底の値を混ぜない）
+        z[has] = zA[has]; ch[has] = (nC2 > 0)[has]; bas[has] = bA.reshape(ny, nx)[has]
         # 出口の先の水路のセル：自由流出（P['dem']['outlet'] = 'sink'、既定）ならここで抜く
         sink = np.zeros((ny, nx), bool)
         if T.get('corr') is not None and DM.get('outlet') != 'channel':
@@ -1718,8 +1721,22 @@ class Sim:
         fl[:] = bas & chD
         zfix[:] = np.where(~bas, wallZ, np.where(chD, np.where(fixedEnd, z, z - P['erodDepth']), z - soilD))
         zfix[sink] = z[sink]   # 抜く所は侵食しない
+        # 流域界の外側の 1 列：元の地形の高さに戻し、入った水と土砂を抜く（外向きに流れる水だけが出ていく）
+        self.nEdge = 0
+        if DM.get('edgeOut', True) is not False:
+            nbB = np.zeros((ny, nx), bool)
+            nbB[:, 1:] |= bas[:, :-1]; nbB[:, :-1] |= bas[:, 1:]; nbB[1:, :] |= bas[:-1, :]; nbB[:-1, :] |= bas[1:, :]
+            zo2 = self.zOut.reshape(ny, nx).astype(float)
+            zo2 = np.where(has, np.maximum(zo2, xA.reshape(ny, nx)), zo2)   # 入る DEM のセルの最高値（細い尾根を平均で消さない）
+            ring = ~bas & ~sink & nbB & np.isfinite(zo2) & (zo2 < wallZ)
+            zfix[ring] = zo2[ring]; self.nEdge = int(ring.sum())
+            sink = sink | ring
+            self._ringZ = (ring, zo2[ring])
         self.sinkCells = np.flatnonzero(sink)
+        self.sinkMask = sink.ravel().copy() if self.sinkCells.size else None
         z[:] = np.where(~bas, wallZ, z)
+        if getattr(self, '_ringZ', None) is not None:
+            z[self._ringZ[0]] = self._ringZ[1]; self._ringZ = None
         Bx[:] = np.maximum(1, fl.sum(axis=0)) * dx
         self.basin = bas.ravel().astype(np.uint8)
         self.demMode = True; self.zTop = zTop; self.wallZ = wallZ
@@ -1975,6 +1992,15 @@ class Sim:
         L = self.sinkCells; a = self.dx * self.dx
         self.h = np.ascontiguousarray(self.h); self.qx = np.ascontiguousarray(self.qx); self.qy = np.ascontiguousarray(self.qy)
         hf = self.h.reshape(-1); qxf = self.qx.reshape(-1); qyf = self.qy.reshape(-1); Cc = self.Cc.reshape(-1, self.K)
+        # 崩落や堆積でたまった土砂も流出として抜き、もとの高さに戻す
+        self.z = np.ascontiguousarray(self.z); zf = self.z.reshape(-1); z0f = np.asarray(self.z0).reshape(-1)
+        B = zf[L] - z0f[L]; bm = B > 1e-9
+        if bm.any():
+            Lb = L[bm]; Bb = B[bm]; Cst = 1 - self.P['porosity']; A = self.A
+            As = A[Lb].sum(axis=1); fr = np.where(As[:, None] > 0, A[Lb] / np.maximum(As, 1e-300)[:, None], 1.0 / self.K)
+            self.sedOutK += (fr * (Bb * a * Cst)[:, None]).sum(axis=0)
+            A[Lb] = 0.0; self.nl[Lb] = 0; self.topTh[Lb] = 0.0; zf[Lb] = z0f[Lb]
+            bv = float(Bb.sum()) * a; self.Vwout += bv; self.sedOut += bv * Cst; self.Qout += bv / dt; self.QsOut += bv * Cst / dt
         hh = hf[L]; w = hh > 0
         if not w.any():
             return
@@ -2842,6 +2868,7 @@ class Sim:
         self.z = np.ascontiguousarray(self.z)
         z = self.z.ravel(); h = self.h.ravel(); A = self.A
         fxC = self.fixedC.ravel(); k0 = self.kind.ravel() == 0
+        noC = getattr(self, 'sinkMask', None)
         wet = h > HW
         def faces(ca, cb):
             """面（セル ca と cb の間）の組を一度に処理する。動かしたら True"""
@@ -2849,6 +2876,8 @@ class Sim:
             diff = z[ca] - z[cb]
             hiA = diff > lim; hiB = -diff > lim
             ok = (hiA | hiB) & ~(fxC[ca] | fxC[cb])
+            if noC is not None:   # 抜く所（出口の先・流域界の外）へは崩さない
+                ok &= ~(noC[ca] | noC[cb])
             if hase:   # 長谷川モデルでは、水際の乾いた側岸（高い側が乾き、低い側が濡れている）は崩落モデルに任せる
                 kk = k0[ca] & k0[cb]
                 ok &= ~(kk & ((hiA & ~wet[ca] & wet[cb]) | (hiB & wet[ca] & ~wet[cb])))
@@ -3590,6 +3619,7 @@ def dem_params(P, a):
     """DEM から流域を切り出し、供給点・雨・崩壊・天然ダムを計算条件に入れる（ブラウザ版の「DEM から流域を選ぶ」と同じ）"""
     import sabo2d_dem as SD
     D = SD.synth_dem() if a.dem[0] == 'synth' else SD.load(a.dem)
+    SD.fill_holes(D)
     if a.dem_smooth > 0:
         D = SD.smooth(D, a.dem_smooth)
     A = SD.analyze(D, a.dem_thr * 1e6)

@@ -125,6 +125,37 @@
     var E = squareCells(D); E.skipped = bad; return E;
   }
 
+  // 欠測の穴埋め：DEM の縁につながらない欠測（内側の穴）を、外側から 1 周ずつ、周り 8 セルの値の平均で埋める（同時に更新）。
+  // 基盤地図情報の 5m メッシュは測量のない所が欠測になり、谷筋が途切れて水が流れなくなるため。縁につながる欠測は DEM の外として残す
+  function fillHoles(D) {
+    var nx = D.nx, ny = D.ny, N = nx * ny, z = D.z, ext = new Uint8Array(N), st = [], c, i, j, n = 0;
+    for (c = 0; c < N; c++) { i = c % nx; j = (c - i) / nx; if (z[c] !== z[c] && (i === 0 || j === 0 || i === nx - 1 || j === ny - 1)) { ext[c] = 1; st.push(c); } }
+    while (st.length) {
+      c = st.pop(); i = c % nx; j = (c - i) / nx;
+      for (var dj = -1; dj <= 1; dj++) for (var di = -1; di <= 1; di++) {
+        var ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
+        var o = jj * nx + ii; if (!ext[o] && z[o] !== z[o]) { ext[o] = 1; st.push(o); }
+      }
+    }
+    var hole = []; for (c = 0; c < N; c++) if (z[c] !== z[c] && !ext[c]) hole.push(c);
+    if (!hole.length) return 0;
+    var Z = Float64Array.from(z), left = hole, it = 0;
+    while (left.length && it++ < 5000) {
+      var put = [], vals = [], rest = [];
+      for (var q = 0; q < left.length; q++) {
+        c = left[q]; i = c % nx; j = (c - i) / nx; var s = 0, m = 0;
+        for (var dj2 = -1; dj2 <= 1; dj2++) for (var di2 = -1; di2 <= 1; di2++) {
+          if (!di2 && !dj2) continue; var i2 = i + di2, j2 = j + dj2; if (i2 < 0 || j2 < 0 || i2 >= nx || j2 >= ny) continue;
+          var v = Z[j2 * nx + i2]; if (v === v) { s += v; m++; }
+        }
+        if (m) { put.push(c); vals.push(s / m); } else rest.push(c);
+      }
+      if (!put.length) break;
+      for (q = 0; q < put.length; q++) Z[put[q]] = vals[q];
+      n += put.length; left = rest;
+    }
+    D.z = Z; D.filledHoles = n; return n;
+  }
   // 平滑化：幅 w の箱形の平均を縦・横に 3 回（ガウス分布で標準偏差 sigma [m] に近い）。欠測は除いて平均し、欠測のまま残す
   function smooth(D, sigma) {
     var nx = D.nx, ny = D.ny, sc = sigma / D.cs;
@@ -568,6 +599,6 @@
     parseASC: parseASC, parseXYZ: parseXYZ, parseGSIXML: parseGSIXML, parseTIFF: parseTIFF, lzw: lzw,
     fill: fill, flowDir: flowDir, accumulate: accumulate, order: order, analyze: analyze, upstream: upstream,
     downOf: downOf, localSlope: localSlope, hillslopes: hillslopes, prepareDomain: prepareDomain, synthDEM: synthDEM,
-    squareCells: squareCells, coarsen: coarsen, smooth: smooth, DC: DC, DR: DR, DL: DL
+    squareCells: squareCells, coarsen: coarsen, smooth: smooth, fillHoles: fillHoles, DC: DC, DR: DR, DL: DL
   };
 });

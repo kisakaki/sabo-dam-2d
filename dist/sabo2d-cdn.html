@@ -255,6 +255,7 @@ table.res th,table.res td{white-space:nowrap}
         <div class="row"><label for="dem_ks">土層の飽和透水係数<span class="u">m/s</span></label><input type="number" id="dem_ks" step="0.00001" min="0" value="0.00001"></div>
         <div class="row"><label for="dem_dur">計算時間<span class="u">分</span></label><input type="number" id="dem_dur" step="5" min="1" value="30"></div>
         <div class="row"><label for="dem_pit" title="河床が 4 方向の隣のどれよりもこの深さ以上低い 1 セルの穴を、隣の土砂で埋める（土砂の量は変えない数値処理）。0 で埋めない">1 セルの穴を埋める深さ<span class="u">m（0＝しない）</span></label><input type="number" id="dem_pit" step="0.1" min="0" value="0.5"></div>
+        <label class="note" style="display:flex;gap:6px;align-items:center" title="流域界のすぐ外の 1 列を、元の地形（その格子の中の最高値）の高さにして、入った水と土砂を抜く。流域界（分水界）を越えて外へ流れる水だけが出ていく"><input type="checkbox" id="dem_edge" checked>流域界から外へ流れる水を抜く</label>
         <div class="row"><label for="dem_out" title="自由流出：出口の先の水路に入った水と土砂をその場で抜く（出口で水がたまらない）。水路を延ばす：出口の勾配の水路を右端まで延ばして流す（以前の方法。水路の上の流れも計算する）">出口の扱い</label><select id="dem_out"><option value="sink">自由流出（出口の先で抜く）</option><option value="channel">出口の先に水路を延ばす</option></select></div>
         <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="dem_fill" checked>窪地を埋めた地形で計算する</label>
         <div class="btns"><button class="sm" id="dem_json" title="Python 版で python sabo2d.py --params ファイル名 として同じ計算をするときに使います">計算条件を JSON で保存（Python 版用）</button></div>
@@ -772,6 +773,37 @@ table.res th,table.res td{white-space:nowrap}
     var E = squareCells(D); E.skipped = bad; return E;
   }
 
+  // 欠測の穴埋め：DEM の縁につながらない欠測（内側の穴）を、外側から 1 周ずつ、周り 8 セルの値の平均で埋める（同時に更新）。
+  // 基盤地図情報の 5m メッシュは測量のない所が欠測になり、谷筋が途切れて水が流れなくなるため。縁につながる欠測は DEM の外として残す
+  function fillHoles(D) {
+    var nx = D.nx, ny = D.ny, N = nx * ny, z = D.z, ext = new Uint8Array(N), st = [], c, i, j, n = 0;
+    for (c = 0; c < N; c++) { i = c % nx; j = (c - i) / nx; if (z[c] !== z[c] && (i === 0 || j === 0 || i === nx - 1 || j === ny - 1)) { ext[c] = 1; st.push(c); } }
+    while (st.length) {
+      c = st.pop(); i = c % nx; j = (c - i) / nx;
+      for (var dj = -1; dj <= 1; dj++) for (var di = -1; di <= 1; di++) {
+        var ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
+        var o = jj * nx + ii; if (!ext[o] && z[o] !== z[o]) { ext[o] = 1; st.push(o); }
+      }
+    }
+    var hole = []; for (c = 0; c < N; c++) if (z[c] !== z[c] && !ext[c]) hole.push(c);
+    if (!hole.length) return 0;
+    var Z = Float64Array.from(z), left = hole, it = 0;
+    while (left.length && it++ < 5000) {
+      var put = [], vals = [], rest = [];
+      for (var q = 0; q < left.length; q++) {
+        c = left[q]; i = c % nx; j = (c - i) / nx; var s = 0, m = 0;
+        for (var dj2 = -1; dj2 <= 1; dj2++) for (var di2 = -1; di2 <= 1; di2++) {
+          if (!di2 && !dj2) continue; var i2 = i + di2, j2 = j + dj2; if (i2 < 0 || j2 < 0 || i2 >= nx || j2 >= ny) continue;
+          var v = Z[j2 * nx + i2]; if (v === v) { s += v; m++; }
+        }
+        if (m) { put.push(c); vals.push(s / m); } else rest.push(c);
+      }
+      if (!put.length) break;
+      for (q = 0; q < put.length; q++) Z[put[q]] = vals[q];
+      n += put.length; left = rest;
+    }
+    D.z = Z; D.filledHoles = n; return n;
+  }
   // 平滑化：幅 w の箱形の平均を縦・横に 3 回（ガウス分布で標準偏差 sigma [m] に近い）。欠測は除いて平均し、欠測のまま残す
   function smooth(D, sigma) {
     var nx = D.nx, ny = D.ny, sc = sigma / D.cs;
@@ -1215,7 +1247,7 @@ table.res th,table.res td{white-space:nowrap}
     parseASC: parseASC, parseXYZ: parseXYZ, parseGSIXML: parseGSIXML, parseTIFF: parseTIFF, lzw: lzw,
     fill: fill, flowDir: flowDir, accumulate: accumulate, order: order, analyze: analyze, upstream: upstream,
     downOf: downOf, localSlope: localSlope, hillslopes: hillslopes, prepareDomain: prepareDomain, synthDEM: synthDEM,
-    squareCells: squareCells, coarsen: coarsen, smooth: smooth, DC: DC, DR: DR, DL: DL
+    squareCells: squareCells, coarsen: coarsen, smooth: smooth, fillHoles: fillHoles, DC: DC, DR: DR, DL: DL
   };
 });
 
@@ -1406,7 +1438,7 @@ table.res th,table.res td{white-space:nowrap}
       // 伏流（河床への浸透と地下水の流れ。Darcy 則・Dupuit 近似）
       gw: { on: false, k: 0, kMax: 0.05, s0: 0 },   // k：透水係数 [m/s]（0 なら粒度から Kozeny–Carman 式）、kMax：上限、s0：乾いた堆積層の初期の飽和度
       // ---- DEM の流域（地形を DEM から切り出したとき）
-      dem: { soilD: 1.0, chW: 6, ks: 1e-5, s0: 0.3, duration: 3600, outlet: 'sink', fill: true, pit: 0.5 },   // outlet：出口の扱い（sink 自由流出 | channel 水路を延ばす）、fill：計算格子で窪地を埋める、pit：これより深い 1 セルの穴を埋める [m]（0 でしない）   // 斜面の土層の厚さ [m]、侵食できる谷筋の幅 [m]、土層の飽和透水係数 [m/s]、土層の初期の飽和度、計算時間 [s]
+      dem: { soilD: 1.0, chW: 6, ks: 1e-5, s0: 0.3, duration: 3600, outlet: 'sink', fill: true, pit: 0.5, edgeOut: true },   // outlet：出口の扱い（sink 自由流出 | channel 水路を延ばす）、edgeOut：流域界の外へ流れる水を抜く、fill：計算格子で窪地を埋める、pit：これより深い 1 セルの穴を埋める [m]（0 でしない）   // 斜面の土層の厚さ [m]、侵食できる谷筋の幅 [m]、土層の飽和透水係数 [m/s]、土層の初期の飽和度、計算時間 [s]
       sources: [],       // 点の流入 [{x, y, ux, uy, I, hydro: {上流端と同じ形}}]
       latIn: null,       // 雨の横流入 {dt, pts: [[x, y, ux, uy, I]], Q: [[流量の時系列]]}
       rain: { on: false, method: 'lumped', mode: 'uniform', table: [], frames: [], loss: { type: 'f', f: 0.8 } },
@@ -2970,7 +3002,7 @@ table.res th,table.res td{white-space:nowrap}
   Sim.prototype.collapse = function () {
     var nx = this.nx, ny = this.ny, K = this.K, dx = this.dx, A = this.A, z = this.z, h = this.h, fxC = this.fixedC, BK = this.P.bank || {};
     var limW = Math.tan((BK.reposeWet || this.P.reposeDeg) * Math.PI / 180) * dx, limD = Math.tan((BK.reposeDry || this.P.reposeDeg) * Math.PI / 180) * dx;
-    var HW = 0.01, i, j, c, k, row, lim, diff, hi, lo, av, mv, hk, lk, frc, hase = BK.collapse === 'hasegawa', kind = this.kind;
+    var HW = 0.01, i, j, c, k, row, lim, diff, hi, lo, av, mv, hk, lk, frc, hase = BK.collapse === 'hasegawa', kind = this.kind, noC = this.sinkMask;
     for (var pass = 0; pass < 2; pass++) {
       var off = pass === 0 ? 1 : nx;
       var iEnd = pass === 0 ? nx - 1 : nx, jEnd = pass === 0 ? ny : ny - 1;
@@ -2978,7 +3010,7 @@ table.res th,table.res td{white-space:nowrap}
         row = j * nx;
         for (i = 0; i < iEnd; i++) {
           c = row + i;
-          if (fxC[c] || fxC[c + off]) continue;
+          if (fxC[c] || fxC[c + off] || (noC && (noC[c] || noC[c + off]))) continue;   // 抜く所（出口の先・流域界の外）へは崩さない
           lim = (h[c] > HW || h[c + off] > HW) ? limW : limD;
           diff = z[c] - z[c + off];
           if (diff > lim) { hi = c; lo = c + off; } else if (-diff > lim) { hi = c + off; lo = c; diff = -diff; } else continue;
@@ -3058,13 +3090,13 @@ table.res th,table.res td{white-space:nowrap}
     // DEM の格子 → 計算格子：計算格子のセルに中心が入る DEM のセルを集める。谷筋のセルがあればその最低値（狭い谷を
     // ふさがない）、なければ流域内のセルの平均。流域かどうかは、谷筋を含むか、半分以上が流域か。
     // 入る DEM のセルがない（計算格子が DEM より細かい）ときは、最も近い DEM のセル（谷筋なら値そのもの、ほかは双一次補間）
-    var nK = new Float64Array(N), nT = new Float64Array(N), nB = new Float64Array(N), sB = new Float64Array(N), sA = new Float64Array(N), nC = new Float64Array(N), mC = new Float64Array(N).fill(1e30);
+    var xA = new Float64Array(N).fill(-1e30), nK = new Float64Array(N), nT = new Float64Array(N), nB = new Float64Array(N), sB = new Float64Array(N), sA = new Float64Array(N), nC = new Float64Array(N), mC = new Float64Array(N).fill(1e30);
     for (r = 0; r < nr; r++) {
       var jy = Math.floor((Ly - (r + 0.5) * cs) / dx); if (jy < 0 || jy >= ny) continue;
       var rowZ = T.rows[r], rowB = T.basin[r], rowC = T.chan ? T.chan[r] : null, rowK = T.corr ? T.corr[r] : null;
       for (q = 0; q < nc; q++) {
         var ix = Math.floor((q + 0.5) * cs / dx); if (ix < 0 || ix >= nx) continue;
-        c = jy * nx + ix; var v = rowZ[q]; nT[c]++; sA[c] += v; if (rowK && rowK[q]) nK[c]++;
+        c = jy * nx + ix; var v = rowZ[q]; nT[c]++; sA[c] += v; if (v > xA[c]) xA[c] = v; if (rowK && rowK[q]) nK[c]++;
         if (rowB[q]) { nB[c]++; sB[c] += v; if (rowC && rowC[q]) { nC[c]++; if (v < mC[c]) mC[c] = v; } }
       }
     }
@@ -3074,7 +3106,8 @@ table.res th,table.res td{white-space:nowrap}
       this.tIdx[c] = r * nc + q;
       if (nT[c] > 0) {
         ch[c] = nC[c] > 0 ? 1 : 0; bas[c] = (nC[c] > 0 || 2 * nB[c] >= nT[c]) ? 1 : 0;
-        z[c] = nC[c] > 0 ? mC[c] : nB[c] > 0 ? sB[c] / nB[c] : sA[c] / nT[c];
+        // 流域のセル：谷筋の最低値か流域内の平均。流域の外のセル：流域の外の DEM のセルの平均（谷底の値を混ぜない）
+        z[c] = bas[c] ? (nC[c] > 0 ? mC[c] : sB[c] / nB[c]) : (nT[c] > nB[c] ? (sA[c] - sB[c]) / (nT[c] - nB[c]) : sA[c] / nT[c]);
       } else {
         bas[c] = T.basin[r][q] ? 1 : 0; ch[c] = T.chan && T.chan[r][q] ? 1 : 0;
         z[c] = ch[c] ? T.rows[r][q] : sampleTerrain(T, (i + 0.5) * dx, (j + 0.5) * dx, Ly);
@@ -3112,6 +3145,17 @@ table.res th,table.res td{white-space:nowrap}
       this.Bx[i] = Math.max(1, nf) * dx;
     }
     for (var q2 = 0; q2 < sinkL.length; q2++) { c = sinkL[q2]; zfix[c] = z[c]; }   // 抜く所は侵食しない
+    // 流域界の外側の 1 列（4 近傍に流域のセルがある流域の外のセル）：元の地形の高さに戻し、入った水と土砂を抜く。
+    // 流域界は分水界なので、外向きに流れる水（流域界を越える水）だけが出ていく（P.dem.edgeOut、既定 true）
+    this.nEdge = 0;
+    if (DM.edgeOut !== false) for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {
+      c = j * nx + i; if (bas[c] || isSink[c]) continue;
+      if (!((i > 0 && bas[c - 1]) || (i < nx - 1 && bas[c + 1]) || (j > 0 && bas[c - nx]) || (j < ny - 1 && bas[c + nx]))) continue;
+      // 高さは、そのセルに入る DEM のセルの最高値（細い尾根＝分水界を平均で消さない。外へ出るのは分水界を越える水だけ）
+      var zo_ = nT[c] > 0 ? Math.max(this.zOut[c], xA[c]) : this.zOut[c]; if (!(zo_ === zo_) || zo_ >= wallZ) continue;
+      z[c] = zo_; zfix[c] = zo_; sinkL.push(c); this.nEdge++;
+    }
+    if (sinkL.length) { this.sinkMask = new Uint8Array(N); for (q2 = 0; q2 < sinkL.length; q2++) this.sinkMask[sinkL[q2]] = 1; }
     this.demMode = true; this.zTop = zTop; this.wallZ = wallZ;
     var Io = T.Iout > 0 ? T.Iout : 0.01; this.I = Io;
     for (i = 0; i < nx; i++) { this.Ix[i] = Io; this.colmin[i] = 1e30; for (j = 0; j < ny; j++) { c = j * nx + i; if (bas[c] && z[c] < this.colmin[i]) this.colmin[i] = z[c]; } if (this.colmin[i] > 1e29) this.colmin[i] = wallZ; }
@@ -3552,9 +3596,18 @@ table.res th,table.res td{white-space:nowrap}
   // DEM の出口：出口の先の水路に入った水と土砂をその場で抜き、流出として数える（自由流出）。
   // 水の量は混合物の体積（境界の流出と同じ数え方）、土砂は実質体積
   Sim.prototype.sinkStep = function (dt) {
-    var L = this.sinkCells, h = this.h, Cc = this.Cc, K = this.K, a = this.dx * this.dx, wv = 0, sv = 0;
+    var L = this.sinkCells, h = this.h, Cc = this.Cc, K = this.K, a = this.dx * this.dx, wv = 0, sv = 0, z = this.z, z0 = this.z0, A = this.A, Cst = 1 - this.P.porosity;
     for (var q = 0; q < L.length; q++) {
-      var c = L[q]; if (!(h[c] > 0)) continue;
+      var c = L[q];
+      // 崩落や堆積でたまった土砂も流出として抜き、もとの高さに戻す（河床の変化は空隙込みの体積で数えるので、水も同じ量を流出に）
+      var B = z[c] - z0[c];
+      if (B > 1e-9) {
+        var As = 0, k0; for (k0 = 0; k0 < K; k0++) As += A[c * K + k0];
+        for (k0 = 0; k0 < K; k0++) { this.sedOutK[k0] += B * a * Cst * (As > 0 ? A[c * K + k0] / As : 1 / K); A[c * K + k0] = 0; }
+        this.nl[c] = 0; this.topTh[c] = 0; z[c] = z0[c];
+        wv += B * a; sv += B * a * Cst;
+      }
+      if (!(h[c] > 0)) continue;
       wv += h[c] * a; h[c] = 0; this.qx[c] = 0; this.qy[c] = 0;
       for (var k = 0; k < K; k++) { var v = Cc[c * K + k]; if (v > 0) { sv += v * a; this.sedOutK[k] += v * a; Cc[c * K + k] = 0; } }
     }
@@ -6383,6 +6436,7 @@ table.res th,table.res td{white-space:nowrap}
     while (N / (k * k) > 9e6) k++;
     if (k > 1) { D = SD.coarsen(D, k); label += '、大きいので ' + k + '×' + k + ' セルを平均して粗くしました'; }
     if (D.skipped) label += '、読めないタイル ' + D.skipped + ' 個を飛ばしました';
+    var nh = SD.fillHoles(D); if (nh) label += '、内側の欠測 ' + nh.toLocaleString() + ' セルを周りの値で埋めました';
     var nv = 0; for (var c = 0; c < D.nx * D.ny; c++) if (isFinite(D.z[c])) nv++;
     if (nv < 100) { info('標高の値がほとんどありません（' + nv + ' セル）。ファイルを確かめてください。', true); return; }
     ST.D0 = D; ST.label = label; ST.mask = null; ST.bid = -1; ST.outlet = -1; ST.src = []; ST.slides = []; ST.ldams = []; ST.dams = []; ST.hist = []; ST.draft = []; ST.mode = 'basin'; applySmooth();
@@ -7093,7 +7147,7 @@ table.res th,table.res td{white-space:nowrap}
     p.terrain = { rows: dom.rows, cs: dom.cs, basin: dom.basin, chan: dom.chan, corr: dom.corr, Iout: dom.Iout };
     p.csvSlope = 0; p.L = dom.nx * dom.cs; p.sideCells = 0; p.dams = []; p.tribs = []; p.prefill = 0;
     var dur = Math.max(1, +$('dem_dur').value || 30) * 60;
-    p.dem = { soilD: Math.max(0.1, +$('dem_soil').value || 1), chW: Math.max(1, +$('dem_chw').value || 10), ks: Math.max(0, +$('dem_ks').value || 0), s0: 0.3, duration: dur, outlet: $('dem_out').value, smooth: ST.D && ST.D.smooth || 0, fill: $('dem_fill').checked, pit: Math.max(0, +$('dem_pit').value || 0) };
+    p.dem = { soilD: Math.max(0.1, +$('dem_soil').value || 1), chW: Math.max(1, +$('dem_chw').value || 10), ks: Math.max(0, +$('dem_ks').value || 0), s0: 0.3, duration: dur, outlet: $('dem_out').value, smooth: ST.D && ST.D.smooth || 0, fill: $('dem_fill').checked, edgeOut: $('dem_edge').checked, pit: Math.max(0, +$('dem_pit').value || 0) };
     var gen = $('gen_type').value;
     if (gen !== 'bed') p.transport = 'debris';
     p.sources = ST.src.map(function (r) {

@@ -217,6 +217,47 @@ def parse_tiff(buf):
     return _square(DEM(W, H, csx, csy, tie[3] - tie[0] * csx, tie[4] + tie[1] * csy, z, 'tif'))
 
 
+def fill_holes(D):
+    """欠測の穴埋め：DEM の縁につながらない欠測を、外側から 1 周ずつ、周り 8 セルの値の平均で埋める（dem.js の fillHoles と同じ）"""
+    nx, ny = D.nx, D.ny
+    z = np.array(D.z, dtype=float).reshape(ny, nx); nan = np.isnan(z)
+    if not nan.any():
+        return 0
+    try:
+        from scipy import ndimage
+        lab, nl = ndimage.label(nan, structure=np.ones((3, 3)))
+        edge = set(np.unique(np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]]))) - {0}
+        hole = nan & ~np.isin(lab, list(edge))
+    except ImportError:   # scipy がないときは縁からたどる
+        ext = np.zeros_like(nan); st = [(j, i) for j in range(ny) for i in (0, nx - 1) if nan[j, i]] + [(j, i) for i in range(nx) for j in (0, ny - 1) if nan[j, i]]
+        for p in st:
+            ext[p] = True
+        while st:
+            j, i = st.pop()
+            for dj in (-1, 0, 1):
+                for di in (-1, 0, 1):
+                    jj, ii = j + dj, i + di
+                    if 0 <= jj < ny and 0 <= ii < nx and nan[jj, ii] and not ext[jj, ii]:
+                        ext[jj, ii] = True; st.append((jj, ii))
+        hole = nan & ~ext
+    n = 0; it = 0
+    while hole.any() and it < 5000:
+        it += 1
+        f = np.isfinite(z); zp = np.pad(np.where(f, z, 0.0), 1); fp = np.pad(f, 1).astype(float)
+        s = np.zeros_like(z); m = np.zeros_like(z)
+        for dj in (-1, 0, 1):
+            for di in (-1, 0, 1):
+                if dj == 0 and di == 0:
+                    continue
+                s += zp[1 + dj:1 + dj + ny, 1 + di:1 + di + nx]; m += fp[1 + dj:1 + dj + ny, 1 + di:1 + di + nx]
+        put = hole & (m > 0)
+        if not put.any():
+            break
+        z[put] = s[put] / m[put]; hole &= ~put; n += int(put.sum())
+    D.z = z.reshape(-1); D.filledHoles = n
+    return n
+
+
 def smooth(D, sigma):
     """平滑化：幅 w の箱形の平均を縦・横に 3 回（標準偏差 sigma [m] のガウス分布に近い）。欠測は除いて平均し、欠測のまま残す（dem.js の smooth と同じ）"""
     sc = sigma / D.cs

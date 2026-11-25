@@ -72,6 +72,7 @@
     while (N / (k * k) > 9e6) k++;
     if (k > 1) { D = SD.coarsen(D, k); label += '、大きいので ' + k + '×' + k + ' セルを平均して粗くしました'; }
     if (D.skipped) label += '、読めないタイル ' + D.skipped + ' 個を飛ばしました';
+    var nh = SD.fillHoles(D); if (nh) label += '、内側の欠測 ' + nh.toLocaleString() + ' セルを周りの値で埋めました';
     var nv = 0; for (var c = 0; c < D.nx * D.ny; c++) if (isFinite(D.z[c])) nv++;
     if (nv < 100) { info('標高の値がほとんどありません（' + nv + ' セル）。ファイルを確かめてください。', true); return; }
     ST.D0 = D; ST.label = label; ST.mask = null; ST.bid = -1; ST.outlet = -1; ST.src = []; ST.slides = []; ST.ldams = []; ST.dams = []; ST.hist = []; ST.draft = []; ST.mode = 'basin'; applySmooth();
@@ -782,7 +783,7 @@
     p.terrain = { rows: dom.rows, cs: dom.cs, basin: dom.basin, chan: dom.chan, corr: dom.corr, Iout: dom.Iout };
     p.csvSlope = 0; p.L = dom.nx * dom.cs; p.sideCells = 0; p.dams = []; p.tribs = []; p.prefill = 0;
     var dur = Math.max(1, +$('dem_dur').value || 30) * 60;
-    p.dem = { soilD: Math.max(0.1, +$('dem_soil').value || 1), chW: Math.max(1, +$('dem_chw').value || 10), ks: Math.max(0, +$('dem_ks').value || 0), s0: 0.3, duration: dur, outlet: $('dem_out').value, smooth: ST.D && ST.D.smooth || 0, fill: $('dem_fill').checked, pit: Math.max(0, +$('dem_pit').value || 0) };
+    p.dem = { soilD: Math.max(0.1, +$('dem_soil').value || 1), chW: Math.max(1, +$('dem_chw').value || 10), ks: Math.max(0, +$('dem_ks').value || 0), s0: 0.3, duration: dur, outlet: $('dem_out').value, smooth: ST.D && ST.D.smooth || 0, fill: $('dem_fill').checked, edgeOut: $('dem_edge').checked, pit: Math.max(0, +$('dem_pit').value || 0) };
     var gen = $('gen_type').value;
     if (gen !== 'bed') p.transport = 'debris';
     p.sources = ST.src.map(function (r) {
