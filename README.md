@@ -115,4 +115,6 @@ cd python && python make_notebook.py   # sabo2d.py からノートブックを�
 
 ## ライセンス
 
-MIT License（[LICENSE](LICENSE)）。研究・教育での利用を想定した参考用のツールです。結果を設計や判断に使うときは、ご自身で妥当性を確かめてください。
+MIT License（[LICENSE](LICENSE)）。
+
+このツールは、土砂の動きなどの現象を確かめるためのものです。計算の結果は、何かを保証するものではありません。
