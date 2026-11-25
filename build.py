@@ -27,11 +27,11 @@ head = '''<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="連続砂防堰堤（低ダム群・高ダム）の効果を、平面2次元の河床変動計算で調べるブラウザ用シミュレータ。混合粒径・網状流路・砂州を扱う。">
+<meta name="description" content="平面2次元の河床変動・土石流のブラウザ用シミュレータ。砂防堰堤（不透過・透過型）、混合粒径、斜面崩壊、天然ダム、DEM の流域を扱う。">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://kisakaki.github.io/sabo-dam-2d/">
-<meta property="og:title" content="連続堰堤 河床変動シミュレータ">
-<meta property="og:description" content="連続砂防堰堤の効果を、平面2次元の河床変動計算で調べるブラウザ用シミュレータ。">
+<meta property="og:title" content="河床変動シミュレータ">
+<meta property="og:description" content="平面2次元の河床変動・土石流のブラウザ用シミュレータ。">
 <meta property="og:image" content="https://kisakaki.github.io/sabo-dam-2d/og.png">
 <meta property="og:locale" content="ja_JP">
 <meta name="twitter:card" content="summary_large_image">
