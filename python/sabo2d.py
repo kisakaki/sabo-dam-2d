@@ -137,7 +137,7 @@ def default_params():
         # 土石流（高橋 2007。Kanako 2D と同じ形の式）
         'debris': {'de': 0.0007, 'dd': 0.05, 'tanPhi': 0.7, 'rho': 1000.0, 'Vmin': 0.1, 'manningFloor': True},
         # 透過型堰堤の共通設定（部材の幅、閉塞の判定 l ≤ beta·d95、閉塞する濃度、通過粒径 d < l/alpha、閉塞後の開口率）
-        'openDam': {'w': 0.5, 'beta': 1.5, 'Cblk': 0.2, 'alpha': 1.0, 'phiBlock': 0.05},
+        'openDam': {'w': 0.5, 'wp': 2.0, 'beta': 1.5, 'Cblk': 0.2, 'alpha': 1.0, 'phiBlock': 0.05},
         'noneq': {'de': 0.6, 'dd': 0.6, 'hEdge': 0.0, 'fe': 2.0, 'fd': 10.0},
         # ---- 巨礫（動かない礫）を水みちの両岸に置く（高橋・里深・奥村 1996）
         'boulders': {'L': 0.0, 'mode': 'parallel', 'size': 1},
@@ -428,6 +428,19 @@ def _fill4(z, bas, seed, nx, ny, eps):
                 zf[o] = zc + eps; cnt += 1
             heapq.heappush(hp, (zf[o], o))
     return cnt
+
+
+def _in_poly_np(P, x, y):
+    """点の並びが多角形の中か（偶奇則、配列）"""
+    x = np.asarray(x, float); y = np.asarray(y, float); a = np.zeros(x.shape, bool); n = len(P); j = n - 1
+    for i in range(n):
+        xi, yi = P[i][0], P[i][1]; xj, yj = P[j][0], P[j][1]
+        cr = (yi > y) != (yj > y)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            xs = (xj - xi) * (y - yi) / (yj - yi) + xi
+        a ^= cr & (x < xs)
+        j = i
+    return a
 
 
 def _in_poly(P, x, y):
@@ -787,7 +800,7 @@ class Sim:
                 if typ == 'slit':
                     nO = 1; wz = lw
                 elif typ == 'mslit':
-                    wz = nO * lw + (nO - 1) * wm
+                    wz = nO * lw + (nO - 1) * (OD.get('wp') or 2.0)   # 柱の幅は鋼製の部材とは別
                 else:
                     wz = spMax - spMin + dx
                 ocm = spc & (np.abs(sl_ - sc0) <= wz / 2 + 1e-9)
@@ -805,7 +818,7 @@ class Sim:
                     cells = cells & ~ocm; spc = spc & ~ocm
                     zs0 = sc0 - wz / 2 if typ in ('slit', 'mslit') else spMin - dx / 2
                     zs1 = sc0 + wz / 2 if typ in ('slit', 'mslit') else spMax + dx / 2
-                    op = dict(type=typ, l=lw, n=nO, w=wm, zo=zo, cells=np.flatnonzero(ocm), phiW=phiW, phiS=phiS, blocked=False,
+                    op = dict(type=typ, l=lw, n=nO, w=wm, wp=OD.get('wp') or 2.0, zo=zo, cells=np.flatnonzero(ocm), phiW=phiW, phiS=phiS, blocked=False,
                               tBlock=None, beta=D['beta'] if (D.get('beta') or 0) > 0 else (OD.get('beta') or 1.5), s0=zs0, s1=zs1, hb=zo - zbase,
                               Cblk=None, d95=None)
             self.dams.append(dict(i=idd, x=cx, cx=cx, cy=cy, th=th, tx=tx, ty=ty, nx=nxv, ny=nyv, ext=ext, thick=thick,
@@ -900,16 +913,39 @@ class Sim:
         NL = self.NL = min(100, max(math.ceil((P['erodDepth'] + maxH + 3) / Ls) + 2, math.ceil(thMax / Ls) + 2))
         zf = z.ravel(); zx = zfix.ravel()
         dl = np.where(kind.ravel() == 3, 0.0, zf - zx)   # 斜面の土層（kind 3）は流れで侵食しない（層を持たない）
+        # 場所ごとの河床材料（P['bedMats'] と P['bedZones']。後の範囲が優先。どこにも入らないセルは材料 A）
+        mats = [self.f0]
+        for m in P.get('bedMats') or []:
+            mv = np.array([max(0.0, float(m[k] if k < len(m) and m[k] is not None else 0)) for k in range(K)]); sm = mv.sum()
+            mats.append(mv / sm if sm > 0 else self.f0.copy())
+        self.mats = np.array(mats)
+        matI = np.zeros(N, dtype=np.uint8)
+        XC = ((np.arange(N) % nx) + 0.5) * self.dx; YC = ((np.arange(N) // nx) + 0.5) * self.dx
+        for Zn in P.get('bedZones') or []:
+            mi = int(Zn.get('mat') or 0)
+            if mi < 1 or mi >= len(mats):
+                continue
+            if Zn.get('poly') and len(Zn['poly']) >= 3:
+                inside = _in_poly_np(Zn['poly'], XC, YC)
+            else:
+                inside = (XC >= (Zn['x0'] if Zn.get('x0') is not None else -1e30)) & (XC <= (Zn['x1'] if Zn.get('x1') is not None else 1e30))
+                if Zn.get('y0') is not None:
+                    inside &= YC >= Zn['y0']
+                if Zn.get('y1') is not None:
+                    inside &= YC <= Zn['y1']
+            matI[inside] = mi
+        self.matIdx = matI
+        Fm = self.mats[matI]
         self.A = np.zeros((N, K))
         a = np.where(dl > 1e-9, np.minimum(dl, La), 0.0)
-        self.A[:] = a[:, None] * self.f0[None, :]
+        self.A[:] = a[:, None] * Fm
         rem = np.where(dl > 1e-9, dl - a, 0.0)
         nl = np.where(rem > 1e-9, np.minimum(NL, np.ceil(rem / Ls - 1e-9)), 0).astype(np.int32)
         self.nl = nl
         self.topTh = np.where(nl > 0, rem - (nl - 1) * Ls, 0.0)
         self.SF = np.zeros((N, NL, K), dtype=np.float32)
         lay = np.arange(NL)[None, :] < nl[:, None]
-        self.SF[lay] = self.f0.astype(np.float32)
+        self.SF[:] = np.where(lay[:, :, None], Fm[:, None, :], 0.0).astype(np.float32)
         self.tcs = np.full((ny, nx), np.nan)
         self.Cc = np.zeros((N, K))          # 侵食・堆積速度式：流れの中の粒径別土砂量 C_k h（実質体積の層厚） [m]
         self.dzs = np.zeros((ny, nx))       # 1 回の河床変動計算での河床変化

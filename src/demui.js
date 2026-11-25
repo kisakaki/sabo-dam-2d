@@ -4,7 +4,7 @@
   'use strict';
   var SD = window.SaboDEM, SH = window.SaboHydro;
   var $ = function (id) { return document.getElementById(id); };
-  var ST = { D: null, A: null, mask: null, outlet: -1, bid: -1, heads: [], src: [], slides: [], ldams: [], dams: [], hist: [], img: null, view: null, rainFrames: null, lat: null, dom: null };
+  var ST = { D: null, A: null, mask: null, outlet: -1, bid: -1, heads: [], src: [], slides: [], ldams: [], dams: [], matz: [], hist: [], img: null, view: null, rainFrames: null, lat: null, dom: null };
 
   function fmt(v, n) { return isFinite(v) ? (+v).toFixed(n) : ''; }
   function info(msg, err) { var e = $('dem_info'); e.textContent = msg; e.style.color = err ? 'var(--err,#b3261e)' : ''; }
@@ -75,7 +75,7 @@
     var nh = SD.fillHoles(D); if (nh) label += '、内側の欠測 ' + nh.toLocaleString() + ' セルを周りの値で埋めました';
     var nv = 0; for (var c = 0; c < D.nx * D.ny; c++) if (isFinite(D.z[c])) nv++;
     if (nv < 100) { info('標高の値がほとんどありません（' + nv + ' セル）。ファイルを確かめてください。', true); return; }
-    ST.D0 = D; ST.label = label; ST.mask = null; ST.bid = -1; ST.outlet = -1; ST.src = []; ST.slides = []; ST.ldams = []; ST.dams = []; ST.hist = []; ST.draft = []; ST.mode = 'basin'; applySmooth();
+    ST.D0 = D; ST.label = label; ST.mask = null; ST.bid = -1; ST.outlet = -1; ST.src = []; ST.slides = []; ST.ldams = []; ST.dams = []; ST.matz = []; ST.hist = []; ST.draft = []; ST.mode = 'basin'; applySmooth();
   }
   // 平滑化（元の DEM は ST.D0 に残す）。谷筋・流域を取り直す。出口を選んでいたら、その近くの谷筋に選び直す
   function applySmooth() {
@@ -206,12 +206,12 @@
   }
   // ------------------------------------------------------------ 取り消し（元に戻す）
   function snap() {
-    ST.hist.push(JSON.stringify({ src: ST.src, slides: ST.slides, ldams: ST.ldams.map(function (r) { var o = Object.assign({}, r); delete o.sh; return o; }), dams: ST.dams }));
+    ST.hist.push(JSON.stringify({ src: ST.src, slides: ST.slides, ldams: ST.ldams.map(function (r) { var o = Object.assign({}, r); delete o.sh; return o; }), dams: ST.dams, matz: ST.matz }));
     if (ST.hist.length > 50) ST.hist.shift();
   }
   function undo() {
     if (!ST.hist.length) return;
-    var o = JSON.parse(ST.hist.pop()); ST.src = o.src; ST.slides = o.slides; ST.ldams = o.ldams; ST.dams = o.dams;
+    var o = JSON.parse(ST.hist.pop()); ST.src = o.src; ST.slides = o.slides; ST.ldams = o.ldams; ST.dams = o.dams; ST.matz = o.matz || [];
     renderTables(); draw(); selInfo(); $('dem_sel').textContent = '1 つ前に戻しました。' + (ST.hist.length ? '' : '（これ以上は戻せません）');
   }
   // クリックした点の近く（画面で 14 px 以内）にある物を外す。返り値：外した物の名前
@@ -225,6 +225,7 @@
     });
     ST.ldams.forEach(function (r, i) { cand(ST.ldams, i, r.c, '天然ダム ' + (i + 1)); });
     ST.dams.forEach(function (r, i) { cand(ST.dams, i, r.c, '堰堤 ' + (i + 1)); });
+    if (!best) ST.matz.forEach(function (r, i) { if (inPolyCells(r.poly, x, y)) best = { list: ST.matz, i: i, name: '河床材料 ' + (r.mat === 1 ? 'B' : 'C') + ' の範囲' }; });
     if (!best) return null;
     snap(); best.list.splice(best.i, 1); return best.name;
   }
@@ -511,6 +512,12 @@
     });
     // 斜面崩壊
     function polyPath(list) { ctx.beginPath(); list.forEach(function (c, k) { var q = P(c); if (k) ctx.lineTo(q[0], q[1]); else ctx.moveTo(q[0], q[1]); }); }
+    // 河床材料の範囲（B：緑、C：青）
+    ST.matz.forEach(function (r) {
+      polyPath(r.poly); ctx.closePath(); ctx.fillStyle = r.mat === 1 ? 'rgba(27,175,122,0.28)' : 'rgba(42,120,214,0.28)'; ctx.fill();
+      ctx.setLineDash([6, 3]); ctx.strokeStyle = r.mat === 1 ? '#137a55' : '#1d5aa6'; ctx.lineWidth = 1.6; ctx.stroke(); ctx.setLineDash([]);
+      var q = P(r.poly[0]); ctx.fillStyle = ctx.strokeStyle; ctx.font = '600 11px sans-serif'; ctx.fillText('河床 ' + (r.mat === 1 ? 'B' : 'C'), q[0] + 4, q[1] - 4);
+    });
     ST.slides.forEach(function (r, i) {
       var fillC = r.type === 'deep' ? 'rgba(121,85,72,0.45)' : 'rgba(255,152,0,0.4)', p, R;
       if (r.poly) {
@@ -546,7 +553,7 @@
       ctx.strokeStyle = r.type === 'closed' ? '#eceff1' : '#80deea'; ctx.lineWidth = Math.max(2, lw - 2.5); ctx.beginPath(); ctx.moveTo(p[0] + uy * hb, p[1] - ux * hb); ctx.lineTo(p[0] - uy * hb, p[1] + ux * hb); ctx.stroke();
       ctx.fillStyle = '#263238'; ctx.font = '600 11px sans-serif'; ctx.fillText('堰' + (i + 1) + '（' + fmt(r.H, 1) + ' m）', p[0] + Math.abs(uy) * hl + 6, p[1] - 6);
     });
-    $('dem_key').innerHTML = '<span><i style="border-color:#1e6ec8"></i>谷筋</span><span><i class="b" style="background:#fff;border:1px solid #333"></i>谷頭</span><span><i class="b" style="background:#ef6c00"></i>供給点</span><span><i style="border-color:#c62828"></i>流域界・出口</span><span><i class="b" style="background:rgba(255,152,0,0.5)"></i>斜面崩壊</span><span><i class="b" style="background:#5d4037"></i>天然ダム（濃いほど厚い）</span><span><i style="border-color:#37474f;border-width:3px"></i>砂防堰堤（白：水通し）</span>' + ($('dm_cont').checked ? '<span>等高線 ' + ST.img.ci + ' m 間隔（太線は ' + 5 * ST.img.ci + ' m ごと）</span>' : '') + '<span style="color:#666">ホイールで拡大・縮小、ドラッグで移動、右クリックで近くの物を外す</span>';
+    $('dem_key').innerHTML = '<span><i style="border-color:#1e6ec8"></i>谷筋</span><span><i class="b" style="background:#fff;border:1px solid #333"></i>谷頭</span><span><i class="b" style="background:#ef6c00"></i>供給点</span><span><i style="border-color:#c62828"></i>流域界・出口</span><span><i class="b" style="background:rgba(255,152,0,0.5)"></i>斜面崩壊</span><span><i class="b" style="background:#5d4037"></i>天然ダム（濃いほど厚い）</span><span><i style="border-color:#37474f;border-width:3px"></i>砂防堰堤（白：水通し）</span><span><i class="b" style="background:rgba(27,175,122,0.4)"></i>河床 B・<i class="b" style="background:rgba(42,120,214,0.4)"></i>C の範囲</span>' + ($('dm_cont').checked ? '<span>等高線 ' + ST.img.ci + ' m 間隔（太線は ' + 5 * ST.img.ci + ' m ごと）</span>' : '') + '<span style="color:#666">ホイールで拡大・縮小、ドラッグで移動、右クリックで近くの物を外す</span>';
   }
   function cellAt(e) {
     var cv = $('demmap'), r = cv.getBoundingClientRect(), v = ST.view; if (!v || !ST.D) return -1;
@@ -595,12 +602,15 @@
     var D = ST.D, sx = 0, sy = 0; dr.forEach(function (c) { sx += c % D.nx; sy += (c / D.nx) | 0; });
     var cc = Math.round(sy / dr.length) * D.nx + Math.round(sx / dr.length);
     if (!ST.mask[cc]) cc = dr[0];
-    snap(); ST.slides.push(newSlide(cc, dr.slice())); ST.draft = [];
+    snap();
+    if ($('dm_mode').value === 'mat') ST.matz.push({ poly: dr.slice(), mat: +$('dm_matsel').value || 1 });
+    else ST.slides.push(newSlide(cc, dr.slice()));
+    ST.draft = [];
     renderTables(); draw(); selInfo();
   }
   function shapeUI() {
-    var on = $('dm_mode').value === 'slide', pg = on && $('dm_shape').value === 'poly';
-    $('dm_shapew').hidden = !on; $('dm_close').hidden = !pg; $('dm_undo').hidden = !pg;
+    var on = $('dm_mode').value === 'slide', mt = $('dm_mode').value === 'mat', pg = (on && $('dm_shape').value === 'poly') || mt;
+    $('dm_shapew').hidden = !on; $('dm_matw').hidden = !mt; $('dm_close').hidden = !pg; $('dm_undo').hidden = !pg;
     if (!pg && ST.draft && ST.draft.length) { ST.draft = []; draw(); }
     if (pg) polyMsg();
   }
@@ -612,11 +622,15 @@
     if (mode === 'outlet') { var s = nearStream(c, Math.max(2, Math.min(40, Math.round(10 / ST.view.sc)))); if (s >= 0) selectOutlet(s); else $('dem_sel').textContent = '谷筋（青い線）の近くをクリックしてください。'; return; }
     if (mode === 'del') { var nm = removeAt(c); $('dem_sel').textContent = nm ? nm + ' を外しました（「元に戻す」で戻せます）。' : '近くに外せる物がありません。'; renderTables(); draw(); return; }
     if (!ST.mask || !ST.mask[c]) { $('dem_sel').textContent = '選んだ流域の中をクリックしてください。'; return; }
-    if (!(mode === 'slide' && $('dm_shape').value === 'poly')) snap();
+    if (!(mode === 'slide' && $('dm_shape').value === 'poly') && mode !== 'mat') snap();
     if (mode === 'src') {
       var h = nearest(c, ST.heads, 14); if (h < 0) { ST.hist.pop(); return; }
       var k = -1; ST.src.forEach(function (r, i) { if (r.c === h) k = i; });
       if (k >= 0) ST.src.splice(k, 1); else ST.src.push(srcDefault(h));
+    } else if (mode === 'mat') {
+      ST.hist.pop(); ST.draft = ST.draft || [];
+      if (ST.draft[ST.draft.length - 1] !== c) ST.draft.push(c);
+      polyMsg(); draw(); return;
     } else if (mode === 'slide') {
       if ($('dm_shape').value === 'poly') {
         ST.draft = ST.draft || [];
@@ -812,6 +826,8 @@
       return { x: xy[0], y: xy[1], poly: r.poly ? r.poly.map(function (c) { return dom.toXY(c); }) : undefined, R: r.R, D: r.D, type: r.type, trigger: r.trigger, t: r.t, move: r.move, phi: r.phi, c: r.coh, m0: r.m0, thDep: thD, mu: mu, CL: CL, Tk: r.type === 'deep' ? +$('sl_tk2').value : +$('sl_tk1').value };
     });
     p.ldams = ST.ldams.map(function (r) { var xy = dom.toXY(r.c), u = solverDir(dom, r.c); return { x: xy[0], y: xy[1], ux: u[0], uy: u[1], H: r.H, Wc: r.Wc, up: r.up, dn: r.dn, lat: r.W > 0 ? r.W / 2 : 0 }; });
+    // 場所ごとの河床材料（多角形）。DEM では x の区間の表は使わない
+    p.bedZones = ST.matz.map(function (r) { return { mat: r.mat, poly: r.poly.map(function (c) { return dom.toXY(c); }) }; });
     // 砂防堰堤：中心・流下方向・長さを DEM から。水通しは中心に固定（so = 0）
     p.dams = ST.dams.map(function (r) {
       var xy = dom.toXY(r.c), u = solverDir(dom, r.c), d = { x: xy[0], y: xy[1], ang: Math.atan2(u[1], u[0]) * 180 / Math.PI, H: r.H, b: Math.max(dom.cs, r.b || 10), so: 0, len: damLen(r) };
@@ -879,7 +895,7 @@
     });
     window.addEventListener('pointerup', function (e) { if (drag && e.pointerId === drag.id) { ST.dragged = drag.moved; drag = null; mv.style.cursor = 'crosshair'; } });
     $('demmap').addEventListener('click', onClick);
-    $('demmap').addEventListener('dblclick', function (e) { if ($('dm_mode').value === 'slide' && $('dm_shape').value === 'poly') { e.preventDefault(); closePoly(); } });
+    $('demmap').addEventListener('dblclick', function (e) { if (($('dm_mode').value === 'slide' && $('dm_shape').value === 'poly') || $('dm_mode').value === 'mat') { e.preventDefault(); closePoly(); } });
     $('dm_mode').addEventListener('change', shapeUI); $('dm_shape').addEventListener('change', shapeUI);
     $('dm_close').onclick = closePoly;
     $('dm_undo').onclick = function () { if (ST.draft && ST.draft.length) { ST.draft.pop(); polyMsg(); draw(); } };

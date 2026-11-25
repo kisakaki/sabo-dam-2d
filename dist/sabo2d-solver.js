@@ -127,7 +127,8 @@
       snapEvery: 600,    // 時間ごとの結果を記録する間隔 [s]（出水の時刻）。0 で記録しない
       // ---- 透過型堰堤（スリット・鋼製）の共通設定
       openDam: {
-        w: 0.5,          // 鋼製の部材の幅・複数スリットの間の柱の幅 [m]
+        w: 0.5,          // 鋼製（格子型・スリット型）の部材の幅 [m]
+        wp: 2.0,         // 複数スリットの間の柱（コンクリート）の幅 [m]
         beta: 1.5,       // 閉塞の判定：開口幅 l ≤ beta × d95 で、流れの土砂濃度が Cblk 以上なら閉塞（土石流対策技術指針 2000 の 1.5、2016 の指針は 1.0）
         Cblk: 0.2,       // 閉塞が起きる流れの土砂濃度（容積）の下限（本プログラムの仮定）
         alpha: 1.0,      // 粒径 d が l/alpha 以上の礫は開口を通れない
@@ -574,7 +575,7 @@
         var lw = D.l > 0 ? D.l : 1.0, wm = OD.w > 0 ? OD.w : 0.5, nO = Math.max(1, Math.round(D.n || 1));
         var zo = zbase + Math.max(0, Math.min(D.H - 0.1, D.hb || 0)), sc0 = 0.5 * (spMin + spMax), wz, phiW, phiS;
         if (typ === 'slit') { nO = 1; wz = lw; }
-        else if (typ === 'mslit') wz = nO * lw + (nO - 1) * wm;
+        else if (typ === 'mslit') wz = nO * lw + (nO - 1) * (OD.wp > 0 ? OD.wp : 2.0);   // 柱の幅は鋼製の部材とは別
         else wz = spMax - spMin + dx;                                     // 鋼製：水通しの全幅
         var oc = [], kept = [], keptS = [];
         for (k = 0; k < cells.length; k++) {
@@ -598,7 +599,7 @@
           for (k = 0; k < oc.length; k++) { c = oc[k]; z[c] = zo; zfix[c] = zo; kind[c] = 0; fl[c] = 1; this.openC[c] = this.dams.length + 1; }
           cells = kept; spill = keptS;
           var zs0 = (typ === 'slit' || typ === 'mslit') ? sc0 - wz / 2 : spMin - dx / 2, zs1 = (typ === 'slit' || typ === 'mslit') ? sc0 + wz / 2 : spMax + dx / 2;
-          op = { type: typ, l: lw, n: nO, w: wm, zo: zo, cells: oc, phiW: phiW, phiS: phiS, blocked: false, tBlock: null, beta: D.beta > 0 ? D.beta : (OD.beta || 1.5), s0: zs0, s1: zs1, hb: zo - zbase };
+          op = { type: typ, l: lw, n: nO, w: wm, wp: OD.wp > 0 ? OD.wp : 2.0, zo: zo, cells: oc, phiW: phiW, phiS: phiS, blocked: false, tBlock: null, beta: D.beta > 0 ? D.beta : (OD.beta || 1.5), s0: zs0, s1: zs1, hb: zo - zbase };
         }
       }
       this.dams.push({ i: id, x: cx, cx: cx, cy: cy, th: th, tx: tx, ty: ty, nx: nxv, ny: nyv, ext: ext, thick: thick, H: D.H, b: bn,
@@ -714,16 +715,30 @@
     this.Cc = new Float64Array(N * K);            // 侵食・堆積速度式：流れの中の粒径別土砂量 C_k h（実質体積の層厚） [m]
     this.Cn = new Float64Array(N * K);
     this.sedWaterInit = 0;
+    // 場所ごとの河床材料：P.bedMats（粒径階ごとの割合の並び。材料 B, C, …）と P.bedZones（{mat: 1 から, x0, x1, y0, y1} か {mat, poly: [[x, y], …]}）。
+    // 後の範囲が前の範囲より優先。どこにも入らないセルは表の「河床」（材料 A）
+    var mats = [f0], matI = this.matIdx = new Uint8Array(N);
+    (P.bedMats || []).forEach(function (m) { var sm = 0, f = new Float64Array(K); for (k = 0; k < K; k++) sm += Math.max(0, m[k] || 0); for (k = 0; k < K; k++) f[k] = sm > 0 ? Math.max(0, m[k] || 0) / sm : f0[k]; mats.push(f); });
+    (P.bedZones || []).forEach(function (Zn) {
+      var mi = Zn.mat | 0; if (mi < 1 || mi >= mats.length) return;
+      for (c = 0; c < N; c++) {
+        var xc = ((c % nx) + 0.5) * dx, yc = (((c - c % nx) / nx) + 0.5) * dx;
+        if (Zn.poly && Zn.poly.length >= 3) { if (!inPoly(Zn.poly, xc, yc)) continue; }
+        else { if (xc < (Zn.x0 != null ? Zn.x0 : -1e30) || xc > (Zn.x1 != null ? Zn.x1 : 1e30)) continue; if (Zn.y0 != null && yc < Zn.y0) continue; if (Zn.y1 != null && yc > Zn.y1) continue; }
+        matI[c] = mi;
+      }
+    });
+    this.mats = mats;
     for (c = 0; c < N; c++) {
       var del = z[c] - zfix[c];
       if (del <= 1e-9 || kind[c] === 3) continue;   // 斜面の土層（kind 3）は流れで侵食しない（層を持たない）
-      var a = Math.min(del, La);
-      for (k = 0; k < K; k++) this.A[c * K + k] = a * f0[k];
+      var a = Math.min(del, La), fm = mats[matI[c]];
+      for (k = 0; k < K; k++) this.A[c * K + k] = a * fm[k];
       var rem = del - a;
       if (rem > 1e-9) {
         var nl = Math.min(NL, Math.ceil(rem / Ls - 1e-9));
         this.nl[c] = nl; this.topTh[c] = rem - (nl - 1) * Ls;
-        for (var l = 0; l < nl; l++) for (k = 0; k < K; k++) this.SF[(c * NL + l) * K + k] = f0[k];
+        for (var l = 0; l < nl; l++) for (k = 0; k < K; k++) this.SF[(c * NL + l) * K + k] = fm[k];
       }
     }
 

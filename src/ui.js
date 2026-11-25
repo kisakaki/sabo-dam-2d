@@ -239,7 +239,7 @@
   }
   function readGrTable() {
     var g = [];
-    Array.prototype.forEach.call($('grtab').tBodies[0].rows, function (tr) { var v = tr.querySelectorAll('input'), d = +v[0].value, b = +v[1].value, f = +v[2].value; if (d > 0) g.push({ d: d / 1000, bed: b > 0 ? b : 0, feed: f > 0 ? f : 0 }); });
+    Array.prototype.forEach.call($('grtab').tBodies[0].rows, function (tr) { var v = tr.querySelectorAll('input'), d = +v[0].value, b = +v[1].value, f = +v[2].value, bB = +v[3].value, bC = +v[4].value; if (d > 0) g.push({ d: d / 1000, bed: b > 0 ? b : 0, feed: f > 0 ? f : 0, bedB: bB > 0 ? bB : 0, bedC: bC > 0 ? bC : 0 }); });
     return g.sort(function (a, b) { return a.d - b.d; });
   }
   // 割合 p（合計 1）の d_x：累積割合を各階の粒径で ln d に直線補間（階の粒径を代表値とする）
@@ -258,7 +258,8 @@
       var mm = function (v) { v *= 1000; return v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toFixed(2); };
       return name + '：平均粒径 dm ' + mm(m / tot) + ' mm、d16 ' + mm(dPct(g, key, 0.16)) + '、d50 ' + mm(dPct(g, key, 0.5)) + '、d84 ' + mm(dPct(g, key, 0.84)) + '、d90 ' + mm(dPct(g, key, 0.9)) + ' mm（合計 ' + tot.toFixed(1) + ' %）';
     }
-    $('gr_sum').textContent = line('bed', '河床') + '　／　' + line('feed', '供給') + '。割合の合計は 100 % でなくても比で使います。';
+    var hasB = g.some(function (q) { return q.bedB > 0; }), hasC = g.some(function (q) { return q.bedC > 0; });
+    $('gr_sum').textContent = line('bed', '河床 A') + '　／　' + line('feed', '供給') + (hasB ? '　／　' + line('bedB', '河床 B') : '') + (hasC ? '　／　' + line('bedC', '河床 C') : '') + '。割合の合計は 100 % でなくても比で使います。';
     // 粒径加積曲線（横軸は対数）
     var cv = $('gr_cv'), dpr = window.devicePixelRatio || 1, W = cv.clientWidth || 300, H = 150; cv.width = W * dpr; cv.height = H * dpr;
     var ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
@@ -267,22 +268,34 @@
     ctx.strokeStyle = css('--line'); ctx.fillStyle = css('--ink3'); ctx.font = '10px sans-serif'; ctx.lineWidth = 1;
     for (var e = Math.ceil(lmin); e <= Math.floor(lmax); e++) { var xx = X(Math.pow(10, e)); ctx.beginPath(); ctx.moveTo(xx, T); ctx.lineTo(xx, H - B); ctx.stroke(); ctx.fillText((e < 0 ? Math.pow(10, e).toFixed(-e) : Math.pow(10, e)) + ' mm', xx - 10, H - 6); }
     [0, 0.5, 1].forEach(function (p) { ctx.beginPath(); ctx.moveTo(L, Y(p)); ctx.lineTo(W - R, Y(p)); ctx.stroke(); ctx.fillText((p * 100) + '%', 2, Y(p) + 3); });
-    [['bed', css('--sed')], ['feed', css('--s2')]].forEach(function (kc) {
+    [['bed', css('--sed')], ['feed', css('--s2')], ['bedB', css('--s3')], ['bedC', css('--s1')]].forEach(function (kc) {
       var tot = 0; g.forEach(function (q) { tot += q[kc[0]]; }); if (!(tot > 0)) return;
       ctx.strokeStyle = kc[1]; ctx.lineWidth = 2; ctx.beginPath(); var cum = 0;
       g.forEach(function (q, k) { cum += q[kc[0]] / tot; var xx = X(q.d * 1000), yy = Y(cum); if (k) ctx.lineTo(xx, yy); else ctx.moveTo(xx, yy); });
       ctx.stroke();
     });
-    ctx.fillStyle = css('--sed'); ctx.fillText('— 河床', W - 110, H - B - 6); ctx.fillStyle = css('--s2'); ctx.fillText('— 供給', W - 56, H - B - 6);
+    ctx.fillStyle = css('--sed'); ctx.fillText('— 河床 A', W - 200, H - B - 6); ctx.fillStyle = css('--s2'); ctx.fillText('— 供給', W - 150, H - B - 6);
+    if (hasB) { ctx.fillStyle = css('--s3'); ctx.fillText('— B', W - 106, H - B - 6); } if (hasC) { ctx.fillStyle = css('--s1'); ctx.fillText('— C', W - 76, H - B - 6); }
   }
   function grRow(g) {
-    var tr = document.createElement('tr');
+    var tr = document.createElement('tr'), pc = function (v) { return v > 0 ? +(v * 100).toFixed(1) : (v === 0 ? 0 : ''); };
     tr.innerHTML = '<td><input type="number" step="1" min="0.1" value="' + (+(g.d * 1000).toFixed(2)) + '" aria-label="粒径"></td>' +
-      '<td><input type="number" step="5" min="0" value="' + (+(g.bed * 100).toFixed(1)) + '" aria-label="河床の割合"></td>' +
+      '<td><input type="number" step="5" min="0" value="' + (+(g.bed * 100).toFixed(1)) + '" aria-label="河床 A の割合"></td>' +
       '<td><input type="number" step="5" min="0" value="' + (+(g.feed * 100).toFixed(1)) + '" aria-label="供給の割合"></td>' +
+      '<td><input type="number" step="5" min="0" value="' + pc(g.bedB) + '" placeholder="–" aria-label="河床 B の割合"></td>' +
+      '<td><input type="number" step="5" min="0" value="' + pc(g.bedC) + '" placeholder="–" aria-label="河床 C の割合"></td>' +
       '<td><button class="x" aria-label="削除">×</button></td>';
     tr.querySelector('button').onclick = function () { if ($('grtab').tBodies[0].rows.length > 1) { tr.remove(); grSummary(); } };
     Array.prototype.forEach.call(tr.querySelectorAll('input'), function (i) { i.addEventListener('input', grSummary); });
+    return tr;
+  }
+  // 場所ごとの河床材料（DEM 以外）：材料 B・C を x の区間に
+  function bzRow(z) {
+    var tr = document.createElement('tr');
+    tr.innerHTML = '<td><select aria-label="材料"><option value="1"' + (z.mat === 1 ? ' selected' : '') + '>B</option><option value="2"' + (z.mat === 2 ? ' selected' : '') + '>C</option></select></td>' +
+      '<td><input type="number" step="10" value="' + (z.x0 != null ? z.x0 : '') + '" aria-label="始点 x"></td><td><input type="number" step="10" value="' + (z.x1 != null ? z.x1 : '') + '" aria-label="終点 x"></td>' +
+      '<td><button class="x" aria-label="削除">×</button></td>';
+    tr.querySelector('button').onclick = function () { tr.remove(); };
     return tr;
   }
   function wRow(w) {
@@ -379,6 +392,7 @@
     setDams(P.dams); $('d_wing').value = P.wingHeight;
     setValley(P.valley || {}, P.sideGrad);
     var tb = $('grtab').tBodies[0]; tb.innerHTML = ''; P.grains.forEach(function (g) { tb.appendChild(grRow(g)); }); setTimeout(grSummary, 0);
+    var tz = $('bztab').tBodies[0]; tz.innerHTML = ''; (P.bedZones || []).forEach(function (z) { if (!z.poly) tz.appendChild(bzRow(z)); });
     $('s_n').value = P.manning; $('s_tc').value = P.tauCm; $('s_tcm').value = P.tcMethod || 'atm'; $('s_hid').value = P.hiding || 'egiazaroff'; tcSwitch(); $('s_por').value = P.porosity; $('s_rep').value = P.reposeDeg;
     var BK = P.bank || {}, NE = P.noneq || {}, BO = P.boulders || {};
     $('s_tr').value = P.transport || 'eq'; $('ne_de').value = NE.de; $('ne_dd').value = NE.dd; $('ne_he').value = NE.hEdge; $('ne_fe').value = NE.fe; $('ne_fd').value = NE.fd;
@@ -389,7 +403,7 @@
     $('o_ev').value = P.snapEvery == null ? 10 : +(P.snapEvery / 60).toFixed(2);
     $('hd_t0').value = H.t0 == null ? 60 : H.t0; $('hd_tr').value = H.tRise || 30; $('hd_tf').value = H.tFall || 120; $('hd_c').value = H.Cd == null ? 0.4 : H.Cd; $('hd_iu').value = H.Iup || 0;
     $('hd_td').value = H.mode === 'debris' ? H.duration / 60 : 10;
-    var OD = P.openDam || {}; $('od_w').value = OD.w || 0.5; $('od_b').value = OD.beta || 1.5; $('od_c').value = OD.Cblk || 0.2; $('od_a').value = OD.alpha || 1; $('od_p').value = OD.phiBlock || 0.05;
+    var OD = P.openDam || {}; $('od_w').value = OD.w || 0.5; $('od_wp').value = OD.wp || 2; $('od_b').value = OD.beta || 1.5; $('od_c').value = OD.Cblk || 0.2; $('od_a').value = OD.alpha || 1; $('od_p').value = OD.phiBlock || 0.05;
     var DB = P.debris || {}; $('db_de').value = DB.de || 0.0007; $('db_dd').value = DB.dd || 0.05; $('db_tp').value = DB.tanPhi || 0.7; $('db_rho').value = DB.rho || 1000;
     var GW = P.gw || {}; $('gw_on').checked = !!GW.on; $('gw_k').value = GW.k || 0; $('gw_kx').value = GW.kMax || 0.05; $('gw_s0').value = GW.s0 || 0; gwSwitch();
     setT(P.tribs || []); trSwitch();
@@ -481,16 +495,24 @@
     var mxH = 0; p.dams.forEach(function (d) { if (d.H > mxH) mxH = d.H; });
     p.grains = [];
     Array.prototype.forEach.call($('grtab').tBodies[0].rows, function (tr) {
-      var a = tr.querySelectorAll('input'); var d = parseFloat(a[0].value), b = parseFloat(a[1].value), f = parseFloat(a[2].value);
-      if (d > 0) p.grains.push({ d: d / 1000, bed: b > 0 ? b / 100 : 0, feed: f > 0 ? f / 100 : 0 });
+      var a = tr.querySelectorAll('input'), d = parseFloat(a[0].value), b = parseFloat(a[1].value), f = parseFloat(a[2].value), bB = parseFloat(a[3] ? a[3].value : ''), bC = parseFloat(a[4] ? a[4].value : '');
+      if (d > 0) p.grains.push({ d: d / 1000, bed: b > 0 ? b / 100 : 0, feed: f > 0 ? f / 100 : 0, bedB: bB > 0 ? bB / 100 : 0, bedC: bC > 0 ? bC / 100 : 0 });
     });
     if (!p.grains.length) p.grains = S2.defaultParams().grains;
     p.grains.sort(function (a, b) { return a.d - b.d; });
+    // 場所ごとの河床材料：材料 B（1）・C（2）。割合が空の材料は A と同じ
+    var sB = 0, sC = 0; p.grains.forEach(function (g) { sB += g.bedB || 0; sC += g.bedC || 0; });
+    p.bedMats = [p.grains.map(function (g) { return sB > 0 ? g.bedB || 0 : g.bed; }), p.grains.map(function (g) { return sC > 0 ? g.bedC || 0 : g.bed; })];
+    p.bedZones = [];
+    Array.prototype.forEach.call($('bztab').tBodies[0].rows, function (tr) {
+      var m = +tr.querySelector('select').value, a = tr.querySelectorAll('input'), x0 = parseFloat(a[0].value), x1 = parseFloat(a[1].value);
+      p.bedZones.push({ mat: m, x0: isFinite(x0) ? x0 : null, x1: isFinite(x1) ? x1 : null });
+    });
     p.manning = num('s_n', 0.05, 0.01, 0.3); p.tauCm = num('s_tc', 0.05, 0.01, 0.2); p.tcMethod = $('s_tcm').value; p.hiding = $('s_hid').value; p.porosity = num('s_por', 0.4, 0.1, 0.7); p.reposeDeg = num('s_rep', 35, 15, 60);
     p.transport = $('s_tr').value === 'noneq' ? 'noneq' : $('s_tr').value === 'debris' ? 'debris' : 'eq';
     if (H.mode === 'debris') p.transport = 'debris';
     p.debris = { de: num('db_de', 0.0007, 0, 1), dd: num('db_dd', 0.05, 0, 10), tanPhi: num('db_tp', 0.7, 0.3, 1.2), rho: num('db_rho', 1000, 1000, 1600), Vmin: 0.1, manningFloor: true };
-    p.openDam = { w: num('od_w', 0.5, 0.05, 5), beta: num('od_b', 1.5, 0.5, 5), Cblk: num('od_c', 0.2, 0.01, 0.6), alpha: num('od_a', 1, 0.5, 3), phiBlock: num('od_p', 0.05, 0.001, 0.5) };
+    p.openDam = { w: num('od_w', 0.5, 0.05, 5), wp: num('od_wp', 2, 0.2, 20), beta: num('od_b', 1.5, 0.5, 5), Cblk: num('od_c', 0.2, 0.01, 0.6), alpha: num('od_a', 1, 0.5, 3), phiBlock: num('od_p', 0.05, 0.001, 0.5) };
     p.gw = { on: $('gw_on').checked, k: num('gw_k', 0, 0, 1), kMax: num('gw_kx', 0.05, 0.0001, 1), s0: num('gw_s0', 0, 0, 1) };
     p.tribs = [];
     Array.prototype.forEach.call($('ttab').tBodies[0].rows, function (tr) {
@@ -790,7 +812,7 @@
     if (op) {   // 透過型：開口の部分を抜き、柱（複数スリット）・鋼製の部材を置く
       var a0 = Math.max(D.spMin, op.s0), a1 = Math.min(D.spMax, op.s1);
       if (a0 - D.spMin > 1e-6) out.push({ s0: D.spMin, s1: a0, top: D.crest, spill: true });
-      if (op.type === 'mslit') for (var m = 0; m < op.n - 1; m++) { var p0 = op.s0 + op.l + m * (op.l + op.w); out.push({ s0: p0, s1: p0 + op.w, top: D.crest, spill: true }); }
+      if (op.type === 'mslit') { var wq = op.wp || op.w; for (var m = 0; m < op.n - 1; m++) { var p0 = op.s0 + op.l + m * (op.l + wq); out.push({ s0: p0, s1: p0 + wq, top: D.crest, spill: true }); } }
       if (op.type === 'grid' || op.type === 'sslit') {
         for (var p1 = a0 + op.l; p1 + op.w <= a1 + 1e-6; p1 += op.l + op.w) out.push({ s0: p1, s1: p1 + op.w, top: D.crest, bot: op.zo, steel: true });
         out.push({ s0: a0, s1: a1, top: D.crest, bot: D.crest - op.w, steel: true, horiz: true });                      // 天端の横部材
@@ -2021,8 +2043,22 @@
   })();
   $('gw_on').onchange = gwSwitch;
   $('gr_add').onclick = function () { if ($('grtab').tBodies[0].rows.length < 6) $('grtab').tBodies[0].appendChild(grRow({ d: 0.3, bed: 0, feed: 0 })); grSummary(); };
+  $('bz_add').onclick = function () { $('bztab').tBodies[0].appendChild(bzRow({ mat: 1, x0: 0, x1: 100 })); };
   $('gr_pre').onchange = function () { var v = GR_PRE[this.value]; if (!v) return; $('gr_dm').value = v[0]; $('gr_sg').value = v[1]; $('gr_k').value = v[2]; $('gr_fr').value = v[3]; $('gr_gen').onclick(); };
   $('gr_gen').onclick = function () {
+    var to = $('gr_to').value;
+    if (to !== 'A') {   // 河床 B・C：いまの粒径階のまま、平均粒径 dm・幅 σg の対数正規分布の割合を入れる
+      var cur = readGrTable(); if (!cur.length) return;
+      var sgl = Math.log(Math.max(1.0001, +$('gr_sg').value || 1)), dmv = (+$('gr_dm').value || 5) / 1000, mu = Math.log(dmv) - sgl * sgl / 2, pr = [], tot = 0;
+      cur.forEach(function (q, k) {
+        var e0 = k === 0 ? -1e9 : 0.5 * (Math.log(cur[k - 1].d) + Math.log(q.d)), e1 = k === cur.length - 1 ? 1e9 : 0.5 * (Math.log(q.d) + Math.log(cur[k + 1].d));
+        var v = (+$('gr_sg').value || 1) <= 1.0001 ? (Math.abs(Math.log(q.d / dmv)) === Math.min.apply(null, cur.map(function (u) { return Math.abs(Math.log(u.d / dmv)); })) ? 1 : 0) : lnCdf(e1, mu, sgl) - lnCdf(e0, mu, sgl);
+        pr.push(v); tot += v;
+      });
+      var rows = $('grtab').tBodies[0].rows, col = to === 'B' ? 3 : 4;
+      cur.forEach(function (q, k) { Array.prototype.forEach.call(rows, function (tr) { var v = tr.querySelectorAll('input'); if (Math.abs(+v[0].value / 1000 - q.d) < 1e-9) v[col].value = (pr[k] / (tot || 1) * 100).toFixed(1); }); });
+      grSummary(); return;
+    }
     var g = makeGrains(+$('gr_dm').value || 5, +$('gr_sg').value || 1, +$('gr_k').value || 5, +$('gr_fr').value || 1), tb = $('grtab').tBodies[0]; tb.innerHTML = '';
     // 割合は 0.1 % 単位で、合計がちょうど 100 % になるよう最大の階で調整
     ['bed', 'feed'].forEach(function (key) {

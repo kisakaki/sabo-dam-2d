@@ -340,7 +340,8 @@ table.res th,table.res td{white-space:nowrap}
       <p class="note" id="dam_note" hidden style="color:var(--err,#b3261e)"></p>
       <p class="note">位置は上流端からの距離（堰堤の中心）。堰堤は河道の中心線に直角、つまり両岸に直角に置きます。水通し幅 0 は全幅越流（水平な天端）。</p>
       <details style="border:0;padding:0"><summary style="font-weight:500">透過型（スリット・鋼製）の設定と閉塞</summary><div class="body">
-        <div class="row"><label for="od_w">部材の幅・スリット間の柱の幅<span class="u">m</span></label><input type="number" id="od_w" step="0.1" min="0.05"></div>
+        <div class="row"><label for="od_w">鋼製の部材の幅（格子型・スリット型）<span class="u">m</span></label><input type="number" id="od_w" step="0.1" min="0.05"></div>
+        <div class="row"><label for="od_wp">スリット間の柱の幅（複数スリット）<span class="u">m</span></label><input type="number" id="od_wp" step="0.5" min="0.2"></div>
         <div class="row"><label for="od_b">閉塞の判定 l ≤ β d95 の β</label><input type="number" id="od_b" step="0.1" min="0.5" max="5"></div>
         <div class="row"><label for="od_c">閉塞が起きる土砂濃度<span class="u">–</span></label><input type="number" id="od_c" step="0.05" min="0.01" max="0.6"></div>
         <div class="row"><label for="od_a">礫が通れる大きさ d &lt; l/α の α</label><input type="number" id="od_a" step="0.1" min="0.5" max="3"></div>
@@ -371,10 +372,14 @@ table.res th,table.res td{white-space:nowrap}
       <div class="row"><label for="gr_k">粒径階の数</label><select id="gr_k"><option>1</option><option>2</option><option>3</option><option>4</option><option selected>5</option><option>6</option></select></div>
       <div class="row"><label for="gr_fr" title="供給土砂の平均粒径を河床の何倍にするか（分布を ln d でずらす。粒径階は河床と共通なので、できる平均粒径は目安）。1 で河床と同じ分布">供給の平均粒径 ÷ 河床の平均粒径</label><input type="number" id="gr_fr" value="1" step="0.1" min="0.05"></div>
       <div class="btns"><button class="sm" id="gr_gen">平均粒径と幅から作る（表を書き換え）</button></div>
-      <table class="ed" id="grtab"><thead><tr><th>粒径 [mm]</th><th>河床 [%]</th><th>供給 [%]</th><th></th></tr></thead><tbody></tbody></table>
+      <div class="row"><label for="gr_to">作る先</label><select id="gr_to"><option value="A">河床 A と供給（粒径階も作り直す）</option><option value="B">河床 B（いまの粒径階のまま割合だけ）</option><option value="C">河床 C（いまの粒径階のまま割合だけ）</option></select></div>
+      <div style="overflow-x:auto"><table class="ed" id="grtab"><thead><tr><th>粒径 [mm]</th><th>河床 A [%]</th><th>供給 [%]</th><th>河床 B [%]</th><th>河床 C [%]</th><th></th></tr></thead><tbody></tbody></table></div>
       <div class="btns"><button class="sm" id="gr_add">＋ 粒径階を追加</button></div>
       <p class="note" id="gr_sum"></p>
       <canvas id="gr_cv" style="width:100%;height:150px;display:block"></canvas>
+      <p class="note"><b>場所ごとの河床材料</b>：河床 A がふつうの河床です。河床 B・C に割合を入れると、別の材料として使えます（粒径階は共通）。DEM 以外は下の表で x の区間（上流端からの距離 [m]、空欄は端まで）に、DEM の流域は地図の「河床材料の範囲を描く」で多角形の範囲に置きます。後の行・範囲が優先です。</p>
+      <table class="ed" id="bztab"><thead><tr><th>材料</th><th>x 始点 [m]</th><th>x 終点 [m]</th><th></th></tr></thead><tbody></tbody></table>
+      <div class="btns"><button class="sm" id="bz_add">＋ 区間を追加</button></div>
       <div class="row"><label for="s_n">Manning の粗度係数 n</label><input type="number" id="s_n" step="0.005" min="0.01"></div>
       <div class="row"><label for="s_tcm">限界掃流力の式（平均粒径）</label><select id="s_tcm"><option value="atm">芦田・高橋・水山</option><option value="iwagaki">岩垣式</option><option value="const">一定値</option></select></div>
       <div class="row" id="s_tc_row" hidden><label for="s_tc">τ*c（一定値）</label><input type="number" id="s_tc" step="0.005" min="0.01"></div>
@@ -450,8 +455,9 @@ table.res th,table.res td{white-space:nowrap}
     <div class="card" id="demcard" hidden>
       <div class="hd"><h2>DEM と流域</h2>
         <div class="opts">
-          <label>クリックで <select id="dm_mode"><option value="basin">流域を選ぶ</option><option value="outlet">出口を指定（小流域）</option><option value="src">供給点を選ぶ</option><option value="slide">崩壊を置く</option><option value="ldam">天然ダムを置く</option><option value="dam">砂防堰堤を置く</option><option value="del">消す（クリックした物を外す）</option></select></label>
+          <label>クリックで <select id="dm_mode"><option value="basin">流域を選ぶ</option><option value="outlet">出口を指定（小流域）</option><option value="src">供給点を選ぶ</option><option value="slide">崩壊を置く</option><option value="ldam">天然ダムを置く</option><option value="dam">砂防堰堤を置く</option><option value="mat">河床材料の範囲を描く（多角形）</option><option value="del">消す（クリックした物を外す）</option></select></label>
           <label id="dm_shapew" hidden>崩壊の形 <select id="dm_shape"><option value="circle">円（中心をクリック）</option><option value="poly">多角形（頂点をクリック）</option></select></label>
+          <label id="dm_matw" hidden>材料 <select id="dm_matsel"><option value="1">河床 B</option><option value="2">河床 C</option></select></label>
           <button type="button" id="dm_back" disabled title="直前の追加・削除・変更を取り消す（Ctrl+Z）">元に戻す</button>
           <button type="button" id="dm_close" hidden>多角形を閉じる</button><button type="button" id="dm_undo" hidden>1 点戻す</button>
           <label><input type="checkbox" id="dm_fit" checked> 選んだ流域に寄せる</label>
