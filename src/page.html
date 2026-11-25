@@ -309,8 +309,8 @@ table.res th,table.res td{white-space:nowrap}
         <p class="note">移動：「土石流化」は崩れた土を流れ（濃度 C<sub>L</sub>、足りない水は法面の流れと湧水から取り込むと仮定して足す）にし、土石流の式で流します。「土塊」は最急降下の経路を、エネルギー線（崩壊域の最高点から等価摩擦角の勾配）が地表に届くところまで瞬時に動かし、表面の勾配が堆積勾配の円錐形に堆積させます（谷をふさげば天然ダム）。「自動」は、すべり面より上の地下水の厚さの割合 m が 0.8 以上で、流砂モデルが土石流なら土石流化、それ以外は土塊。地下水は、表層で伏流ありなら土層の地下水、それ以外は 1 段の線形タンク dS/dt = r − S/T（雨から）です。</p>
       </div></details>
       <details style="border:0;padding:0"><summary style="font-weight:500">天然ダム（河道閉塞）</summary><div class="body">
-        <p class="note">地図の「天然ダムを置く」で谷筋をクリックすると、その流れの向きに直角な天然ダム（台形の縦断）を置きます。斜面崩壊の「土塊」で谷がふさがったときも、その堆積物を天然ダムとして扱います。</p>
-        <div style="overflow-x:auto"><table class="ed" id="ldtab"><thead><tr><th>点</th><th>高さ [m]</th><th>天端幅 [m]</th><th>上流法 [°]</th><th>下流法 [°]</th><th></th></tr></thead><tbody></tbody></table></div>
+        <p class="note">地図の「天然ダムを置く」で谷筋をクリックすると、その流れの向きに直角な天然ダムを置きます。形：天端の標高は谷底＋高さ H、天端幅は流れの向きの長さ、上流・下流の法の角度で縦断が台形になり、谷を横切る向きは「幅」まで（0 なら 100 m か 16H の大きい方）、地盤より高い所だけ盛ります。「体積」に値を入れると、その体積になる高さにします。地図では堤体の範囲を厚いほど濃く描きます。斜面崩壊の「土塊」で谷がふさがったときも、その堆積物を天然ダムとして扱います。</p>
+        <div style="overflow-x:auto"><table class="ed" id="ldtab"><thead><tr><th>点</th><th>高さ H [m]</th><th>天端幅 [m]</th><th>上流法 [°]</th><th>下流法 [°]</th><th>幅 [m]<br>（0＝自動）</th><th>体積 [m³]</th><th>長さ×幅 [m]</th><th></th></tr></thead><tbody></tbody></table></div>
         <div class="row"><label for="ld_k">堤体の透水係数<span class="u">m/s、0＝粒度から</span></label><input type="number" id="ld_k" step="0.0001" min="0" value="0.001"></div>
         <div class="row"><label for="ld_fail">決壊の形</label><select id="ld_fail"><option value="auto">透水性で決まる（越流侵食 / 進行性崩壊）</option><option value="slip">すべり破壊（湛水位で指定）</option></select></div>
         <div class="row"><label for="ld_lev">すべりが起きる湛水位（ダム高に対する比）</label><input type="number" id="ld_lev" step="0.05" min="0.1" max="1" value="0.9"></div>
@@ -319,6 +319,11 @@ table.res th,table.res td{white-space:nowrap}
         <div class="row"><label for="ld_kt">不飽和河床の侵食速度係数 K<sub>t</sub></label><input type="number" id="ld_kt" step="0.0005" min="0" value="0.0019"></div>
         <div class="btns"><button class="sm" id="ld_ex">例：本川に天然ダムと上流の供給点を置く</button><button class="sm" id="ld_clr">すべて消す</button></div>
         <p class="note">堤体の中の浸透は伏流の計算（Darcy、Dupuit 近似）で、天然ダムがあると伏流を自動で有効にします。透水係数が大きいと、越流の前に浸潤面が下流の法尻に達し、湧水の出る法面で無限長斜面（浸透流が斜面に平行）の安全率 Fs = c'/(γsat T sinβ cosβ) + (γ'/γsat)tanφ/tanβ が 1 を下回った所から順に崩れて、崩壊が上流へ遡ります（進行性崩壊。高山ら 2020 の観察）。透水係数が小さいと、満水になって越流し、越流水がダムを侵食します（越流侵食）。すべり破壊は、湛水位が指定の高さに達したとき、下流の法尻と上流側の天端の端を結ぶ面より上の土を、法尻から下流へ堆積勾配（斜面崩壊の欄）の斜面になるように瞬時に動かします（Awal ら 2008、高山ら 2020 の簡易モデル）。</p>
+      </div></details>
+      <details style="border:0;padding:0"><summary style="font-weight:500">砂防堰堤（DEM）</summary><div class="body">
+        <p class="note">地図の「砂防堰堤を置く」で谷筋をクリックすると、流れの向き（前後 3 セルの谷筋から）に直角な堰堤を置きます。基礎は中心のまわりの最も低い地盤、天端は基礎＋高さ H。水通しは中心に幅 b、その外は袖（天端＋袖部の高さ）。堤長 0 は、袖が地盤に届くまでの長さを自動で決めます。透過型は開口の幅・数・底の高さを指定します。堰堤ごとの堆砂量は、堰堤の上流面から上りに谷をたどった範囲で数えます。</p>
+        <div style="overflow-x:auto"><table class="ed" id="dmtab"><thead><tr><th>点</th><th>型</th><th>高さ H [m]</th><th>水通し幅 b [m]</th><th>堤長 [m]<br>（0＝自動）</th><th>開口幅 [m]</th><th>開口数</th><th>開口の底 [m]</th><th>使う堤長 [m]</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="btns"><button class="sm" id="dmt_clr">すべて消す</button></div>
       </div></details>
     </div></details>
 
@@ -432,8 +437,9 @@ table.res th,table.res td{white-space:nowrap}
     <div class="card" id="demcard" hidden>
       <div class="hd"><h2>DEM と流域</h2>
         <div class="opts">
-          <label>クリックで <select id="dm_mode"><option value="basin">流域を選ぶ</option><option value="outlet">出口を指定（小流域）</option><option value="src">供給点を選ぶ</option><option value="slide">崩壊を置く</option><option value="ldam">天然ダムを置く</option></select></label>
+          <label>クリックで <select id="dm_mode"><option value="basin">流域を選ぶ</option><option value="outlet">出口を指定（小流域）</option><option value="src">供給点を選ぶ</option><option value="slide">崩壊を置く</option><option value="ldam">天然ダムを置く</option><option value="dam">砂防堰堤を置く</option><option value="del">消す（クリックした物を外す）</option></select></label>
           <label id="dm_shapew" hidden>崩壊の形 <select id="dm_shape"><option value="circle">円（中心をクリック）</option><option value="poly">多角形（頂点をクリック）</option></select></label>
+          <button type="button" id="dm_back" disabled title="直前の追加・削除・変更を取り消す（Ctrl+Z）">元に戻す</button>
           <button type="button" id="dm_close" hidden>多角形を閉じる</button><button type="button" id="dm_undo" hidden>1 点戻す</button>
           <label><input type="checkbox" id="dm_fit" checked> 選んだ流域に寄せる</label>
         </div>

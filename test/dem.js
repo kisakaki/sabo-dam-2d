@@ -36,3 +36,14 @@ const lp = dom.toXY(sc), lu = dom.dirXY(sc);
 P = base(); P.ldams = [{ x: lp[0], y: lp[1], ux: lu[0], uy: lu[1], H: 12, Wc: 10, up: 30, dn: 25 }]; P.gw.on = true; P.ldam.k = 3e-2; P.debris.erosion = 'auto';
 P.sources = [{ x: lp[0] - 30 * lu[0], y: lp[1] - 30 * lu[1], ux: lu[0], uy: lu[1], I: 0.05, hydro: { mode: 'const', Qpeak: 8, Qbase: 8, Cs: 0, duration: 1e9, tPeak: 1 } }];
 run('天然ダム', P);
+// 砂防堰堤（DEM）：本川の途中に不透過とスリットの 2 基。上流の範囲と収支
+{
+  let c1 = heads[0]; for (let q = 0; q < 60; q++) { const d = M.downOf(D, A.dir, c1); if (d < 0) break; c1 = d; }
+  let c2 = c1; for (let q = 0; q < 40; q++) { const d = M.downOf(D, A.dir, c2); if (d < 0) break; c2 = d; }
+  const mk = (c, H, ty) => { const p = dom.toXY(c), u = dom.dirXY(c); const d = { x: p[0], y: p[1], ang: Math.atan2(u[1], u[0]) * 180 / Math.PI, H, b: 15, so: 0, len: 200 }; if (ty) Object.assign(d, { type: ty, l: 2, n: 1 }); return d; };
+  P = base(); P.sources = src; P.dem.duration = 400; P.dams = [mk(c1, 6), mk(c2, 8, 'slit')];
+  const s0 = new Sim(P); const cnt = new Array(s0.dams.length + 1).fill(0); for (let c = 0; c < s0.N; c++) cnt[s0.region[c]]++;
+  let pond = 0; for (let c = 0; c < s0.N; c++) pond += s0.h[c] * s0.dx * s0.dx;
+  console.log('堰堤', s0.dams.length, '基', s0.dams.map(d => 'crest ' + d.crest.toFixed(1) + ' cells ' + d.cells.length + (d.op ? ' 開口 ' + d.op.cells.length : '')).join(' / '), '範囲のセル数', cnt.join(','), '初期湛水', pond.toFixed(0), 'm³', s0.warn.join(' '));
+  run('砂防堰堤', P);
+}

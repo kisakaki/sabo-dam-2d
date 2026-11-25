@@ -724,6 +724,14 @@ class Sim:
             th = math.radians(D['ang']) if fin('ang') else math.atan2(ycs[i1] - ycs[i0], (i1 - i0) * dx)
             tx, ty = math.cos(th), math.sin(th); nxv, nyv = -ty, tx
             zbase = colmin[idd] if T is not None else self.zbAt(cx)
+            if T is not None and T.get('basin') is not None and not fin('zc'):   # DEM：堰堤の中心のまわり（3×3）の最も低い地盤
+                ic = int(math.floor(cx / dx)); jc = int(math.floor(cy / dx)); zb_ = 1e30
+                for dj0 in (-1, 0, 1):
+                    for di0 in (-1, 0, 1):
+                        ii = ic + di0; jj0 = jc + dj0
+                        if 0 <= ii < nx and 0 <= jj0 < ny and kind.flat[jj0 * nx + ii] != 2:
+                            zb_ = min(zb_, z.flat[jj0 * nx + ii])
+                zbase = zb_ if zb_ < 1e29 else colmin[idd]
             crest = D['zc'] if fin('zc') else zbase + D['H']; wingTop = crest + P['wingHeight']
             zbase = crest - D['H']
             b = D.get('b', 0) or 0
@@ -789,7 +797,10 @@ class Sim:
         self.hasOpen = any(Dd['op'] is not None for Dd in self.dams)
         region = np.full((ny, nx), nd, dtype=np.int16)
         done = np.zeros((ny, nx), dtype=bool)
-        for q, Dq in enumerate(self.dams):
+        if T is not None and T.get('basin') is not None and nd:
+            self._dam_region_dem(region, z, kind)
+        else:
+          for q, Dq in enumerate(self.dams):
             ppx = XX - Dq['cx']; ppy = YY - Dq['cy']
             slq = ppx * Dq['nx'] + ppy * Dq['ny']; alq = ppx * Dq['tx'] + ppy * Dq['ty']
             up = np.where(np.abs(slq) <= Dq['ext'], alq <= Dq['thick'], ppx <= 0) & ~done
@@ -1603,6 +1614,34 @@ class Sim:
     # DEM の流域（sabo2d_dem.prepare_domain で切り出した地形）
     #  流域の外：高い壁。谷筋（幅 chW に広げる）：侵食できる河床（kind 0）。斜面：kind 3（流れでは侵食しない土層）
     # ======================================================================================
+    def _dam_region_dem(self, region, z, kind):
+        """DEM：堰堤の上流の範囲。上流面のすぐ上のセルから、上り（または平ら）の 4 近傍をたどる。上流の堰堤から先に決める"""
+        nx, ny, dx = self.nx, self.ny, self.dx; N = nx * ny; nd = len(self.dams)
+        rg = region.reshape(-1); zf = z.reshape(-1); kf = kind.reshape(-1)
+        bas = self.basin.reshape(-1) if getattr(self, 'basin', None) is not None else None
+        rg[:] = nd
+        order = sorted(range(nd), key=lambda q: -self.dams[q]['crest'])
+        for q in order:
+            D = self.dams[q]; st = []
+            cl = np.asarray(D['cells'])
+            for c in (np.flatnonzero(cl) if cl.dtype == bool else cl.reshape(-1)):
+                c = int(c)
+                for o in (c - 1, c + 1, c - nx, c + nx):
+                    if o < 0 or o >= N or kf[o] == 2 or rg[o] != nd or (bas is not None and not bas[o]):
+                        continue
+                    px = (o % nx + 0.5) * dx - D['cx']; py = (o // nx + 0.5) * dx - D['cy']
+                    if px * D['tx'] + py * D['ty'] >= 0:
+                        continue
+                    rg[o] = q; st.append(o)
+            while st:
+                c = st.pop(); i = c % nx; j = c // nx
+                for o in (c - 1 if i > 0 else -1, c + 1 if i < nx - 1 else -1, c - nx if j > 0 else -1, c + nx if j < ny - 1 else -1):
+                    if o < 0 or kf[o] == 2 or rg[o] != nd or (bas is not None and not bas[o]):
+                        continue
+                    if zf[o] < zf[c] - 1e-6:
+                        continue
+                    rg[o] = q; st.append(o)
+
     def _setup_basin(self, T, z, zfix, kind, fl, colmin, Bx):
         P = self.P; nx, ny, dx = self.nx, self.ny, self.dx; N = nx * ny
         DM = P.get('dem') or {}
@@ -3513,6 +3552,18 @@ def dem_params(P, a):
             continue
         xy = dom.toXY(c); u = dom.dirXY(c)
         P['ldams'].append({'x': xy[0], 'y': xy[1], 'ux': u[0], 'uy': u[1], 'H': float(f[2]) if len(f) > 2 else 15.0, 'Wc': float(f[3]) if len(f) > 3 else 10.0, 'up': 30.0, 'dn': 25.0})
+    # 砂防堰堤 "X,Y,H[,b[,堤長[,型]]]"（DEM の座標。谷筋に寄せ、流れに直角）
+    P['dams'] = []
+    for s_ in a.dem_dam or []:
+        f = s_.split(','); c = near_stream(cell_of(float(f[0]), float(f[1])))
+        if c < 0:
+            continue
+        xy = dom.toXY(c); u = dom.dirXY(c)
+        d = {'x': xy[0], 'y': xy[1], 'ang': math.degrees(math.atan2(u[1], u[0])), 'H': float(f[2]) if len(f) > 2 else 8.0,
+             'b': float(f[3]) if len(f) > 3 and f[3] else 15.0, 'so': 0.0, 'len': float(f[4]) if len(f) > 4 and f[4] else 200.0}
+        if len(f) > 5 and f[5] and f[5] != 'closed':
+            d.update(type=f[5], l=1.0 if f[5] in ('grid', 'sslit') else 2.0, n=3 if f[5] == 'mslit' else 1)
+        P['dams'].append(d)
     if P['ldams']:
         P['gw']['on'] = True; P['ldam'].update(k=a.ldam_k, fail=a.ldam_fail); P['debris']['erosion'] = 'auto'
     if P['slides'] or P['ldams']:
@@ -3573,6 +3624,7 @@ def main(argv=None):
     ap.add_argument('--rain-method', choices=['lumped', 'grid'], default='lumped', help='谷への集め方（斜面で流出計算 / 格子に直接降らせる）')
     ap.add_argument('--rain-loss', default='f:0.8', help='損失 "f:0.8" / "f1rsa:f1:Rsa" / "ks:ks:D"')
     ap.add_argument('--rain-route', default='rational', help='斜面の流出 "rational[:到達時間 分]" / "storage:K:P"')
+    ap.add_argument('--dem-dam', action='append', help='DEM に砂防堰堤 "X,Y,H[,水通し幅[,堤長[,closed|slit|mslit|grid|sslit]]]"（DEM の座標、谷筋に寄せて流れに直角）')
     ap.add_argument('--slide-poly', action='append', help='多角形の斜面崩壊 "X1,Y1;X2,Y2;X3,Y3[;...]@深さ,shallow|deep,fs|time,時刻s,auto|fluid|block"（DEM の座標）')
     ap.add_argument('--slide', action='append', help='斜面崩壊 "X,Y,半径,深さ,shallow|deep,fs|time,時刻s,auto|fluid|block"（DEM の座標）')
     ap.add_argument('--ldam', action='append', help='天然ダム "X,Y,高さ[,天端幅]"（DEM の座標。谷筋に置く）')

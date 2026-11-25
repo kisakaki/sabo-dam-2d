@@ -531,6 +531,11 @@
       var th = isFinite(D.ang) ? D.ang * Math.PI / 180 : Math.atan2(ycs[i1d] - ycs[i0d], (i1d - i0d) * dx);
       var tx = Math.cos(th), ty = Math.sin(th), nxv = -ty, nyv = tx;      // t：流下方向、n：堰堤の軸方向（左岸が正）
       var zbase = T ? colmin[id] : this.zbAt(cx);
+      if (T && T.basin && !isFinite(D.zc)) {   // DEM：堰堤の中心のまわり（3×3）の最も低い地盤を基礎にする
+        var ic = Math.floor(cx / dx), jc = Math.floor(cy / dx); zbase = 1e30;
+        for (var dj0 = -1; dj0 <= 1; dj0++) for (var di0 = -1; di0 <= 1; di0++) { var ii = ic + di0, jj0 = jc + dj0; if (ii >= 0 && jj0 >= 0 && ii < nx && jj0 < ny && kind[jj0 * nx + ii] !== 2) zbase = Math.min(zbase, z[jj0 * nx + ii]); }
+        if (!(zbase < 1e29)) zbase = colmin[id];
+      }
       var crest = isFinite(D.zc) ? D.zc : zbase + D.H, wingTop = crest + P.wingHeight;
       zbase = crest - D.H;
       var spFix = isFinite(D.so) && D.b > 0;                                // 水通しの位置を固定
@@ -604,7 +609,8 @@
     this.hasOpen = this.dams.some(function (Dd) { return !!Dd.op; });
     // 各セルが何番目の堰堤の上流側にあるか（堆砂量の集計・初期湛水に使う）
     var region = this.region = new Int16Array(N), nd = this.dams.length;
-    for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {
+    if (T && T.basin && nd) this.damRegionDEM();
+    else for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {
       c = j * nx + i; var rq = nd;
       for (q = 0; q < nd; q++) {
         var Dq = this.dams[q], ppx = (i + 0.5) * dx - Dq.cx, ppy = (j + 0.5) * dx - Dq.cy;
@@ -2065,6 +2071,35 @@
   };
 
   // 天然ダムを直接置く：中心 (x, y)、流れの向き (ux, uy)、高さ H、天端幅 Wc、上流・下流の法面勾配（度）、横の範囲 lat
+  // DEM：堰堤の上流の範囲。堰堤の上流面のすぐ上のセルから、上り（または平ら）の 4 近傍をたどって広げる（谷の集水域）。
+  // 上流の堰堤から先に決め、決まったセルは取らない（いちばん近い下流の堰堤の範囲になる）
+  Sim.prototype.damRegionDEM = function () {
+    var nx = this.nx, ny = this.ny, N = this.N, dx = this.dx, z = this.z, kind = this.kind, nd = this.dams.length, region = this.region, bas = this.basin;
+    region.fill(nd);
+    var ord = this.dams.map(function (D, q) { return q; }).sort(function (a, b) { return this.dams[b].crest - this.dams[a].crest; }.bind(this));
+    var st = new Int32Array(N);
+    for (var r = 0; r < nd; r++) {
+      var q = ord[r], D = this.dams[q], n = 0, i, j, c;
+      for (var k = 0; k < D.cells.length; k++) {
+        c = D.cells[k]; var nb = [c - 1, c + 1, c - nx, c + nx];
+        for (var m = 0; m < 4; m++) {
+          var o = nb[m]; if (o < 0 || o >= N || kind[o] === 2 || region[o] !== nd || (bas && !bas[o])) continue;
+          var px = ((o % nx) + 0.5) * dx - D.cx, py = (((o / nx) | 0) + 0.5) * dx - D.cy;
+          if (px * D.tx + py * D.ty >= 0) continue;   // 上流側だけ
+          region[o] = q; st[n++] = o;
+        }
+      }
+      while (n > 0) {
+        c = st[--n]; i = c % nx; j = (c - i) / nx;
+        var nb2 = [i > 0 ? c - 1 : -1, i < nx - 1 ? c + 1 : -1, j > 0 ? c - nx : -1, j < ny - 1 ? c + nx : -1];
+        for (var m2 = 0; m2 < 4; m2++) {
+          var o2 = nb2[m2]; if (o2 < 0 || kind[o2] === 2 || region[o2] !== nd || (bas && !bas[o2])) continue;
+          if (z[o2] < z[c] - 1e-6) continue;   // 下りには進まない
+          region[o2] = q; st[n++] = o2;
+        }
+      }
+    }
+  };
   Sim.prototype.placeLdam = function (L) {
     var nx = this.nx, ny = this.ny, dx = this.dx, z = this.z, kind = this.kind, c0 = snapCell(this, cellAtXY(this, L.x, L.y));
     if (c0 < 0) return;

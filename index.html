@@ -325,8 +325,8 @@ table.res th,table.res td{white-space:nowrap}
         <p class="note">移動：「土石流化」は崩れた土を流れ（濃度 C<sub>L</sub>、足りない水は法面の流れと湧水から取り込むと仮定して足す）にし、土石流の式で流します。「土塊」は最急降下の経路を、エネルギー線（崩壊域の最高点から等価摩擦角の勾配）が地表に届くところまで瞬時に動かし、表面の勾配が堆積勾配の円錐形に堆積させます（谷をふさげば天然ダム）。「自動」は、すべり面より上の地下水の厚さの割合 m が 0.8 以上で、流砂モデルが土石流なら土石流化、それ以外は土塊。地下水は、表層で伏流ありなら土層の地下水、それ以外は 1 段の線形タンク dS/dt = r − S/T（雨から）です。</p>
       </div></details>
       <details style="border:0;padding:0"><summary style="font-weight:500">天然ダム（河道閉塞）</summary><div class="body">
-        <p class="note">地図の「天然ダムを置く」で谷筋をクリックすると、その流れの向きに直角な天然ダム（台形の縦断）を置きます。斜面崩壊の「土塊」で谷がふさがったときも、その堆積物を天然ダムとして扱います。</p>
-        <div style="overflow-x:auto"><table class="ed" id="ldtab"><thead><tr><th>点</th><th>高さ [m]</th><th>天端幅 [m]</th><th>上流法 [°]</th><th>下流法 [°]</th><th></th></tr></thead><tbody></tbody></table></div>
+        <p class="note">地図の「天然ダムを置く」で谷筋をクリックすると、その流れの向きに直角な天然ダムを置きます。形：天端の標高は谷底＋高さ H、天端幅は流れの向きの長さ、上流・下流の法の角度で縦断が台形になり、谷を横切る向きは「幅」まで（0 なら 100 m か 16H の大きい方）、地盤より高い所だけ盛ります。「体積」に値を入れると、その体積になる高さにします。地図では堤体の範囲を厚いほど濃く描きます。斜面崩壊の「土塊」で谷がふさがったときも、その堆積物を天然ダムとして扱います。</p>
+        <div style="overflow-x:auto"><table class="ed" id="ldtab"><thead><tr><th>点</th><th>高さ H [m]</th><th>天端幅 [m]</th><th>上流法 [°]</th><th>下流法 [°]</th><th>幅 [m]<br>（0＝自動）</th><th>体積 [m³]</th><th>長さ×幅 [m]</th><th></th></tr></thead><tbody></tbody></table></div>
         <div class="row"><label for="ld_k">堤体の透水係数<span class="u">m/s、0＝粒度から</span></label><input type="number" id="ld_k" step="0.0001" min="0" value="0.001"></div>
         <div class="row"><label for="ld_fail">決壊の形</label><select id="ld_fail"><option value="auto">透水性で決まる（越流侵食 / 進行性崩壊）</option><option value="slip">すべり破壊（湛水位で指定）</option></select></div>
         <div class="row"><label for="ld_lev">すべりが起きる湛水位（ダム高に対する比）</label><input type="number" id="ld_lev" step="0.05" min="0.1" max="1" value="0.9"></div>
@@ -335,6 +335,11 @@ table.res th,table.res td{white-space:nowrap}
         <div class="row"><label for="ld_kt">不飽和河床の侵食速度係数 K<sub>t</sub></label><input type="number" id="ld_kt" step="0.0005" min="0" value="0.0019"></div>
         <div class="btns"><button class="sm" id="ld_ex">例：本川に天然ダムと上流の供給点を置く</button><button class="sm" id="ld_clr">すべて消す</button></div>
         <p class="note">堤体の中の浸透は伏流の計算（Darcy、Dupuit 近似）で、天然ダムがあると伏流を自動で有効にします。透水係数が大きいと、越流の前に浸潤面が下流の法尻に達し、湧水の出る法面で無限長斜面（浸透流が斜面に平行）の安全率 Fs = c'/(γsat T sinβ cosβ) + (γ'/γsat)tanφ/tanβ が 1 を下回った所から順に崩れて、崩壊が上流へ遡ります（進行性崩壊。高山ら 2020 の観察）。透水係数が小さいと、満水になって越流し、越流水がダムを侵食します（越流侵食）。すべり破壊は、湛水位が指定の高さに達したとき、下流の法尻と上流側の天端の端を結ぶ面より上の土を、法尻から下流へ堆積勾配（斜面崩壊の欄）の斜面になるように瞬時に動かします（Awal ら 2008、高山ら 2020 の簡易モデル）。</p>
+      </div></details>
+      <details style="border:0;padding:0"><summary style="font-weight:500">砂防堰堤（DEM）</summary><div class="body">
+        <p class="note">地図の「砂防堰堤を置く」で谷筋をクリックすると、流れの向き（前後 3 セルの谷筋から）に直角な堰堤を置きます。基礎は中心のまわりの最も低い地盤、天端は基礎＋高さ H。水通しは中心に幅 b、その外は袖（天端＋袖部の高さ）。堤長 0 は、袖が地盤に届くまでの長さを自動で決めます。透過型は開口の幅・数・底の高さを指定します。堰堤ごとの堆砂量は、堰堤の上流面から上りに谷をたどった範囲で数えます。</p>
+        <div style="overflow-x:auto"><table class="ed" id="dmtab"><thead><tr><th>点</th><th>型</th><th>高さ H [m]</th><th>水通し幅 b [m]</th><th>堤長 [m]<br>（0＝自動）</th><th>開口幅 [m]</th><th>開口数</th><th>開口の底 [m]</th><th>使う堤長 [m]</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="btns"><button class="sm" id="dmt_clr">すべて消す</button></div>
       </div></details>
     </div></details>
 
@@ -448,8 +453,9 @@ table.res th,table.res td{white-space:nowrap}
     <div class="card" id="demcard" hidden>
       <div class="hd"><h2>DEM と流域</h2>
         <div class="opts">
-          <label>クリックで <select id="dm_mode"><option value="basin">流域を選ぶ</option><option value="outlet">出口を指定（小流域）</option><option value="src">供給点を選ぶ</option><option value="slide">崩壊を置く</option><option value="ldam">天然ダムを置く</option></select></label>
+          <label>クリックで <select id="dm_mode"><option value="basin">流域を選ぶ</option><option value="outlet">出口を指定（小流域）</option><option value="src">供給点を選ぶ</option><option value="slide">崩壊を置く</option><option value="ldam">天然ダムを置く</option><option value="dam">砂防堰堤を置く</option><option value="del">消す（クリックした物を外す）</option></select></label>
           <label id="dm_shapew" hidden>崩壊の形 <select id="dm_shape"><option value="circle">円（中心をクリック）</option><option value="poly">多角形（頂点をクリック）</option></select></label>
+          <button type="button" id="dm_back" disabled title="直前の追加・削除・変更を取り消す（Ctrl+Z）">元に戻す</button>
           <button type="button" id="dm_close" hidden>多角形を閉じる</button><button type="button" id="dm_undo" hidden>1 点戻す</button>
           <label><input type="checkbox" id="dm_fit" checked> 選んだ流域に寄せる</label>
         </div>
@@ -1862,6 +1868,11 @@ table.res th,table.res td{white-space:nowrap}
       var th = isFinite(D.ang) ? D.ang * Math.PI / 180 : Math.atan2(ycs[i1d] - ycs[i0d], (i1d - i0d) * dx);
       var tx = Math.cos(th), ty = Math.sin(th), nxv = -ty, nyv = tx;      // t：流下方向、n：堰堤の軸方向（左岸が正）
       var zbase = T ? colmin[id] : this.zbAt(cx);
+      if (T && T.basin && !isFinite(D.zc)) {   // DEM：堰堤の中心のまわり（3×3）の最も低い地盤を基礎にする
+        var ic = Math.floor(cx / dx), jc = Math.floor(cy / dx); zbase = 1e30;
+        for (var dj0 = -1; dj0 <= 1; dj0++) for (var di0 = -1; di0 <= 1; di0++) { var ii = ic + di0, jj0 = jc + dj0; if (ii >= 0 && jj0 >= 0 && ii < nx && jj0 < ny && kind[jj0 * nx + ii] !== 2) zbase = Math.min(zbase, z[jj0 * nx + ii]); }
+        if (!(zbase < 1e29)) zbase = colmin[id];
+      }
       var crest = isFinite(D.zc) ? D.zc : zbase + D.H, wingTop = crest + P.wingHeight;
       zbase = crest - D.H;
       var spFix = isFinite(D.so) && D.b > 0;                                // 水通しの位置を固定
@@ -1935,7 +1946,8 @@ table.res th,table.res td{white-space:nowrap}
     this.hasOpen = this.dams.some(function (Dd) { return !!Dd.op; });
     // 各セルが何番目の堰堤の上流側にあるか（堆砂量の集計・初期湛水に使う）
     var region = this.region = new Int16Array(N), nd = this.dams.length;
-    for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {
+    if (T && T.basin && nd) this.damRegionDEM();
+    else for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {
       c = j * nx + i; var rq = nd;
       for (q = 0; q < nd; q++) {
         var Dq = this.dams[q], ppx = (i + 0.5) * dx - Dq.cx, ppy = (j + 0.5) * dx - Dq.cy;
@@ -3396,6 +3408,35 @@ table.res th,table.res td{white-space:nowrap}
   };
 
   // 天然ダムを直接置く：中心 (x, y)、流れの向き (ux, uy)、高さ H、天端幅 Wc、上流・下流の法面勾配（度）、横の範囲 lat
+  // DEM：堰堤の上流の範囲。堰堤の上流面のすぐ上のセルから、上り（または平ら）の 4 近傍をたどって広げる（谷の集水域）。
+  // 上流の堰堤から先に決め、決まったセルは取らない（いちばん近い下流の堰堤の範囲になる）
+  Sim.prototype.damRegionDEM = function () {
+    var nx = this.nx, ny = this.ny, N = this.N, dx = this.dx, z = this.z, kind = this.kind, nd = this.dams.length, region = this.region, bas = this.basin;
+    region.fill(nd);
+    var ord = this.dams.map(function (D, q) { return q; }).sort(function (a, b) { return this.dams[b].crest - this.dams[a].crest; }.bind(this));
+    var st = new Int32Array(N);
+    for (var r = 0; r < nd; r++) {
+      var q = ord[r], D = this.dams[q], n = 0, i, j, c;
+      for (var k = 0; k < D.cells.length; k++) {
+        c = D.cells[k]; var nb = [c - 1, c + 1, c - nx, c + nx];
+        for (var m = 0; m < 4; m++) {
+          var o = nb[m]; if (o < 0 || o >= N || kind[o] === 2 || region[o] !== nd || (bas && !bas[o])) continue;
+          var px = ((o % nx) + 0.5) * dx - D.cx, py = (((o / nx) | 0) + 0.5) * dx - D.cy;
+          if (px * D.tx + py * D.ty >= 0) continue;   // 上流側だけ
+          region[o] = q; st[n++] = o;
+        }
+      }
+      while (n > 0) {
+        c = st[--n]; i = c % nx; j = (c - i) / nx;
+        var nb2 = [i > 0 ? c - 1 : -1, i < nx - 1 ? c + 1 : -1, j > 0 ? c - nx : -1, j < ny - 1 ? c + nx : -1];
+        for (var m2 = 0; m2 < 4; m2++) {
+          var o2 = nb2[m2]; if (o2 < 0 || kind[o2] === 2 || region[o2] !== nd || (bas && !bas[o2])) continue;
+          if (z[o2] < z[c] - 1e-6) continue;   // 下りには進まない
+          region[o2] = q; st[n++] = o2;
+        }
+      }
+    }
+  };
   Sim.prototype.placeLdam = function (L) {
     var nx = this.nx, ny = this.ny, dx = this.dx, z = this.z, kind = this.kind, c0 = snapCell(this, cellAtXY(this, L.x, L.y));
     if (c0 < 0) return;
@@ -5976,7 +6017,7 @@ table.res th,table.res td{white-space:nowrap}
   'use strict';
   var SD = window.SaboDEM, SH = window.SaboHydro;
   var $ = function (id) { return document.getElementById(id); };
-  var ST = { D: null, A: null, mask: null, outlet: -1, bid: -1, heads: [], src: [], slides: [], ldams: [], img: null, view: null, rainFrames: null, lat: null, dom: null };
+  var ST = { D: null, A: null, mask: null, outlet: -1, bid: -1, heads: [], src: [], slides: [], ldams: [], dams: [], hist: [], img: null, view: null, rainFrames: null, lat: null, dom: null };
 
   function fmt(v, n) { return isFinite(v) ? (+v).toFixed(n) : ''; }
   function info(msg, err) { var e = $('dem_info'); e.textContent = msg; e.style.color = err ? 'var(--err,#b3261e)' : ''; }
@@ -6046,7 +6087,7 @@ table.res th,table.res td{white-space:nowrap}
     if (D.skipped) label += '、読めないタイル ' + D.skipped + ' 個を飛ばしました';
     var nv = 0; for (var c = 0; c < D.nx * D.ny; c++) if (isFinite(D.z[c])) nv++;
     if (nv < 100) { info('標高の値がほとんどありません（' + nv + ' セル）。ファイルを確かめてください。', true); return; }
-    ST.D = D; ST.label = label; ST.mask = null; ST.bid = -1; ST.outlet = -1; ST.src = []; ST.slides = []; ST.ldams = []; ST.draft = []; analyze();
+    ST.D = D; ST.label = label; ST.mask = null; ST.bid = -1; ST.outlet = -1; ST.src = []; ST.slides = []; ST.ldams = []; ST.dams = []; ST.hist = []; ST.draft = []; analyze();
   }
   function analyze() {
     var D = ST.D; if (!D) return;
@@ -6077,6 +6118,7 @@ table.res th,table.res td{white-space:nowrap}
     ST.src = ST.src.filter(function (r) { return m[r.c]; });
     ST.slides = ST.slides.filter(function (r) { return m[r.c]; });
     ST.ldams = ST.ldams.filter(function (r) { return m[r.c]; });
+    ST.dams = ST.dams.filter(function (r) { return m[r.c]; });
     if (!ST.src.length && ST.heads.length) topHeads(3);
     ST.lat = null; ST.mcv = null;
     if ($('dm_fit').checked && ST.D) fitBasin();
@@ -6109,7 +6151,7 @@ table.res th,table.res td{white-space:nowrap}
         '<td><button class="x" aria-label="外す">×</button></td>';
       tr.querySelector('select').onchange = function () { r.mode = this.value; };
       Array.prototype.forEach.call(tr.querySelectorAll('input'), function (inp) { inp.onchange = function () { r[inp.dataset.k] = parseFloat(inp.value) || 0; }; });
-      tr.querySelector('.x').onclick = function () { ST.src.splice(i, 1); renderTables(); draw(); selInfo(); };
+      tr.querySelector('.x').onclick = function () { snap(); ST.src.splice(i, 1); renderTables(); draw(); selInfo(); };
       tb.appendChild(tr);
     });
     tb = $('sltab').tBodies[0]; tb.innerHTML = '';
@@ -6123,23 +6165,144 @@ table.res th,table.res td{white-space:nowrap}
         '<td><button class="x" aria-label="消す">×</button></td>';
       Array.prototype.forEach.call(tr.querySelectorAll('input,select'), function (inp) {
         inp.onchange = function () {
-          var k = inp.dataset.k; r[k] = inp.tagName === 'SELECT' ? inp.value : (parseFloat(inp.value) || 0);
+          snap(); var k = inp.dataset.k; r[k] = inp.tagName === 'SELECT' ? inp.value : (parseFloat(inp.value) || 0);
           if (k === 'type') { var d = slideDefaults(r.type); r.R = d.R; r.D = d.D; r.phi = d.phi; r.coh = d.coh; renderTables(); }
           draw();
         };
       });
-      tr.querySelector('.x').onclick = function () { ST.slides.splice(i, 1); renderTables(); draw(); selInfo(); };
+      tr.querySelector('.x').onclick = function () { snap(); ST.slides.splice(i, 1); renderTables(); draw(); selInfo(); };
       tb.appendChild(tr);
     });
     tb = $('ldtab').tBodies[0]; tb.innerHTML = '';
     ST.ldams.forEach(function (r, i) {
-      var tr = document.createElement('tr');
-      tr.innerHTML = '<td>' + (i + 1) + '</td>' + ['H', 'Wc', 'up', 'dn'].map(function (k) { return '<td><input type="number" step="any" value="' + r[k] + '" data-k="' + k + '"></td>'; }).join('') + '<td><button class="x" aria-label="消す">×</button></td>';
-      Array.prototype.forEach.call(tr.querySelectorAll('input'), function (inp) { inp.onchange = function () { r[inp.dataset.k] = parseFloat(inp.value) || 0; draw(); }; });
-      tr.querySelector('.x').onclick = function () { ST.ldams.splice(i, 1); renderTables(); draw(); selInfo(); };
+      var sh = ldShape(r), tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + (i + 1) + '</td>' + ['H', 'Wc', 'up', 'dn', 'W'].map(function (k) { return '<td><input type="number" step="any" value="' + (r[k] || 0) + '" data-k="' + k + '"></td>'; }).join('') +
+        '<td><input type="number" step="any" value="' + Math.round(sh.V) + '" data-k="V" title="体積を入れると、それに合う高さにします"></td><td>' + fmt(sh.L, 0) + ' × ' + fmt(sh.B, 0) + '</td><td><button class="x" aria-label="消す">×</button></td>';
+      Array.prototype.forEach.call(tr.querySelectorAll('input'), function (inp) {
+        inp.onchange = function () {
+          snap(); var k = inp.dataset.k, v = parseFloat(inp.value) || 0;
+          if (k === 'V') fitLdamV(r, v); else r[k] = v;
+          r.sh = null; renderTables(); draw();
+        };
+      });
+      tr.querySelector('.x').onclick = function () { snap(); ST.ldams.splice(i, 1); renderTables(); draw(); selInfo(); };
       tb.appendChild(tr);
     });
+    tb = $('dmtab').tBodies[0]; tb.innerHTML = '';
+    ST.dams.forEach(function (r, i) {
+      var tr = document.createElement('tr'), op = r.type !== 'closed';
+      tr.innerHTML = '<td>' + (i + 1) + '</td><td><select data-k="type">' + opt(r.type, [['closed', '不透過'], ['slit', 'スリット'], ['mslit', '複数スリット'], ['grid', '鋼製格子型'], ['sslit', '鋼製スリット型']]) + '</select></td>' +
+        ['H', 'b', 'len'].map(function (k) { return '<td><input type="number" step="any" value="' + (r[k] || 0) + '" data-k="' + k + '"></td>'; }).join('') +
+        ['l', 'n', 'hb'].map(function (k) { return '<td><input type="number" step="any" value="' + (r[k] || 0) + '" data-k="' + k + '"' + (op ? '' : ' disabled') + '></td>'; }).join('') +
+        '<td>' + fmt(damLen(r), 0) + '</td><td><button class="x" aria-label="消す">×</button></td>';
+      Array.prototype.forEach.call(tr.querySelectorAll('input,select'), function (inp) {
+        inp.onchange = function () {
+          snap(); var k = inp.dataset.k; r[k] = inp.tagName === 'SELECT' ? inp.value : (parseFloat(inp.value) || 0);
+          if (k === 'type') { r.l = r.type === 'grid' || r.type === 'sslit' ? 1 : 2; r.n = r.type === 'mslit' ? 3 : 1; }
+          renderTables(); draw();
+        };
+      });
+      tr.querySelector('.x').onclick = function () { snap(); ST.dams.splice(i, 1); renderTables(); draw(); selInfo(); };
+      tb.appendChild(tr);
+    });
+    $('dm_back').disabled = !ST.hist.length;
   }
+  // ------------------------------------------------------------ 取り消し（元に戻す）
+  function snap() {
+    ST.hist.push(JSON.stringify({ src: ST.src, slides: ST.slides, ldams: ST.ldams.map(function (r) { var o = Object.assign({}, r); delete o.sh; return o; }), dams: ST.dams }));
+    if (ST.hist.length > 50) ST.hist.shift();
+  }
+  function undo() {
+    if (!ST.hist.length) return;
+    var o = JSON.parse(ST.hist.pop()); ST.src = o.src; ST.slides = o.slides; ST.ldams = o.ldams; ST.dams = o.dams;
+    renderTables(); draw(); selInfo(); $('dem_sel').textContent = '1 つ前に戻しました。' + (ST.hist.length ? '' : '（これ以上は戻せません）');
+  }
+  // クリックした点の近く（画面で 14 px 以内）にある物を外す。返り値：外した物の名前
+  function removeAt(c) {
+    var D = ST.D, x = c % D.nx, y = (c / D.nx) | 0, sc = ST.view.sc, best = null, bd = 14 / sc;
+    function cand(list, i, cc, name) { var d = Math.hypot(cc % D.nx - x, ((cc / D.nx) | 0) - y); if (d < bd) { bd = d; best = { list: list, i: i, name: name }; } }
+    ST.src.forEach(function (r, i) { cand(ST.src, i, r.c, '供給点 ' + (i + 1)); });
+    ST.slides.forEach(function (r, i) {
+      if (r.poly && inPolyCells(r.poly, x, y)) { bd = 0; best = { list: ST.slides, i: i, name: '崩壊 ' + (i + 1) }; return; }
+      var dd = Math.hypot(r.c % D.nx - x, ((r.c / D.nx) | 0) - y); if (!r.poly && dd <= Math.max(r.R / D.cs, 14 / sc) && dd < bd + r.R / D.cs) { bd = Math.min(bd, dd); best = { list: ST.slides, i: i, name: '崩壊 ' + (i + 1) }; }
+    });
+    ST.ldams.forEach(function (r, i) { cand(ST.ldams, i, r.c, '天然ダム ' + (i + 1)); });
+    ST.dams.forEach(function (r, i) { cand(ST.dams, i, r.c, '堰堤 ' + (i + 1)); });
+    if (!best) return null;
+    snap(); best.list.splice(best.i, 1); return best.name;
+  }
+  function inPolyCells(poly, x, y) {
+    var D = ST.D, a = false;
+    for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      var xi = poly[i] % D.nx, yi = (poly[i] / D.nx) | 0, xj = poly[j] % D.nx, yj = (poly[j] / D.nx) | 0;
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) a = !a;
+    }
+    return a;
+  }
+  // ------------------------------------------------------------ 谷筋の向き・天然ダムの形・堰堤の長さ
+  // 谷筋の向き：3 セル上流（集水の大きい方）から 3 セル下流へ。[上流のセル, 下流のセル]
+  function streamEnds(c) {
+    var D = ST.D, A = ST.A, dn = c, up = c, k;
+    for (k = 0; k < 3; k++) { var d = SD.downOf(D, A.dir, dn); if (d < 0 || (ST.mask && !ST.mask[d])) break; dn = d; }
+    for (k = 0; k < 3; k++) {
+      var x0 = up % D.nx, y0 = (up / D.nx) | 0, bu = -1, ba = 0;
+      for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue; var xx = x0 + dx, yy = y0 + dy; if (xx < 0 || yy < 0 || xx >= D.nx || yy >= D.ny) continue;
+        var o = yy * D.nx + xx; if (SD.downOf(D, A.dir, o) === up && A.acc[o] > ba) { ba = A.acc[o]; bu = o; }
+      }
+      if (bu < 0) break; up = bu;
+    }
+    if (up === dn) { var q = A.dir[c]; return q >= 0 ? [c, -1, SD.DC[q], SD.DR[q]] : [c, -1, 1, 0]; }
+    var ux = dn % D.nx - up % D.nx, uy = ((dn / D.nx) | 0) - ((up / D.nx) | 0), L = Math.hypot(ux, uy) || 1;
+    return [up, dn, ux / L, uy / L];
+  }
+  // 解析座標の流下方向（DEM の向きを計算領域の回転に合わせる）
+  function solverDir(dom, c) {
+    var e = streamEnds(c);
+    if (e[1] >= 0) { var a = dom.toXY(e[0]), b = dom.toXY(e[1]), vx = b[0] - a[0], vy = b[1] - a[1], L = Math.hypot(vx, vy) || 1; return [vx / L, vy / L]; }
+    return dom.dirXY(c);
+  }
+  // 天然ダムの形（ソルバーと同じ式を DEM の上で）。台形の縦断：天端の標高 = 谷底 + H、天端幅 Wc（流れの向き）、
+  // 上流・下流の法の角度。谷を横切る向きは幅 W（0 なら max(100, 16H)）まで、地盤より高い所だけ
+  function ldShape(r) {
+    var D = ST.D, key = [r.c, r.H, r.Wc, r.up, r.dn, r.W].join(',');
+    if (r.sh && r.sh.key === key) return r.sh;
+    var e = streamEnds(r.c), ux = e[2], uy = e[3], cs = D.cs, x0 = r.c % D.nx, y0 = (r.c / D.nx) | 0, zc = D.z[r.c];
+    var H = Math.max(0.5, r.H || 10), Wc = Math.max(0, r.Wc || 0), tu = Math.tan((r.up > 0 ? r.up : 30) * Math.PI / 180), td = Math.tan((r.dn > 0 ? r.dn : 25) * Math.PI / 180);
+    var lat = r.W > 0 ? r.W / 2 : Math.max(50, 8 * H), ext = (Math.max(H / tu, H / td) + Wc + lat) / cs, cells = [], th = [], V = 0, sA = 1e9, sB = -1e9, wA = 1e9, wB = -1e9;
+    for (var j = Math.max(0, Math.floor(y0 - ext)); j <= Math.min(D.ny - 1, Math.ceil(y0 + ext)); j++)
+      for (var i = Math.max(0, Math.floor(x0 - ext)); i <= Math.min(D.nx - 1, Math.ceil(x0 + ext)); i++) {
+        var c = j * D.nx + i; if (ST.mask && !ST.mask[c]) continue;
+        var px = (i - x0) * cs, py = (j - y0) * cs, sa = px * ux + py * uy, w = -px * uy + py * ux;
+        if (Math.abs(w) > lat) continue;
+        var zt = zc + H - (sa > Wc / 2 ? (sa - Wc / 2) * td : sa < -Wc / 2 ? (-Wc / 2 - sa) * tu : 0), t = zt - D.z[c];
+        if (t > 1e-3) { cells.push(c); th.push(t); V += t * cs * cs; if (sa < sA) sA = sa; if (sa > sB) sB = sa; if (w < wA) wA = w; if (w > wB) wB = w; }
+      }
+    r.sh = { key: key, cells: cells, th: th, V: V, L: cells.length ? sB - sA + cs : 0, B: cells.length ? wB - wA + cs : 0, ux: ux, uy: uy };
+    return r.sh;
+  }
+  // 体積 V に合う高さを二分法で
+  function fitLdamV(r, V) {
+    if (!(V > 0)) return; var a = 0.5, b = 300;
+    for (var k = 0; k < 40; k++) { var m = 0.5 * (a + b); r.H = m; r.sh = null; if (ldShape(r).V < V) a = m; else b = m; }
+    r.H = Math.round(0.5 * (a + b) * 10) / 10; r.sh = null;
+  }
+  // 堰堤の長さ（自動）：谷を横切る向きに、地盤が天端＋袖の高さを超えるまで。左右の和
+  function damLen(r) {
+    if (r.len > 0) return r.len;
+    var D = ST.D, e = streamEnds(r.c), ux = e[2], uy = e[3], x0 = r.c % D.nx, y0 = (r.c / D.nx) | 0, zb = 1e30, wing = +($('d_wing') ? $('d_wing').value : 1) || 1;
+    for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) { var v = D.z[(y0 + dy) * D.nx + x0 + dx]; if (v < zb) zb = v; }
+    var top = zb + r.H + wing, tot = 0;
+    [-1, 1].forEach(function (sg) {
+      for (var k = 1; k < 600; k++) {
+        var s = 0.5 * k, xi = Math.round(x0 - sg * uy * s), yi = Math.round(y0 + sg * ux * s);
+        if (xi < 0 || yi < 0 || xi >= D.nx || yi >= D.ny || !(D.z[yi * D.nx + xi] < top)) { tot += s * D.cs; return; }
+      }
+      tot += 300 * D.cs;
+    });
+    return Math.min(800, tot + 2 * D.cs);
+  }
+  function damDefault(c) { return { c: c, type: 'closed', H: 8, b: 15, len: 0, l: 2, n: 1, hb: 0 }; }
   // 例：本川の中流で、谷が深く勾配が 1.5 % 以上の点に天然ダム、その 20 セル上流の本川に一定流量の供給点
   function ldamExample() {
     var D = ST.D, A = ST.A, m = ST.mask; if (!D || !m) return;
@@ -6165,7 +6328,7 @@ table.res th,table.res td{white-space:nowrap}
       }
       if (bu < 0) break; up = bu;
     }
-    ST.ldams = [{ c: best, H: Math.max(5, Math.min(12, Math.round(bd * 0.3))), Wc: 10, up: 30, dn: 25 }];
+    snap(); ST.ldams = [{ c: best, H: Math.max(5, Math.min(12, Math.round(bd * 0.3))), Wc: 10, up: 30, dn: 25, W: 0 }];
     ST.src = [{ c: up, mode: 'const', Qb: 40, Qp: 40, t0: 0, tr: 60, tf: 300, C: 0 }];
     $('gen_type').value = 'ldam'; genNote();
     renderTables(); draw(); selInfo();
@@ -6367,14 +6530,26 @@ table.res th,table.res td{white-space:nowrap}
       polyPath(ST.draft); ctx.strokeStyle = '#d84315'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); if (ST.draft.length > 2) ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
       ST.draft.forEach(function (c) { var q = P(c); ctx.beginPath(); ctx.arc(q[0], q[1], 3.5, 0, 7); ctx.fillStyle = '#d84315'; ctx.fill(); });
     }
-    // 天然ダム
+    // 天然ダム：堤体の範囲（厚いほど濃い）と番号
     ST.ldams.forEach(function (r, i) {
-      var p = P(r.c), q = ST.A.dir[r.c], dxv = q >= 0 ? SD.DC[q] : 1, dyv = q >= 0 ? SD.DR[q] : 0, L = Math.sqrt(dxv * dxv + dyv * dyv), wv = Math.max(8, r.H * 3 / D.cs * sc);
-      var nxv = -dyv / L, nyv = dxv / L;
-      ctx.strokeStyle = '#4e342e'; ctx.lineWidth = Math.max(4, r.Wc / D.cs * sc); ctx.beginPath(); ctx.moveTo(p[0] - nxv * wv, p[1] - nyv * wv); ctx.lineTo(p[0] + nxv * wv, p[1] + nyv * wv); ctx.stroke();
-      ctx.fillStyle = '#3e2723'; ctx.font = '600 11px sans-serif'; ctx.fillText('ダム' + (i + 1), p[0] + wv + 3, p[1] + 4);
+      var sh = ldShape(r), cw = Math.max(1, sc), Hm = Math.max(0.5, r.H);
+      for (var k = 0; k < sh.cells.length; k++) {
+        var q = P(sh.cells[k]); if (q[0] < -cw || q[1] < -cw || q[0] > Wc + cw || q[1] > Hc + cw) continue;
+        ctx.fillStyle = 'rgba(93,64,55,' + (0.25 + 0.6 * Math.min(1, sh.th[k] / Hm)) + ')'; ctx.fillRect(q[0] - cw / 2, q[1] - cw / 2, cw, cw);
+      }
+      var p = P(r.c), wv = Math.max(8, sh.B / 2 / D.cs * sc);
+      ctx.strokeStyle = '#3e2723'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(p[0] + sh.uy * wv, p[1] - sh.ux * wv); ctx.lineTo(p[0] - sh.uy * wv, p[1] + sh.ux * wv); ctx.stroke();
+      ctx.fillStyle = '#3e2723'; ctx.font = '600 11px sans-serif'; ctx.fillText('天然ダム' + (i + 1) + '（' + fmt(r.H, 1) + ' m, ' + fmt(sh.V / 1e4, 1) + ' 万 m³）', p[0] + wv * Math.abs(sh.uy) + 6, p[1] + 4);
     });
-    $('dem_key').innerHTML = '<span><i style="border-color:#1e6ec8"></i>谷筋</span><span><i class="b" style="background:#fff;border:1px solid #333"></i>谷頭</span><span><i class="b" style="background:#ef6c00"></i>供給点</span><span><i style="border-color:#c62828"></i>流域界・出口</span><span><i class="b" style="background:rgba(255,152,0,0.5)"></i>斜面崩壊</span><span><i class="b" style="background:#4e342e"></i>天然ダム</span>' + ($('dm_cont').checked ? '<span>等高線 ' + ST.img.ci + ' m 間隔（太線は ' + 5 * ST.img.ci + ' m ごと）</span>' : '') + '<span style="color:#666">ホイールで拡大・縮小、ドラッグで移動</span>';
+    // 砂防堰堤：谷を横切る線（濃い：袖、白：水通し）
+    ST.dams.forEach(function (r, i) {
+      var e = streamEnds(r.c), ux = e[2], uy = e[3], p = P(r.c), hl = damLen(r) / 2 / D.cs * sc, hb = Math.min(hl, (r.b || 10) / 2 / D.cs * sc), lw = Math.max(4, 1.6 * sc);
+      ctx.lineCap = 'butt';
+      ctx.strokeStyle = '#37474f'; ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(p[0] + uy * hl, p[1] - ux * hl); ctx.lineTo(p[0] - uy * hl, p[1] + ux * hl); ctx.stroke();
+      ctx.strokeStyle = r.type === 'closed' ? '#eceff1' : '#80deea'; ctx.lineWidth = Math.max(2, lw - 2.5); ctx.beginPath(); ctx.moveTo(p[0] + uy * hb, p[1] - ux * hb); ctx.lineTo(p[0] - uy * hb, p[1] + ux * hb); ctx.stroke();
+      ctx.fillStyle = '#263238'; ctx.font = '600 11px sans-serif'; ctx.fillText('堰' + (i + 1) + '（' + fmt(r.H, 1) + ' m）', p[0] + Math.abs(uy) * hl + 6, p[1] - 6);
+    });
+    $('dem_key').innerHTML = '<span><i style="border-color:#1e6ec8"></i>谷筋</span><span><i class="b" style="background:#fff;border:1px solid #333"></i>谷頭</span><span><i class="b" style="background:#ef6c00"></i>供給点</span><span><i style="border-color:#c62828"></i>流域界・出口</span><span><i class="b" style="background:rgba(255,152,0,0.5)"></i>斜面崩壊</span><span><i class="b" style="background:#5d4037"></i>天然ダム（濃いほど厚い）</span><span><i style="border-color:#37474f;border-width:3px"></i>砂防堰堤（白：水通し）</span>' + ($('dm_cont').checked ? '<span>等高線 ' + ST.img.ci + ' m 間隔（太線は ' + 5 * ST.img.ci + ' m ごと）</span>' : '') + '<span style="color:#666">ホイールで拡大・縮小、ドラッグで移動、右クリックで近くの物を外す</span>';
   }
   function cellAt(e) {
     var cv = $('demmap'), r = cv.getBoundingClientRect(), v = ST.view; if (!v || !ST.D) return -1;
@@ -6423,7 +6598,7 @@ table.res th,table.res td{white-space:nowrap}
     var D = ST.D, sx = 0, sy = 0; dr.forEach(function (c) { sx += c % D.nx; sy += (c / D.nx) | 0; });
     var cc = Math.round(sy / dr.length) * D.nx + Math.round(sx / dr.length);
     if (!ST.mask[cc]) cc = dr[0];
-    ST.slides.push(newSlide(cc, dr.slice())); ST.draft = [];
+    snap(); ST.slides.push(newSlide(cc, dr.slice())); ST.draft = [];
     renderTables(); draw(); selInfo();
   }
   function shapeUI() {
@@ -6438,9 +6613,11 @@ table.res th,table.res td{white-space:nowrap}
     var mode = $('dm_mode').value, A = ST.A;
     if (mode === 'basin') { if (A.bid[c] >= 0) selectBasin(A.bid[c], false); return; }
     if (mode === 'outlet') { var s = nearStream(c, Math.max(2, Math.min(40, Math.round(10 / ST.view.sc)))); if (s >= 0) selectOutlet(s); else $('dem_sel').textContent = '谷筋（青い線）の近くをクリックしてください。'; return; }
+    if (mode === 'del') { var nm = removeAt(c); $('dem_sel').textContent = nm ? nm + ' を外しました（「元に戻す」で戻せます）。' : '近くに外せる物がありません。'; renderTables(); draw(); return; }
     if (!ST.mask || !ST.mask[c]) { $('dem_sel').textContent = '選んだ流域の中をクリックしてください。'; return; }
+    if (!(mode === 'slide' && $('dm_shape').value === 'poly')) snap();
     if (mode === 'src') {
-      var h = nearest(c, ST.heads, 14); if (h < 0) return;
+      var h = nearest(c, ST.heads, 14); if (h < 0) { ST.hist.pop(); return; }
       var k = -1; ST.src.forEach(function (r, i) { if (r.c === h) k = i; });
       if (k >= 0) ST.src.splice(k, 1); else ST.src.push(srcDefault(h));
     } else if (mode === 'slide') {
@@ -6451,8 +6628,11 @@ table.res th,table.res td{white-space:nowrap}
       }
       ST.slides.push(newSlide(c, null));
     } else if (mode === 'ldam') {
-      var s2 = nearStream(c, Math.max(2, Math.min(40, Math.round(10 / ST.view.sc)))); if (s2 < 0) { $('dem_sel').textContent = '谷筋（青い線）の近くをクリックしてください。'; return; }
-      ST.ldams.push({ c: s2, H: 15, Wc: 10, up: 30, dn: 25 });
+      var s2 = nearStream(c, Math.max(2, Math.min(40, Math.round(10 / ST.view.sc)))); if (s2 < 0) { ST.hist.pop(); $('dem_sel').textContent = '谷筋（青い線）の近くをクリックしてください。'; return; }
+      ST.ldams.push({ c: s2, H: 15, Wc: 10, up: 30, dn: 25, W: 0 });
+    } else if (mode === 'dam') {
+      var s3 = nearStream(c, Math.max(2, Math.min(40, Math.round(10 / ST.view.sc)))); if (s3 < 0) { ST.hist.pop(); $('dem_sel').textContent = '谷筋（青い線）の近くをクリックしてください。'; return; }
+      ST.dams.push(damDefault(s3));
     }
     renderTables(); draw(); selInfo();
   }
@@ -6589,7 +6769,13 @@ table.res th,table.res td{white-space:nowrap}
       var xy = dom.toXY(r.c);
       return { x: xy[0], y: xy[1], poly: r.poly ? r.poly.map(function (c) { return dom.toXY(c); }) : undefined, R: r.R, D: r.D, type: r.type, trigger: r.trigger, t: r.t, move: r.move, phi: r.phi, c: r.coh, m0: r.m0, thDep: thD, mu: mu, CL: CL, Tk: r.type === 'deep' ? +$('sl_tk2').value : +$('sl_tk1').value };
     });
-    p.ldams = ST.ldams.map(function (r) { var xy = dom.toXY(r.c), u = dom.dirXY(r.c); return { x: xy[0], y: xy[1], ux: u[0], uy: u[1], H: r.H, Wc: r.Wc, up: r.up, dn: r.dn }; });
+    p.ldams = ST.ldams.map(function (r) { var xy = dom.toXY(r.c), u = solverDir(dom, r.c); return { x: xy[0], y: xy[1], ux: u[0], uy: u[1], H: r.H, Wc: r.Wc, up: r.up, dn: r.dn, lat: r.W > 0 ? r.W / 2 : 0 }; });
+    // 砂防堰堤：中心・流下方向・長さを DEM から。水通しは中心に固定（so = 0）
+    p.dams = ST.dams.map(function (r) {
+      var xy = dom.toXY(r.c), u = solverDir(dom, r.c), d = { x: xy[0], y: xy[1], ang: Math.atan2(u[1], u[0]) * 180 / Math.PI, H: r.H, b: Math.max(dom.cs, r.b || 10), so: 0, len: damLen(r) };
+      if (r.type !== 'closed') { d.type = r.type; d.l = r.l > 0 ? r.l : 1; d.n = Math.max(1, Math.round(r.n || 1)); if (r.hb > 0) d.hb = r.hb; }
+      return d;
+    });
     p.ldam = { k: Math.max(0, +$('ld_k').value || 0), fail: $('ld_fail').value, slipLevel: +$('ld_lev').value || 0.9, slipDeg: 0, thDep: thD, phi: +$('ld_phi').value || 35, c: +$('ld_c').value || 0, gs: 20, Ts: 0.5, s0: 0 };
     if (p.ldams.length) p.gw.on = true;
     p.debris.erosion = (p.ldams.length || ST.slides.some(function (r) { return r.move !== 'fluid'; })) ? $('ld_ero').value : 'sat';
@@ -6660,7 +6846,17 @@ table.res th,table.res td{white-space:nowrap}
     $('src_top').onclick = function () { topHeads(3); renderTables(); draw(); selInfo(); };
     $('src_clr').onclick = function () { ST.src = []; renderTables(); draw(); selInfo(); };
     $('sl_clr').onclick = function () { ST.slides = []; renderTables(); draw(); selInfo(); };
-    $('ld_clr').onclick = function () { ST.ldams = []; renderTables(); draw(); selInfo(); };
+    $('ld_clr').onclick = function () { snap(); ST.ldams = []; renderTables(); draw(); selInfo(); };
+    $('dmt_clr').onclick = function () { snap(); ST.dams = []; renderTables(); draw(); selInfo(); };
+    $('dm_back').onclick = undo;
+    document.addEventListener('keydown', function (e) {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z') && !$('demcard').hidden && !/INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '')) { e.preventDefault(); undo(); }
+      if (e.key === 'Escape' && ST.draft && ST.draft.length) { ST.draft = []; polyMsg(); draw(); }
+    });
+    $('demmap').addEventListener('contextmenu', function (e) {
+      if (!ST.D) return; e.preventDefault(); var c = cellAt(e); if (c < 0) return;
+      var nm = removeAt(c); $('dem_sel').textContent = nm ? nm + ' を外しました（「元に戻す」か Ctrl+Z で戻せます）。' : '近くに外せる物がありません。'; renderTables(); draw();
+    });
     $('ld_ex').onclick = ldamExample;
     ['rn_on', 'rn_loss', 'rn_route', 'rn_meth', 'rn_mode'].forEach(function (id) { $(id).addEventListener('change', rainSwitch); });
     $('rn_calc').onclick = calcRain;
