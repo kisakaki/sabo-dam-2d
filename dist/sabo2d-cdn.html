@@ -380,8 +380,17 @@ table.res th,table.res td{white-space:nowrap}
     </div></details>
 
     <details><summary>粒径と河床材料</summary><div class="body">
+      <p class="note">粒度分布は、下の表に直接入れるか、「平均粒径と幅から作る」で作ります。DEM の流域でも同じ表を使います（粒径階は 6 つまで）。</p>
+      <div class="row"><label for="gr_pre">代表的な河床材料</label><select id="gr_pre"><option value="">（選ぶと下の値が入ります）</option><option value="sand">砂（実験水路の砂、dm 0.5 mm）</option><option value="sg">砂礫（扇状地の河川、dm 5 mm）</option><option value="gravel">礫床（山地の河川、dm 30 mm）</option><option value="debris">渓床の土石流堆積物（dm 50 mm、σg 5）</option><option value="uni">一様粒径（粒径階 1 つ）</option></select></div>
+      <div class="row"><label for="gr_dm" title="算術平均 Σ p_k d_k（このプログラムの平均粒径の定義）">河床の平均粒径 dm<span class="u">mm</span></label><input type="number" id="gr_dm" value="5" step="any" min="0.05"></div>
+      <div class="row"><label for="gr_sg" title="対数正規分布の幾何標準偏差 σg = √(d84/d16)。1 で一様、大きいほど幅が広い">分布の幅 σg = √(d84/d16)</label><input type="number" id="gr_sg" value="4" step="0.5" min="1"></div>
+      <div class="row"><label for="gr_k">粒径階の数</label><select id="gr_k"><option>1</option><option>2</option><option>3</option><option>4</option><option selected>5</option><option>6</option></select></div>
+      <div class="row"><label for="gr_fr" title="供給土砂の平均粒径を河床の何倍にするか（分布を ln d でずらす。粒径階は河床と共通なので、できる平均粒径は目安）。1 で河床と同じ分布">供給の平均粒径 ÷ 河床の平均粒径</label><input type="number" id="gr_fr" value="1" step="0.1" min="0.05"></div>
+      <div class="btns"><button class="sm" id="gr_gen">平均粒径と幅から作る（表を書き換え）</button></div>
       <table class="ed" id="grtab"><thead><tr><th>粒径 [mm]</th><th>河床 [%]</th><th>供給 [%]</th><th></th></tr></thead><tbody></tbody></table>
       <div class="btns"><button class="sm" id="gr_add">＋ 粒径階を追加</button></div>
+      <p class="note" id="gr_sum"></p>
+      <canvas id="gr_cv" style="width:100%;height:150px;display:block"></canvas>
       <div class="row"><label for="s_n">Manning の粗度係数 n</label><input type="number" id="s_n" step="0.005" min="0.01"></div>
       <div class="row"><label for="s_tcm">限界掃流力の式（平均粒径）</label><select id="s_tcm"><option value="atm">芦田・高橋・水山</option><option value="iwagaki">岩垣式</option><option value="const">一定値</option></select></div>
       <div class="row" id="s_tc_row" hidden><label for="s_tc">τ*c（一定値）</label><input type="number" id="s_tc" step="0.005" min="0.01"></div>
@@ -4595,13 +4604,70 @@ table.res th,table.res td{white-space:nowrap}
     setTimeout(function () { saveText('時間ごとの結果_' + (sim.P.snapEvery / 60) + '分間隔.zip', snapZip(), 'o_msg', true); }, 30);
   };
 
+  // ------------------------------------------------------------ 粒度分布：代表的な河床材料、平均粒径と幅から作る、要約と粒径加積曲線
+  var GR_PRE = { sand: [0.5, 1.5, 3, 1], sg: [5, 4, 5, 1], gravel: [30, 3.5, 5, 1], debris: [50, 5, 6, 1], uni: [5, 1, 1, 1] };
+  function erf(x) { var t = 1 / (1 + 0.3275911 * Math.abs(x)), y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x); return x >= 0 ? y : -y; }
+  function lnCdf(x, mu, sg) { return 0.5 * (1 + erf((x - mu) / (Math.SQRT2 * sg))); }
+  // 対数正規分布を K 階に分ける（ln d の ±2.5σ を等分）。粒径は各階の幾何中心、割合は区間の確率。算術平均が dm になるよう粒径をそろえて縮める
+  function makeGrains(dm, sgG, K, fr) {
+    K = Math.max(1, Math.min(6, K | 0)); dm = Math.max(0.05, dm) / 1000;
+    if (K === 1 || !(sgG > 1.0001)) return [{ d: dm, bed: 1, feed: 1 }];
+    var sg = Math.log(sgG), lo = -2.5 * sg, w = 5 * sg / K, d = [], pb = [], pf = [], k, sb = 0, sf = 0, mf = Math.log(fr > 0 ? fr : 1);
+    for (k = 0; k < K; k++) {
+      var a = lo + k * w, b = a + w; d.push(Math.exp(a + w / 2));
+      var e0 = k === 0 ? -1e9 : a, e1 = k === K - 1 ? 1e9 : b;   // 両端の階は裾も含める
+      pb.push(lnCdf(e1, 0, sg) - lnCdf(e0, 0, sg)); pf.push(lnCdf(e1, mf, sg) - lnCdf(e0, mf, sg));
+      sb += pb[k]; sf += pf[k];
+    }
+    var mean = 0; for (k = 0; k < K; k++) { pb[k] /= sb; pf[k] /= sf; mean += pb[k] * d[k]; }
+    return d.map(function (dk, q) { return { d: dk * dm / mean, bed: pb[q], feed: pf[q] }; });
+  }
+  function readGrTable() {
+    var g = [];
+    Array.prototype.forEach.call($('grtab').tBodies[0].rows, function (tr) { var v = tr.querySelectorAll('input'), d = +v[0].value, b = +v[1].value, f = +v[2].value; if (d > 0) g.push({ d: d / 1000, bed: b > 0 ? b : 0, feed: f > 0 ? f : 0 }); });
+    return g.sort(function (a, b) { return a.d - b.d; });
+  }
+  // 割合 p（合計 1）の d_x：累積割合を各階の粒径で ln d に直線補間（階の粒径を代表値とする）
+  function dPct(g, key, x) {
+    var tot = 0; g.forEach(function (q) { tot += q[key]; }); if (!(tot > 0)) return NaN;
+    var cum = 0, pc = [], ld = g.map(function (q) { return Math.log(q.d); });
+    g.forEach(function (q) { cum += q[key] / tot; pc.push(cum - 0.5 * q[key] / tot); });
+    if (x <= pc[0]) return g[0].d; if (x >= pc[pc.length - 1]) return g[g.length - 1].d;
+    for (var k = 1; k < pc.length; k++) if (x <= pc[k]) return Math.exp(ld[k - 1] + (ld[k] - ld[k - 1]) * (x - pc[k - 1]) / (pc[k] - pc[k - 1] || 1));
+    return g[g.length - 1].d;
+  }
+  function grSummary() {
+    var g = readGrTable(); if (!g.length) { $('gr_sum').textContent = ''; return; }
+    function line(key, name) {
+      var tot = 0, m = 0; g.forEach(function (q) { tot += q[key]; m += q[key] * q.d; }); if (!(tot > 0)) return name + '：割合が 0 です';
+      var mm = function (v) { v *= 1000; return v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toFixed(2); };
+      return name + '：平均粒径 dm ' + mm(m / tot) + ' mm、d16 ' + mm(dPct(g, key, 0.16)) + '、d50 ' + mm(dPct(g, key, 0.5)) + '、d84 ' + mm(dPct(g, key, 0.84)) + '、d90 ' + mm(dPct(g, key, 0.9)) + ' mm（合計 ' + tot.toFixed(1) + ' %）';
+    }
+    $('gr_sum').textContent = line('bed', '河床') + '　／　' + line('feed', '供給') + '。割合の合計は 100 % でなくても比で使います。';
+    // 粒径加積曲線（横軸は対数）
+    var cv = $('gr_cv'), dpr = window.devicePixelRatio || 1, W = cv.clientWidth || 300, H = 150; cv.width = W * dpr; cv.height = H * dpr;
+    var ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+    var lmin = Math.log10(g[0].d * 1000) - 0.3, lmax = Math.log10(g[g.length - 1].d * 1000) + 0.3, L = 34, R = 8, T = 8, B = 22;
+    var X = function (dmm) { return L + (Math.log10(dmm) - lmin) / (lmax - lmin) * (W - L - R); }, Y = function (p) { return T + (1 - p) * (H - T - B); };
+    ctx.strokeStyle = css('--line'); ctx.fillStyle = css('--ink3'); ctx.font = '10px sans-serif'; ctx.lineWidth = 1;
+    for (var e = Math.ceil(lmin); e <= Math.floor(lmax); e++) { var xx = X(Math.pow(10, e)); ctx.beginPath(); ctx.moveTo(xx, T); ctx.lineTo(xx, H - B); ctx.stroke(); ctx.fillText((e < 0 ? Math.pow(10, e).toFixed(-e) : Math.pow(10, e)) + ' mm', xx - 10, H - 6); }
+    [0, 0.5, 1].forEach(function (p) { ctx.beginPath(); ctx.moveTo(L, Y(p)); ctx.lineTo(W - R, Y(p)); ctx.stroke(); ctx.fillText((p * 100) + '%', 2, Y(p) + 3); });
+    [['bed', css('--sed')], ['feed', css('--s2')]].forEach(function (kc) {
+      var tot = 0; g.forEach(function (q) { tot += q[kc[0]]; }); if (!(tot > 0)) return;
+      ctx.strokeStyle = kc[1]; ctx.lineWidth = 2; ctx.beginPath(); var cum = 0;
+      g.forEach(function (q, k) { cum += q[kc[0]] / tot; var xx = X(q.d * 1000), yy = Y(cum); if (k) ctx.lineTo(xx, yy); else ctx.moveTo(xx, yy); });
+      ctx.stroke();
+    });
+    ctx.fillStyle = css('--sed'); ctx.fillText('— 河床', W - 110, H - B - 6); ctx.fillStyle = css('--s2'); ctx.fillText('— 供給', W - 56, H - B - 6);
+  }
   function grRow(g) {
     var tr = document.createElement('tr');
     tr.innerHTML = '<td><input type="number" step="1" min="0.1" value="' + (+(g.d * 1000).toFixed(2)) + '" aria-label="粒径"></td>' +
       '<td><input type="number" step="5" min="0" value="' + (+(g.bed * 100).toFixed(1)) + '" aria-label="河床の割合"></td>' +
       '<td><input type="number" step="5" min="0" value="' + (+(g.feed * 100).toFixed(1)) + '" aria-label="供給の割合"></td>' +
       '<td><button class="x" aria-label="削除">×</button></td>';
-    tr.querySelector('button').onclick = function () { if ($('grtab').tBodies[0].rows.length > 1) tr.remove(); };
+    tr.querySelector('button').onclick = function () { if ($('grtab').tBodies[0].rows.length > 1) { tr.remove(); grSummary(); } };
+    Array.prototype.forEach.call(tr.querySelectorAll('input'), function (i) { i.addEventListener('input', grSummary); });
     return tr;
   }
   function wRow(w) {
@@ -4697,7 +4763,7 @@ table.res th,table.res td{white-space:nowrap}
     setB([[0, 0], [P.L, 0]]);
     setDams(P.dams); $('d_wing').value = P.wingHeight;
     setValley(P.valley || {}, P.sideGrad);
-    var tb = $('grtab').tBodies[0]; tb.innerHTML = ''; P.grains.forEach(function (g) { tb.appendChild(grRow(g)); });
+    var tb = $('grtab').tBodies[0]; tb.innerHTML = ''; P.grains.forEach(function (g) { tb.appendChild(grRow(g)); }); setTimeout(grSummary, 0);
     $('s_n').value = P.manning; $('s_tc').value = P.tauCm; $('s_tcm').value = P.tcMethod || 'atm'; $('s_hid').value = P.hiding || 'egiazaroff'; tcSwitch(); $('s_por').value = P.porosity; $('s_rep').value = P.reposeDeg;
     var BK = P.bank || {}, NE = P.noneq || {}, BO = P.boulders || {};
     $('s_tr').value = P.transport || 'eq'; $('ne_de').value = NE.de; $('ne_dd').value = NE.dd; $('ne_he').value = NE.hEdge; $('ne_fe').value = NE.fe; $('ne_fd').value = NE.fd;
@@ -6185,7 +6251,7 @@ table.res th,table.res td{white-space:nowrap}
     DP = sim.demMode && window.SaboDEMUI && window.SaboDEMUI.paths ? window.SaboDEMUI.paths() : null; PI = 0; PS = null; xsS = null; pathOptions();
     if (pathMode()) { var PS0 = pathSamples(); xsS = Math.round(PS0.L * 0.55); $('xs_x').max = PS0.L; $('xs_x').step = sim.dx; $('xs_x').value = xsS; }
     else { $('xs_x').max = sim.Lx; $('xs_x').step = sim.dx; if (xsX == null || xsX > sim.Lx) xsX = Math.round(sim.Lx * 0.55); $('xs_x').value = xsX; }
-    $('gridinfo').textContent = '格子 ' + sim.nx + ' × ' + sim.ny + '（' + sim.N.toLocaleString() + ' セル、幅 ' + sim.dx + ' m）　粒径階 ' + sim.K + '　堰堤 ' + sim.dams.length + ' 基' + (sim.fromCSV ? '　CSV 地形（平均勾配 1/' + (1 / sim.I).toFixed(0) + '）' : '') + (sim.I > 0.1 + 1e-9 && sim.P.transport !== 'debris' ? '　注意：勾配 1/' + (1 / sim.I).toFixed(0) + ' は掃流砂の式の適用範囲（1/10 程度より緩い）を超えます。' : '') + (sim.warn.length ? '　注意：' + sim.warn.join(' ') : '');
+    $('gridinfo').textContent = '格子 ' + sim.nx + ' × ' + sim.ny + '（' + sim.N.toLocaleString() + ' セル、幅 ' + sim.dx + ' m）　粒径階 ' + sim.K + '　堰堤 ' + sim.dams.length + ' 基' + (sim.fromCSV && !sim.demMode ? '　CSV 地形（平均勾配 1/' + (1 / sim.I).toFixed(0) + '）' : '') + (sim.I > 0.1 + 1e-9 && sim.P.transport !== 'debris' ? '　注意：勾配 1/' + (1 / sim.I).toFixed(0) + ' は掃流砂の式の適用範囲（1/10 程度より緩い）を超えます。' : '') + (sim.warn.length ? '　注意：' + sim.warn.join(' ') : '');
     if (P.prefill > 0) $('gridinfo').textContent += '　はじめから満砂（比 ' + P.prefill + '）';
     if (sim.demMode) {
       var dmS = window.SaboDEMUI.state.dom;
@@ -6337,7 +6403,20 @@ table.res th,table.res td{white-space:nowrap}
     grip.addEventListener('keydown', function (e) { if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return; e.preventDefault(); wNow = setW(side.getBoundingClientRect().width + (e.key === 'ArrowRight' ? 30 : -30)); try { localStorage.setItem(KEY, String(wNow)); } catch (er) {} window.dispatchEvent(new Event('resize')); });
   })();
   $('gw_on').onchange = gwSwitch;
-  $('gr_add').onclick = function () { if ($('grtab').tBodies[0].rows.length < 6) $('grtab').tBodies[0].appendChild(grRow({ d: 0.3, bed: 0, feed: 0 })); };
+  $('gr_add').onclick = function () { if ($('grtab').tBodies[0].rows.length < 6) $('grtab').tBodies[0].appendChild(grRow({ d: 0.3, bed: 0, feed: 0 })); grSummary(); };
+  $('gr_pre').onchange = function () { var v = GR_PRE[this.value]; if (!v) return; $('gr_dm').value = v[0]; $('gr_sg').value = v[1]; $('gr_k').value = v[2]; $('gr_fr').value = v[3]; $('gr_gen').onclick(); };
+  $('gr_gen').onclick = function () {
+    var g = makeGrains(+$('gr_dm').value || 5, +$('gr_sg').value || 1, +$('gr_k').value || 5, +$('gr_fr').value || 1), tb = $('grtab').tBodies[0]; tb.innerHTML = '';
+    // 割合は 0.1 % 単位で、合計がちょうど 100 % になるよう最大の階で調整
+    ['bed', 'feed'].forEach(function (key) {
+      var r = g.map(function (q) { return Math.round(q[key] * 1000) / 1000; }), sm = r.reduce(function (a, b) { return a + b; }, 0), im = 0;
+      r.forEach(function (v, k) { if (v > r[im]) im = k; }); r[im] = Math.round((r[im] + 1 - sm) * 1000) / 1000;
+      g.forEach(function (q, k) { q[key] = r[k]; });
+    });
+    g.forEach(function (q) { tb.appendChild(grRow({ d: +(q.d).toPrecision(3), bed: q.bed, feed: q.feed })); });
+    grSummary();
+  };
+  $('grtab').closest('details').addEventListener('toggle', grSummary);
   $('pre_low').onclick = function () { var L = curL(), a = []; for (var x = 60; x < L - 50; x += 45) a.push({ x: x, H: 1.2, b: 0 }); setDams(a); };
   $('pre_high').onclick = function () { var L = curL(), B = num('g_B', 50); setDams([{ x: Math.round(L * 0.82), H: 8, b: Math.round(B * 0.4) }]); };
   $('pre_none').onclick = function () { setDams([]); };
