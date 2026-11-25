@@ -74,7 +74,16 @@
     if (D.skipped) label += '、読めないタイル ' + D.skipped + ' 個を飛ばしました';
     var nv = 0; for (var c = 0; c < D.nx * D.ny; c++) if (isFinite(D.z[c])) nv++;
     if (nv < 100) { info('標高の値がほとんどありません（' + nv + ' セル）。ファイルを確かめてください。', true); return; }
-    ST.D = D; ST.label = label; ST.mask = null; ST.bid = -1; ST.outlet = -1; ST.src = []; ST.slides = []; ST.ldams = []; ST.dams = []; ST.hist = []; ST.draft = []; analyze();
+    ST.D0 = D; ST.label = label; ST.mask = null; ST.bid = -1; ST.outlet = -1; ST.src = []; ST.slides = []; ST.ldams = []; ST.dams = []; ST.hist = []; ST.draft = []; ST.mode = 'basin'; applySmooth();
+  }
+  // 平滑化（元の DEM は ST.D0 に残す）。谷筋・流域を取り直す。出口を選んでいたら、その近くの谷筋に選び直す
+  function applySmooth() {
+    if (!ST.D0) return;
+    var sg = Math.max(0, parseFloat($('dem_smooth').value) || 0), t0 = performance.now();
+    ST.D = sg > 0 ? SD.smooth(ST.D0, sg) : ST.D0; ST.smoothMs = Math.round(performance.now() - t0);
+    var keepOut = ST.mode === 'outlet' ? ST.outlet : -1;
+    analyze();
+    if (keepOut >= 0) { var s2 = nearStream(keepOut, 3); if (s2 >= 0) selectOutlet(s2); draw(); }
   }
   function analyze() {
     var D = ST.D; if (!D) return;
@@ -85,7 +94,7 @@
     if (ST.bid >= 0 && ST.bid < A.basins.length && ST.mask && ST.mode !== 'outlet') selectBasin(ST.bid, true);
     else selectBasin(big.length ? big[0].id : -1, true);
     var zmin = Infinity, zmax = -Infinity; for (var c = 0; c < D.nx * D.ny; c++) { var v = D.z[c]; if (isFinite(v)) { if (v < zmin) zmin = v; if (v > zmax) zmax = v; } }
-    info(ST.label + '：' + D.nx + ' × ' + D.ny + '（格子 ' + fmt(D.cs, 2) + ' m、標高 ' + fmt(zmin, 0) + '〜' + fmt(zmax, 0) + ' m）。谷頭 ' + A.heads.length + ' 点、出口ごとの流域 ' + A.basins.length + '（' + Math.round(performance.now() - t0) + ' ms）');
+    info(ST.label + '：' + D.nx + ' × ' + D.ny + '（格子 ' + fmt(D.cs, 2) + ' m' + (D.smooth ? '、平滑化 ' + fmt(D.smooth, 0) + ' m' : '') + '、標高 ' + fmt(zmin, 0) + '〜' + fmt(zmax, 0) + ' m）。谷頭 ' + A.heads.length + ' 点、出口ごとの流域 ' + A.basins.length + '（' + Math.round(performance.now() - t0) + ' ms）');
     ST.img = null; ST.det = null; ST.zst = null; ST.cam = null; draw();
   }
   function selectBasin(id, quiet) {
@@ -770,10 +779,10 @@
     var dom = SD.prepareDomain(D, A, ST.mask, ST.outlet, { fill: $('dem_fill').checked, dx: p.dx });
     ST.dom = dom;
     try { buildPaths(dom); } catch (e) { ST.paths = null; }
-    p.terrain = { rows: dom.rows, cs: dom.cs, basin: dom.basin, chan: dom.chan, Iout: dom.Iout };
+    p.terrain = { rows: dom.rows, cs: dom.cs, basin: dom.basin, chan: dom.chan, corr: dom.corr, Iout: dom.Iout };
     p.csvSlope = 0; p.L = dom.nx * dom.cs; p.sideCells = 0; p.dams = []; p.tribs = []; p.prefill = 0;
     var dur = Math.max(1, +$('dem_dur').value || 30) * 60;
-    p.dem = { soilD: Math.max(0.1, +$('dem_soil').value || 1), chW: Math.max(1, +$('dem_chw').value || 10), ks: Math.max(0, +$('dem_ks').value || 0), s0: 0.3, duration: dur };
+    p.dem = { soilD: Math.max(0.1, +$('dem_soil').value || 1), chW: Math.max(1, +$('dem_chw').value || 10), ks: Math.max(0, +$('dem_ks').value || 0), s0: 0.3, duration: dur, outlet: $('dem_out').value, smooth: ST.D && ST.D.smooth || 0, fill: $('dem_fill').checked, pit: Math.max(0, +$('dem_pit').value || 0) };
     var gen = $('gen_type').value;
     if (gen !== 'bed') p.transport = 'debris';
     p.sources = ST.src.map(function (r) {
@@ -845,6 +854,7 @@
     $('dem_file').onchange = function () { loadFiles(this.files); };
     $('dem_sample').onclick = function () { setDEM(SD.synthDEM({}), '例の DEM（架空）'); };
     $('dem_thr').onchange = analyze;
+    $('dem_smooth').onchange = applySmooth;
     $('dm_fit').onchange = function () { if (!ST.D) return; if ($('dm_fit').checked) fitBasin(); else fitAll(); draw(); };
     $('dm_shade').onchange = $('dm_cont').onchange = function () { ST.img = null; ST.det = null; draw(); };
     $('dm_zin').onclick = function () { var v = ST.view; if (v) zoomAt(v.W / 2, v.H / 2, 1.6); };

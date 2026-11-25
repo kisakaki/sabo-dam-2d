@@ -217,6 +217,29 @@ def parse_tiff(buf):
     return _square(DEM(W, H, csx, csy, tie[3] - tie[0] * csx, tie[4] + tie[1] * csy, z, 'tif'))
 
 
+def smooth(D, sigma):
+    """平滑化：幅 w の箱形の平均を縦・横に 3 回（標準偏差 sigma [m] のガウス分布に近い）。欠測は除いて平均し、欠測のまま残す（dem.js の smooth と同じ）"""
+    sc = sigma / D.cs
+    if not (sc > 0.3):
+        return D
+    rr = max(1, int(math.floor((math.sqrt(4 * sc * sc + 1) - 1) / 2 + 0.5)))
+    z = np.array(D.z, dtype=float).reshape(D.ny, D.nx)
+
+    def box(a, axis):
+        a = np.moveaxis(a, axis, -1); m = a.shape[-1]; f = np.isfinite(a)
+        cs = np.concatenate([np.zeros(a.shape[:-1] + (1,)), np.cumsum(np.where(f, a, 0.0), axis=-1)], axis=-1)
+        cn = np.concatenate([np.zeros(a.shape[:-1] + (1,)), np.cumsum(f, axis=-1)], axis=-1)
+        i = np.arange(m); lo = np.maximum(0, i - rr); hi = np.minimum(m, i + rr + 1)
+        n = cn[..., hi] - cn[..., lo]; out = np.where(n > 0, (cs[..., hi] - cs[..., lo]) / np.maximum(n, 1), a)
+        out = np.where(f, out, np.nan)
+        return np.moveaxis(out, -1, axis)
+    for _ in range(3):
+        z = box(z, 1); z = box(z, 0)
+    import copy
+    E = copy.copy(D); E.z = z.reshape(-1); E.smooth = sigma
+    return E
+
+
 def _expand(paths):
     """ZIP（中の ZIP も）を展開して (名前, バイト列) の並びにする"""
     import zipfile, io
@@ -426,6 +449,7 @@ def prepare_domain(D, A, mask, outlet, fill_dem=True):
             bas[j, i] = 1 if mask[oc] else 0; chn[j, i] = 1 if (mask[oc] and st[oc]) else 0; cellOf[j, i] = oc
         rows[j, RW:] = rows[j, RW - 1]
     Iout = max(0.01, local_slope(D, A, outlet, 4)); zo = zz2[outlet]
+    cor = np.zeros_like(bas, dtype=np.uint8)
     # 幅は 5 セル（中央が谷筋）。1 セル幅だと、格子を粗くしたとき両側の山と混ざって通路がふさがるため
     for i in range(po[0] + 1, NW):
         zc = zo - Iout * (i - po[0]) * D.cs
@@ -435,6 +459,8 @@ def prepare_domain(D, A, mask, outlet, fill_dem=True):
                 continue
             if dj and bas[jj, i] and rows[jj, i] < zc:
                 continue
+            if not bas[jj, i]:
+                cor[jj, i] = 1   # 出口の先の水路（流域の外だったセル）
             rows[jj, i] = zc; bas[jj, i] = 1
             if not dj:
                 chn[jj, i] = 1
@@ -443,6 +469,7 @@ def prepare_domain(D, A, mask, outlet, fill_dem=True):
         pass
     dom = Dom()
     dom.rows, dom.cs, dom.basin, dom.chan, dom.cellOf, dom.rot, dom.nx, dom.ny, dom.outlet, dom.Iout = rows, D.cs, bas, chn, cellOf, rot, NW, RH, po, Iout
+    dom.corr = cor
 
     def toXY(cell):
         p = fwd(cell % nx, cell // nx)
@@ -461,7 +488,7 @@ def prepare_domain(D, A, mask, outlet, fill_dem=True):
 
 
 def terrain_params(dom):
-    return {'rows': dom.rows.tolist(), 'cs': dom.cs, 'basin': dom.basin.tolist(), 'chan': dom.chan.tolist(), 'Iout': dom.Iout}
+    return {'rows': dom.rows.tolist(), 'cs': dom.cs, 'basin': dom.basin.tolist(), 'chan': dom.chan.tolist(), 'corr': dom.corr.tolist(), 'Iout': dom.Iout}
 
 
 def synth_dem(nx=160, ny=120, cs=10.0, seed=3, iters=40):

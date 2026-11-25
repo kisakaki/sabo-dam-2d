@@ -50,7 +50,7 @@
       // 伏流（河床への浸透と地下水の流れ。Darcy 則・Dupuit 近似）
       gw: { on: false, k: 0, kMax: 0.05, s0: 0 },   // k：透水係数 [m/s]（0 なら粒度から Kozeny–Carman 式）、kMax：上限、s0：乾いた堆積層の初期の飽和度
       // ---- DEM の流域（地形を DEM から切り出したとき）
-      dem: { soilD: 1.0, chW: 6, ks: 1e-5, s0: 0.3, duration: 3600 },   // 斜面の土層の厚さ [m]、侵食できる谷筋の幅 [m]、土層の飽和透水係数 [m/s]、土層の初期の飽和度、計算時間 [s]
+      dem: { soilD: 1.0, chW: 6, ks: 1e-5, s0: 0.3, duration: 3600, outlet: 'sink', fill: true, pit: 0.5 },   // outlet：出口の扱い（sink 自由流出 | channel 水路を延ばす）、fill：計算格子で窪地を埋める、pit：これより深い 1 セルの穴を埋める [m]（0 でしない）   // 斜面の土層の厚さ [m]、侵食できる谷筋の幅 [m]、土層の飽和透水係数 [m/s]、土層の初期の飽和度、計算時間 [s]
       sources: [],       // 点の流入 [{x, y, ux, uy, I, hydro: {上流端と同じ形}}]
       latIn: null,       // 雨の横流入 {dt, pts: [[x, y, ux, uy, I]], Q: [[流量の時系列]]}
       rain: { on: false, method: 'lumped', mode: 'uniform', table: [], frames: [], loss: { type: 'f', f: 0.8 } },
@@ -773,7 +773,7 @@
     this.sedIn = 0; this.sedOut = 0;     // 実質体積 [m3]
     this.sedOutK = new Float64Array(K);
     this.nLimW = 0; this.nLimS = 0;
-    this.series = { t: [], Qin: [], Qout: [], QsIn: [], QsOut: [], stor: [] };
+    this.series = { t: [], Qin: [], Qout: [], QsIn: [], QsOut: [], stor: [], QinT: [], QsInT: [] };   // QinT・QsInT：全体の流入（上流端＋支川＋供給点＋雨）
     this.snaps = []; this.snapFull = false; this._nextSnap = 0;   // 時間ごとの結果（記録は出水の開始から）
     this._nextSample = 0;
     this.Uref = Q0 > 0.01 ? Math.max(0.5, (Q0 / this.Bf) / Math.pow((Q0 / this.Bf) * P.manning / Math.sqrt(Math.max(I, 1e-4)), 0.6)) : 1;
@@ -1111,6 +1111,7 @@
     }
     this.Qout = qoutSum * dx;
     this.Vwin += (Q + QtSum + QpSum) * dt + (rainH ? this._rainV : 0); this.Vwout += this.Qout * dt;
+    this.QinT = Q + QtSum + QpSum + (rainH ? this._rainV / dt : 0);
     var gwOn_ = !!(P.gw && P.gw.on);
     this.th += dt; this.nstep++;
 
@@ -1131,13 +1132,16 @@
     // ---- 河床変動
     if (this.t === 0 && !this.snaps.length) this.snapshot();   // 出水の開始時の状態
     var dtm = dt * (P.transport === 'debris' ? 1 : Math.max(1, P.morfac));   // 土石流は加速しない
+    var sIn0 = this.sedIn;
     this.morph(dtm);
     if (gwOn_) this.gwStep(dt);      // 伏流は流れの時間刻みで（加速しない）
     if (this.slides.length || this.depOn) this.slideStep(dt);
+    if (this.sinkCells && this.sinkCells.length) this.sinkStep(dt);
+    this.QsInT = (this.sedIn - sIn0) / dtm;
     this.t += dtm;
     if (this.t >= this._nextSample) {
       var S = this.series;
-      S.t.push(this.t); S.Qin.push(Q); S.Qout.push(this.Qout); S.QsIn.push(this.QsIn); S.QsOut.push(this.QsOut);
+      S.t.push(this.t); S.Qin.push(Q); S.Qout.push(this.Qout); S.QsIn.push(this.QsIn); S.QsOut.push(this.QsOut); S.QinT.push(this.QinT); S.QsInT.push(this.QsInT);
       S.stor.push(this.storage());
       this._nextSample = this.t + this.duration() / 400;
     }
@@ -1181,6 +1185,38 @@
     this.dryBankErosion();
     this.hasegawaCollapse();
     this.collapse();
+    if (this.demMode && this.P.dem && this.P.dem.pit > 0) this.pitFill(this.P.dem.pit);
+  };
+  // DEM：1 セルの穴（4 近傍の河床のどれよりも pit 以上低いセル）を、近傍の最も高い侵食できるセルの土砂で埋める（質量保存の数値処理）。
+  // 1 セル幅の谷筋で侵食が 1 セルだけ進んだ穴に水がたまり、水深が突出するのを防ぐ。堰堤の隣は埋めない（水叩きの洗掘を残す）
+  Sim.prototype.pitFill = function (tol) {
+    var nx = this.nx, ny = this.ny, K = this.K, A = this.A, z = this.z, kind = this.kind, bas = this.basin, i, j, c, k, m, q;
+    var self = this, cand = this._pitC || (this._pitC = []); cand.length = 0;
+    // 候補：4 近傍（壁・流域の外を除く）のどれよりも tol 以上低い谷筋のセル。堰堤の隣は除く
+    function zmin4(c) {
+      var nb = [c - 1, c + 1, c - nx, c + nx], zm = 1e30;
+      for (var m = 0; m < 4; m++) { var o = nb[m]; if (kind[o] === 2) return -1e30; if (kind[o] === 1 || (bas && !bas[o])) continue; if (z[o] < zm) zm = z[o]; }
+      return zm;
+    }
+    for (j = 1; j < ny - 1; j++) for (i = 1; i < nx - 1; i++) {
+      c = j * nx + i; if (kind[c] !== 0 || (bas && !bas[c])) continue;
+      if (z[c] < zmin4(c) - tol) cand.push(c);
+    }
+    for (q = 0; q < cand.length; q++) {
+      c = cand[q]; var zm = zmin4(c); if (!(z[c] < zm - tol)) continue;
+      var nb = [c - 1, c + 1, c - nx, c + nx], don = -1, zd = -1e30, avd = 0;
+      for (m = 0; m < 4; m++) {
+        var o = nb[m]; if (kind[o] === 1 || (bas && !bas[o])) continue;
+        var av = 0; for (k = 0; k < K; k++) av += A[o * K + k];
+        if (av > 1e-6 && z[o] > zd) { zd = z[o]; don = o; avd = av; }
+      }
+      if (don < 0) continue;
+      var mv = Math.min(0.5 * (zm - tol - z[c]), 0.5 * avd, 0.5 * (z[don] - z[c])); if (!(mv > 1e-6)) continue;
+      var fr = mv / avd;
+      for (k = 0; k < K; k++) { var t = A[don * K + k] * fr; A[don * K + k] -= t; A[c * K + k] += t; }
+      z[don] -= mv; z[c] += mv; self.dzs[don] -= mv; self.dzs[c] += mv; self.fixLayers(don); self.fixLayers(c);
+      self.nPit = (self.nPit || 0) + 1;
+    }
   };
 
   // ---- 土石流（高橋 2007。Kanako 2D と同じ形の式）--------------------------------------
@@ -1629,20 +1665,76 @@
   //  流域の外：高い壁（水が出入りしない）。谷筋（幅 chW に広げる）：侵食できる河床（kind 0）。
   //  斜面：kind 3（流れでは侵食しない。土層の厚さ soilD は伏流と斜面崩壊の土層として使う）
   // ======================================================================================
+  // 4 近傍の Priority-Flood（Barnes ら 2014）＋ε の勾配。流域のセルだけ。種は右端の列と出口の先のセル。同じ高さは番号の小さい順
+  function fill4(z, bas, seed, nx, ny, eps) {
+    var N = nx * ny, done = new Uint8Array(N), hz = [], hc = [], n = 0, cnt = 0;
+    function less(a, b) { return hz[a] < hz[b] || (hz[a] === hz[b] && hc[a] < hc[b]); }
+    function push(zz, c) {
+      var i = n++; hz[i] = zz; hc[i] = c;
+      while (i > 0) { var p = (i - 1) >> 1; if (!less(i, p)) break; var tz = hz[p], tc = hc[p]; hz[p] = hz[i]; hc[p] = hc[i]; hz[i] = tz; hc[i] = tc; i = p; }
+    }
+    function pop() {
+      var rz = hz[0], rc = hc[0]; n--;
+      if (n > 0) {
+        hz[0] = hz[n]; hc[0] = hc[n]; var i = 0;
+        for (;;) { var l = 2 * i + 1, r = l + 1, m = i; if (l < n && less(l, m)) m = l; if (r < n && less(r, m)) m = r; if (m === i) break; var tz = hz[m], tc = hc[m]; hz[m] = hz[i]; hc[m] = hc[i]; hz[i] = tz; hc[i] = tc; i = m; }
+      }
+      return [rz, rc];
+    }
+    for (var c = 0; c < N; c++) if (bas[c] && (c % nx === nx - 1 || seed[c])) { done[c] = 1; push(z[c], c); }
+    while (n > 0) {
+      var t = pop(), zc = t[0], cc = t[1], i = cc % nx, j = (cc - i) / nx;
+      var nb = [i > 0 ? cc - 1 : -1, i < nx - 1 ? cc + 1 : -1, j > 0 ? cc - nx : -1, j < ny - 1 ? cc + nx : -1];
+      for (var m = 0; m < 4; m++) {
+        var o = nb[m]; if (o < 0 || done[o] || !bas[o]) continue;
+        done[o] = 1; if (z[o] < zc + eps) { z[o] = zc + eps; cnt++; }
+        push(z[o], o);
+      }
+    }
+    return cnt;
+  }
   Sim.prototype.setupBasin = function (T) {
     var P = this.P, nx = this.nx, ny = this.ny, dx = this.dx, N = this.N, z = this.z, zfix = this.zfix, kind = this.kind, fl = this.fl;
     var DM = P.dem || {}, soilD = DM.soilD > 0 ? DM.soilD : 1, chR = Math.max(0, Math.round(((DM.chW > 0 ? DM.chW : dx) / dx - 1) / 2));
     var Ly = this.Ly, cs = T.cs, nr = T.rows.length, nc = T.rows[0].length, i, j, c, r, q;
     var bas = this.basin = new Uint8Array(N), ch = new Uint8Array(N), zTop = -1e30;
     this.tIdx = new Int32Array(N);
+    // DEM の格子 → 計算格子：計算格子のセルに中心が入る DEM のセルを集める。谷筋のセルがあればその最低値（狭い谷を
+    // ふさがない）、なければ流域内のセルの平均。流域かどうかは、谷筋を含むか、半分以上が流域か。
+    // 入る DEM のセルがない（計算格子が DEM より細かい）ときは、最も近い DEM のセル（谷筋なら値そのもの、ほかは双一次補間）
+    var nK = new Float64Array(N), nT = new Float64Array(N), nB = new Float64Array(N), sB = new Float64Array(N), sA = new Float64Array(N), nC = new Float64Array(N), mC = new Float64Array(N).fill(1e30);
+    for (r = 0; r < nr; r++) {
+      var jy = Math.floor((Ly - (r + 0.5) * cs) / dx); if (jy < 0 || jy >= ny) continue;
+      var rowZ = T.rows[r], rowB = T.basin[r], rowC = T.chan ? T.chan[r] : null, rowK = T.corr ? T.corr[r] : null;
+      for (q = 0; q < nc; q++) {
+        var ix = Math.floor((q + 0.5) * cs / dx); if (ix < 0 || ix >= nx) continue;
+        c = jy * nx + ix; var v = rowZ[q]; nT[c]++; sA[c] += v; if (rowK && rowK[q]) nK[c]++;
+        if (rowB[q]) { nB[c]++; sB[c] += v; if (rowC && rowC[q]) { nC[c]++; if (v < mC[c]) mC[c] = v; } }
+      }
+    }
     for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {
       c = j * nx + i;
       r = Math.min(nr - 1, Math.max(0, Math.floor((Ly - (j + 0.5) * dx) / cs))); q = Math.min(nc - 1, Math.max(0, Math.floor((i + 0.5) * dx / cs)));
       this.tIdx[c] = r * nc + q;
-      bas[c] = T.basin[r][q] ? 1 : 0; ch[c] = T.chan && T.chan[r][q] ? 1 : 0;
-      z[c] = sampleTerrain(T, (i + 0.5) * dx, (j + 0.5) * dx, Ly);   // 擾乱を足す前の標高に戻す
+      if (nT[c] > 0) {
+        ch[c] = nC[c] > 0 ? 1 : 0; bas[c] = (nC[c] > 0 || 2 * nB[c] >= nT[c]) ? 1 : 0;
+        z[c] = nC[c] > 0 ? mC[c] : nB[c] > 0 ? sB[c] / nB[c] : sA[c] / nT[c];
+      } else {
+        bas[c] = T.basin[r][q] ? 1 : 0; ch[c] = T.chan && T.chan[r][q] ? 1 : 0;
+        z[c] = ch[c] ? T.rows[r][q] : sampleTerrain(T, (i + 0.5) * dx, (j + 0.5) * dx, Ly);
+      }
       if (bas[c] && z[c] > zTop) zTop = z[c];
     }
+    // 出口の先の水路のセル：自由流出（P.dem.outlet = 'sink'、既定）ならここで抜く
+    var sinkL = [];
+    var isSink = new Uint8Array(N);
+    if (T.corr && DM.outlet !== 'channel') for (c = 0; c < N; c++) {
+      var isK = nT[c] > 0 ? nK[c] > 0 : !!T.corr[Math.min(nr - 1, Math.max(0, Math.floor((Ly - (((c - c % nx) / nx) + 0.5) * dx) / cs)))][Math.min(nc - 1, Math.max(0, Math.floor(((c % nx) + 0.5) * dx / cs)))];
+      if (isK && bas[c]) { sinkL.push(c); isSink[c] = 1; }
+    }
+    this.sinkCells = sinkL;
+    // 計算格子での窪地埋め（4 近傍の Priority-Flood。右端と出口の先から）。DEM を計算格子に移すときにできる窪地をなくす
+    if (DM.fill !== false) this.nFill = fill4(z, bas, isSink, nx, ny, 1e-3);
     var chD = new Uint8Array(N);
     for (c = 0; c < N; c++) if (ch[c]) {
       var ci = c % nx, cj = (c - ci) / nx;
@@ -1663,6 +1755,7 @@
       }
       this.Bx[i] = Math.max(1, nf) * dx;
     }
+    for (var q2 = 0; q2 < sinkL.length; q2++) { c = sinkL[q2]; zfix[c] = z[c]; }   // 抜く所は侵食しない
     this.demMode = true; this.zTop = zTop; this.wallZ = wallZ;
     var Io = T.Iout > 0 ? T.Iout : 0.01; this.I = Io;
     for (i = 0; i < nx; i++) { this.Ix[i] = Io; this.colmin[i] = 1e30; for (j = 0; j < ny; j++) { c = j * nx + i; if (bas[c] && z[c] < this.colmin[i]) this.colmin[i] = z[c]; } if (this.colmin[i] > 1e29) this.colmin[i] = wallZ; }
@@ -2099,6 +2192,18 @@
         }
       }
     }
+  };
+  // DEM の出口：出口の先の水路に入った水と土砂をその場で抜き、流出として数える（自由流出）。
+  // 水の量は混合物の体積（境界の流出と同じ数え方）、土砂は実質体積
+  Sim.prototype.sinkStep = function (dt) {
+    var L = this.sinkCells, h = this.h, Cc = this.Cc, K = this.K, a = this.dx * this.dx, wv = 0, sv = 0;
+    for (var q = 0; q < L.length; q++) {
+      var c = L[q]; if (!(h[c] > 0)) continue;
+      wv += h[c] * a; h[c] = 0; this.qx[c] = 0; this.qy[c] = 0;
+      for (var k = 0; k < K; k++) { var v = Cc[c * K + k]; if (v > 0) { sv += v * a; this.sedOutK[k] += v * a; Cc[c * K + k] = 0; } }
+    }
+    this.Vwout += wv; this.sedOut += sv;
+    this.Qout += wv / dt; this.QsOut += sv / dt;
   };
   Sim.prototype.placeLdam = function (L) {
     var nx = this.nx, ny = this.ny, dx = this.dx, z = this.z, kind = this.kind, c0 = snapCell(this, cellAtXY(this, L.x, L.y));

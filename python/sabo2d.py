@@ -86,7 +86,7 @@ def default_params():
         # 伏流（河床への浸透と地下水の流れ。Darcy 則・Dupuit 近似）。k = 0 なら粒度から Kozeny–Carman 式
         'gw': {'on': False, 'k': 0.0, 'kMax': 0.05, 's0': 0.0},
         # ---- DEM の流域（地形を DEM から切り出したとき）
-        'dem': {'soilD': 1.0, 'chW': 6.0, 'ks': 1e-5, 's0': 0.3, 'duration': 3600.0},
+        'dem': {'soilD': 1.0, 'chW': 6.0, 'ks': 1e-5, 's0': 0.3, 'duration': 3600.0, 'outlet': 'sink', 'fill': True, 'pit': 0.5},
         'sources': [],      # 点の流入 [{x, y, ux, uy, I, hydro}]
         'latIn': None,      # 雨の横流入 {dt, pts: [[x, y, ux, uy, I]], Q: [[...]]}
         'rain': {'on': False, 'method': 'lumped', 'mode': 'uniform', 'table': [], 'frames': [], 'loss': {'type': 'f', 'f': 0.8}},
@@ -411,6 +411,25 @@ def _jround(x):
 # =============================================================================
 # 計算本体
 # =============================================================================
+def _fill4(z, bas, seed, nx, ny, eps):
+    """4 近傍の Priority-Flood＋ε の勾配（流域のセルだけ。種は右端の列と出口の先のセル。同じ高さは番号の小さい順）"""
+    import heapq
+    N = nx * ny; done = np.zeros(N, bool); hp = []; cnt = 0
+    zf = z.reshape(-1); bf = bas.reshape(-1); sf = seed.reshape(-1)
+    for c in np.flatnonzero(bf & ((np.arange(N) % nx == nx - 1) | sf)):
+        done[c] = True; heapq.heappush(hp, (zf[c], int(c)))
+    while hp:
+        zc, cc = heapq.heappop(hp); i = cc % nx; j = cc // nx
+        for o in (cc - 1 if i > 0 else -1, cc + 1 if i < nx - 1 else -1, cc - nx if j > 0 else -1, cc + nx if j < ny - 1 else -1):
+            if o < 0 or done[o] or not bf[o]:
+                continue
+            done[o] = True
+            if zf[o] < zc + eps:
+                zf[o] = zc + eps; cnt += 1
+            heapq.heappush(hp, (zf[o], o))
+    return cnt
+
+
 def _in_poly(P, x, y):
     """点が多角形の中か（偶奇則）"""
     a = False; n = len(P); j = n - 1
@@ -947,7 +966,7 @@ class Sim:
         self.Vwin = 0.0; self.Vwout = 0.0; self.Vw0 = self.water_volume()
         self.sedIn = 0.0; self.sedOut = 0.0; self.sedOutK = np.zeros(K)
         self.nLimW = 0; self.nLimS = 0
-        self.series = {'t': [], 'Qin': [], 'Qout': [], 'QsIn': [], 'QsOut': [], 'stor': []}
+        self.series = {'t': [], 'Qin': [], 'Qout': [], 'QsIn': [], 'QsOut': [], 'stor': [], 'QinT': [], 'QsInT': []}
         self.snaps = []; self.snapFull = False; self._nextSnap = 0.0   # 時間ごとの結果（記録は出水の開始から）
         self._nextSample = 0.0
         self.Uref = max(0.5, (Q0 / self.Bf) / ((Q0 / self.Bf) * P['manning'] / math.sqrt(max(I, 1e-4))) ** 0.6) if Q0 > 0.01 else 1.0
@@ -1179,6 +1198,7 @@ class Sim:
         self.FxM, self.GyM = FxM, GyM
         self.Qout = FxM[:, nx].sum() * dx
         self.Vwin += (Q + QtSum + QpSum) * dt + (self._rainV if rainH is not None else 0.0); self.Vwout += self.Qout * dt
+        self.QinT = Q + QtSum + QpSum + (self._rainV / dt if rainH is not None else 0.0)
         self.th += dt; self.nstep += 1
         gwOn_ = bool((P.get('gw') or {}).get('on'))
 
@@ -1200,16 +1220,21 @@ class Sim:
         if self.t == 0 and not self.snaps:
             self.snapshot()             # 出水の開始時の状態
         dtm = dt * (1.0 if P.get('transport') == 'debris' else max(1.0, P['morfac']))   # 土石流は加速しない
+        sIn0 = self.sedIn
         self._morph(dtm)
         if gwOn_:
             self._gw_step(dt)        # 伏流は流れの時間刻みで（加速しない）
         if self.slides or self.depOn:
             self._slide_step(dt)
+        if getattr(self, 'sinkCells', None) is not None and len(self.sinkCells):
+            self._sink_step(dt)
+        self.QsInT = (self.sedIn - sIn0) / dtm
         self.t += dtm
         if self.t >= self._nextSample:
             S = self.series
             S['t'].append(self.t); S['Qin'].append(Q); S['Qout'].append(self.Qout)
             S['QsIn'].append(self.QsIn); S['QsOut'].append(self.QsOut); S['stor'].append(self.storage())
+            S['QinT'].append(self.QinT); S['QsInT'].append(self.QsInT)
             self._nextSample = self.t + self.duration() / 400
         if self.t >= self.duration():
             self.phase = 'done'
@@ -1288,6 +1313,8 @@ class Sim:
         self._dry_bank_erosion()
         self._hasegawa_collapse()
         self._collapse()
+        if getattr(self, 'demMode', False) and ((self.P.get('dem') or {}).get('pit') or 0) > 0:
+            self._pit_fill(self.P['dem']['pit'])
 
     def _morph_eq(self, dtm):
         """平衡流砂量（芦田・道上式）による河床変動"""
@@ -1652,10 +1679,29 @@ class Sim:
         r = np.clip(np.floor((self.Ly - (jj + 0.5) * dx) / cs).astype(int), 0, nr - 1)
         q = np.clip(np.floor((ii + 0.5) * dx / cs).astype(int), 0, nc - 1)
         self.tIdx = (r * nc + q).ravel()
-        bas = (np.asarray(T['basin'])[r, q] != 0)
-        ch = (np.asarray(T['chan'])[r, q] != 0) if T.get('chan') is not None else np.zeros((ny, nx), bool)
+        Tb = np.asarray(T['basin']) != 0; Tc = (np.asarray(T['chan']) != 0) if T.get('chan') is not None else np.zeros((nr, nc), bool)
+        bas = Tb[r, q].copy(); ch = Tc[r, q].copy()
         XX = (ii + 0.5) * dx; YY = (jj + 0.5) * dx
         z[:] = _sample_terrain(T, XX, YY, self.Ly)
+        z[ch] = rows[r, q][ch]
+        # DEM の格子 → 計算格子：中心が入る DEM のセルを集める（谷筋があればその最低値、なければ流域内の平均）
+        rr_, qq_ = np.mgrid[0:nr, 0:nc]
+        jy = np.floor((self.Ly - (rr_ + 0.5) * cs) / dx).astype(int); ix = np.floor((qq_ + 0.5) * cs / dx).astype(int)
+        ok = (jy >= 0) & (jy < ny) & (ix >= 0) & (ix < nx)
+        cc = (jy * nx + ix)[ok]; vv = rows[ok]; bb = Tb[ok]; ch_ = Tc[ok] & bb
+        nT = np.zeros(N); sA = np.zeros(N); nB = np.zeros(N); sB = np.zeros(N); nC = np.zeros(N); mC = np.full(N, 1e30)
+        np.add.at(nT, cc, 1.0); np.add.at(sA, cc, vv); np.add.at(nB, cc[bb], 1.0); np.add.at(sB, cc[bb], vv[bb]); np.add.at(nC, cc[ch_], 1.0); np.minimum.at(mC, cc[ch_], vv[ch_])
+        has = (nT > 0).reshape(ny, nx); nT2 = nT.reshape(ny, nx); nB2 = nB.reshape(ny, nx); nC2 = nC.reshape(ny, nx)
+        zA = np.where(nC > 0, mC, np.where(nB > 0, sB / np.maximum(nB, 1), sA / np.maximum(nT, 1))).reshape(ny, nx)
+        z[has] = zA[has]; ch[has] = (nC2 > 0)[has]; bas[has] = ((nC2 > 0) | (2 * nB2 >= nT2))[has]
+        # 出口の先の水路のセル：自由流出（P['dem']['outlet'] = 'sink'、既定）ならここで抜く
+        sink = np.zeros((ny, nx), bool)
+        if T.get('corr') is not None and DM.get('outlet') != 'channel':
+            Tk = np.asarray(T['corr']) != 0; nK = np.zeros(N); np.add.at(nK, cc[Tk[ok]], 1.0)
+            sink = np.where(has, (nK > 0).reshape(ny, nx), Tk[r, q]) & bas
+        # 計算格子での窪地埋め（4 近傍の Priority-Flood。右端と出口の先から）
+        if DM.get('fill', True) is not False:
+            zc_ = np.ascontiguousarray(z, dtype=float); self.nFill = _fill4(zc_, bas, sink, nx, ny, 1e-3); z[:] = zc_
         zTop = float(z[bas].max()) if bas.any() else float(z.max())
         chD = np.zeros((ny, nx), bool)
         for dj in range(-chR, chR + 1):
@@ -1671,6 +1717,8 @@ class Sim:
         kind[:] = np.where(~bas, 1, np.where(chD, 0, 3)).astype(np.uint8)
         fl[:] = bas & chD
         zfix[:] = np.where(~bas, wallZ, np.where(chD, np.where(fixedEnd, z, z - P['erodDepth']), z - soilD))
+        zfix[sink] = z[sink]   # 抜く所は侵食しない
+        self.sinkCells = np.flatnonzero(sink)
         z[:] = np.where(~bas, wallZ, z)
         Bx[:] = np.maximum(1, fl.sum(axis=0)) * dx
         self.basin = bas.ravel().astype(np.uint8)
@@ -1921,6 +1969,20 @@ class Sim:
             num += coh * Ab + max(0.0, Wt * math.cos(al) - u * Ab) * tp; den += Wt * math.sin(al); ms += hw2 / T
         sl['m'] = ms / n if n else 0.0; sl['ux'] = ux; sl['uy'] = uy
         return num / den if den > 1e-9 else 9.0
+
+    def _sink_step(self, dt):
+        """DEM の出口：出口の先の水路に入った水と土砂を抜き、流出として数える（自由流出）"""
+        L = self.sinkCells; a = self.dx * self.dx
+        self.h = np.ascontiguousarray(self.h); self.qx = np.ascontiguousarray(self.qx); self.qy = np.ascontiguousarray(self.qy)
+        hf = self.h.reshape(-1); qxf = self.qx.reshape(-1); qyf = self.qy.reshape(-1); Cc = self.Cc.reshape(-1, self.K)
+        hh = hf[L]; w = hh > 0
+        if not w.any():
+            return
+        Lw = L[w]; wv = float(hh[w].sum()) * a
+        cc = np.maximum(Cc[Lw], 0.0); sk = cc.sum(axis=0) * a; sv = float(sk.sum())
+        hf[Lw] = 0.0; qxf[Lw] = 0.0; qyf[Lw] = 0.0; Cc[Lw] = 0.0
+        self.sedOutK += sk; self.Vwout += wv; self.sedOut += sv
+        self.Qout += wv / dt; self.QsOut += sv / dt
 
     def _slide_step(self, dt):
         P = self.P; t = self.t
@@ -2717,6 +2779,57 @@ class Sim:
         """流れの中にある土砂の量（実質体積） [m3]"""
         return float(self.Cc.sum() * self.dx * self.dx)
 
+    def _pit_fill(self, tol):
+        """DEM：1 セルの穴（4 近傍の河床のどれよりも tol 以上低い谷筋のセル）を、近傍の最も高い侵食できるセルの土砂で埋める（質量保存）。
+        堰堤の隣は埋めない。ブラウザ版と同じ順序（候補を先に選び、番号の小さい順に処理）"""
+        nx, ny, K = self.nx, self.ny, self.K
+        self.z = np.ascontiguousarray(self.z)
+        z = self.z.ravel(); A = self.A; kind = self.kind.ravel(); bas = self.basin
+        zz = z.reshape(ny, nx); kk = kind.reshape(ny, nx); bb = bas.reshape(ny, nx).astype(bool)
+        inner = np.zeros((ny, nx), bool); inner[1:-1, 1:-1] = True
+        cand0 = inner & (kk == 0) & bb
+        if not cand0.any():
+            return
+        zm = np.full((ny, nx), 1e30); dam = np.zeros((ny, nx), bool)
+        for dj, di in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+            zs = np.roll(np.roll(zz, -dj, 0), -di, 1); ks = np.roll(np.roll(kk, -dj, 0), -di, 1); bs = np.roll(np.roll(bb, -dj, 0), -di, 1)
+            dam |= ks == 2
+            use = (ks != 1) & bs
+            zm = np.where(use & (zs < zm), zs, zm)
+        cand = np.flatnonzero((cand0 & ~dam & (zz < zm - tol)).ravel())
+
+        def zmin4(c):
+            m_ = 1e30
+            for o in (c - 1, c + 1, c - nx, c + nx):
+                if kind[o] == 2:
+                    return -1e30
+                if kind[o] == 1 or not bas[o]:
+                    continue
+                if z[o] < m_:
+                    m_ = z[o]
+            return m_
+        for c in cand:
+            c = int(c); zmc = zmin4(c)
+            if not (z[c] < zmc - tol):
+                continue
+            don = -1; zd = -1e30; avd = 0.0
+            for o in (c - 1, c + 1, c - nx, c + nx):
+                if kind[o] == 1 or not bas[o]:
+                    continue
+                av = float(A[o].sum())
+                if av > 1e-6 and z[o] > zd:
+                    zd = z[o]; don = o; avd = av
+            if don < 0:
+                continue
+            mv = min(0.5 * (zmc - tol - z[c]), 0.5 * avd, 0.5 * (z[don] - z[c]))
+            if not (mv > 1e-6):
+                continue
+            t = A[don] * (mv / avd); A[don] -= t; A[c] += t
+            z[don] -= mv; z[c] += mv
+            dzs = self.dzs.reshape(-1); dzs[don] -= mv; dzs[c] += mv
+            self._fix_layers(np.array([don])); self._fix_layers(np.array([c]))
+            self.nPit = getattr(self, 'nPit', 0) + 1
+
     def _collapse(self):
         """安息角を超えた斜面の崩落。水に浸かった斜面は水中安息角、乾いた斜面は陸上安息角で判定する。
         ブラウザ版と同じ順序で処理する（x 方向の面を左から順に、y 方向の面を下から順に。同じ列・行の面は互いに独立なのでまとめて計算）"""
@@ -3477,6 +3590,8 @@ def dem_params(P, a):
     """DEM から流域を切り出し、供給点・雨・崩壊・天然ダムを計算条件に入れる（ブラウザ版の「DEM から流域を選ぶ」と同じ）"""
     import sabo2d_dem as SD
     D = SD.synth_dem() if a.dem[0] == 'synth' else SD.load(a.dem)
+    if a.dem_smooth > 0:
+        D = SD.smooth(D, a.dem_smooth)
     A = SD.analyze(D, a.dem_thr * 1e6)
 
     def cell_of(X, Y):
@@ -3501,7 +3616,7 @@ def dem_params(P, a):
     P['terrain'] = SD.terrain_params(dom); P['csvSlope'] = 0; P['dams'] = []; P['tribs'] = []; P['prefill'] = 0
     P['dx'] = max(P['dx'], D.cs)
     dur = a.dem_minutes * 60
-    P['dem'] = {'soilD': 1.0, 'chW': 10.0, 'ks': 1e-5, 's0': 0.3, 'duration': dur}
+    P['dem'] = {'soilD': 1.0, 'chW': 10.0, 'ks': 1e-5, 's0': 0.3, 'duration': dur, 'outlet': a.dem_outlet_mode, 'fill': True, 'pit': a.dem_pit, 'smooth': a.dem_smooth}
     heads = sorted([c for c in A.heads if mask[c]], key=lambda c: -A.acc[c])[:max(0, a.dem_heads)]
     db = P.get('transport') == 'debris'
     srcs = []
@@ -3615,6 +3730,9 @@ def main(argv=None):
     ap.add_argument('--params', help='ブラウザ版で保存した計算条件の JSON（DEM の流域・供給点・雨・崩壊もそのまま再現）')
     ap.add_argument('--dem', nargs='+', help='DEM のファイル（.asc / .xyz / .tif / 基盤地図情報 .xml、複数可）。"synth" で例の DEM')
     ap.add_argument('--dem-thr', type=float, default=0.02, help='谷筋とみなす集水面積 [km2]')
+    ap.add_argument('--dem-smooth', type=float, default=10.0, help='DEM の平滑化の幅（標準偏差）[m]。0 で平滑化しない')
+    ap.add_argument('--dem-outlet-mode', default='sink', choices=['sink', 'channel'], help='出口の扱い：sink 自由流出（出口の先で抜く）| channel 水路を延ばす')
+    ap.add_argument('--dem-pit', type=float, default=0.5, help='これより深い 1 セルの穴を隣の土砂で埋める [m]。0 でしない')
     ap.add_argument('--dem-outlet', help='流域の出口 "X,Y"（DEM の座標。省略で最も大きい流域）')
     ap.add_argument('--dem-heads', type=int, default=3, help='供給点にする谷頭の数（集水面積の大きい順）')
     ap.add_argument('--dem-q', type=float, default=5.0, help='供給点のピーク流量 [m3/s]（土石流なら混合物）')

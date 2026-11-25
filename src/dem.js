@@ -125,6 +125,27 @@
     var E = squareCells(D); E.skipped = bad; return E;
   }
 
+  // 平滑化：幅 w の箱形の平均を縦・横に 3 回（ガウス分布で標準偏差 sigma [m] に近い）。欠測は除いて平均し、欠測のまま残す
+  function smooth(D, sigma) {
+    var nx = D.nx, ny = D.ny, sc = sigma / D.cs;
+    if (!(sc > 0.3)) return D;
+    var rr = Math.max(1, Math.round((Math.sqrt(4 * sc * sc + 1) - 1) / 2)), z = Float64Array.from(D.z), t = new Float64Array(nx * ny);
+    var bs = new Float64Array(Math.max(nx, ny) + 1), bn = new Float64Array(Math.max(nx, ny) + 1);
+    function pass(src, dst, n, m, stride, step) {   // n 本の線、それぞれ m 個。線の先頭は stride*k、点の間隔 step
+      for (var k = 0; k < n; k++) {
+        var o = k * stride, i;
+        bs[0] = 0; bn[0] = 0;
+        for (i = 0; i < m; i++) { var v = src[o + i * step], f = v === v; bs[i + 1] = bs[i] + (f ? v : 0); bn[i + 1] = bn[i] + (f ? 1 : 0); }
+        for (i = 0; i < m; i++) {
+          var v0 = src[o + i * step]; if (v0 !== v0) { dst[o + i * step] = NaN; continue; }
+          var a = Math.max(0, i - rr), b = Math.min(m, i + rr + 1), cnt = bn[b] - bn[a];
+          dst[o + i * step] = cnt > 0 ? (bs[b] - bs[a]) / cnt : v0;
+        }
+      }
+    }
+    for (var it = 0; it < 3; it++) { pass(z, t, ny, nx, nx, 1); pass(t, z, nx, ny, 1, nx); }
+    var E = mkDEM(nx, ny, D.cs, D.cs, D.x0, D.yTop, z, D.src); E.cs = D.cs; E.geo = D.geo; E.smooth = sigma; return E;
+  }
   // k × k セルを平均して粗くする（大きすぎる DEM 用。欠測は除いて平均）
   function coarsen(D, k) {
     var nx = Math.floor(D.nx / k), ny = Math.floor(D.ny / k), z = new Float64Array(nx * ny);
@@ -477,18 +498,20 @@
       rows.push(r); bas.push(b); chn.push(s); src.push(m);
     }
     // 出口から右端まで水路（出口の勾配で下げる）
-    var Iout = Math.max(0.01, localSlope(D, A, outlet, 4)), zo = zz2[outlet];
+    var Iout = Math.max(0.01, localSlope(D, A, outlet, 4)), zo = zz2[outlet], cor = [];
+    for (j = 0; j < RH; j++) { var cr = []; for (var q0 = 0; q0 < NW; q0++) cr.push(0); cor.push(cr); }
     // 幅は 5 セル（中央が谷筋）。1 セル幅だと、格子を粗くしたとき両側の山と混ざって通路がふさがるため
     for (i = po[0] + 1; i < NW; i++) {
       var dd = (i - po[0]) * D.cs, zc = zo - Iout * dd;
       for (var dj = -2; dj <= 2; dj++) {
         var jj = po[1] + dj; if (jj < 0 || jj >= RH) continue;
         if (dj && bas[jj][i] && rows[jj][i] < zc) continue;
+        if (!bas[jj][i]) cor[jj][i] = 1;   // 出口の先の水路（流域の外だったセル）
         rows[jj][i] = zc; bas[jj][i] = 1; if (!dj) chn[jj][i] = 1;
       }
     }
     return {
-      rows: rows, cs: D.cs, basin: bas, chan: chn, cellOf: src, rot: rot, x0: x0, y0: y0, W: W, H: H, nx: NW, ny: RH,
+      rows: rows, cs: D.cs, basin: bas, chan: chn, corr: cor, cellOf: src, rot: rot, x0: x0, y0: y0, W: W, H: H, nx: NW, ny: RH,
       outlet: po, Iout: Iout, zTop: zmaxB, extra: extra,
       // DEM のセル → 計算領域の座標（m、x は右、y は上が正。ソルバーの座標）
       toXY: function (cell) { var p = fwd(cell % nx, (cell / nx) | 0); return [(p[0] + 0.5) * D.cs, (RH - p[1] - 0.5) * D.cs]; },
@@ -545,6 +568,6 @@
     parseASC: parseASC, parseXYZ: parseXYZ, parseGSIXML: parseGSIXML, parseTIFF: parseTIFF, lzw: lzw,
     fill: fill, flowDir: flowDir, accumulate: accumulate, order: order, analyze: analyze, upstream: upstream,
     downOf: downOf, localSlope: localSlope, hillslopes: hillslopes, prepareDomain: prepareDomain, synthDEM: synthDEM,
-    squareCells: squareCells, coarsen: coarsen, DC: DC, DR: DR, DL: DL
+    squareCells: squareCells, coarsen: coarsen, smooth: smooth, DC: DC, DR: DR, DL: DL
   };
 });

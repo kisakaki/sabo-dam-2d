@@ -8,7 +8,7 @@ const dom = M.prepareDomain(D, A, mask, b0.outlet, {}), heads = A.heads.filter(c
 console.log('DEM', D.nx, 'x', D.ny, '谷頭', A.heads.length, '流域', A.basins.length, '選んだ流域の谷頭', heads.length);
 function base() {
   const P = defaultParams();
-  P.terrain = { rows: dom.rows, cs: dom.cs, basin: dom.basin, chan: dom.chan, Iout: dom.Iout };
+  P.terrain = { rows: dom.rows, cs: dom.cs, basin: dom.basin, chan: dom.chan, corr: dom.corr, Iout: dom.Iout };
   P.dx = 10; P.csvSlope = 0; P.transport = 'debris'; P.dams = []; P.tribs = []; P.snapEvery = 0; P.dem.duration = 300;
   P.grains = [{ d: 0.01, bed: 0.3, feed: 0.3 }, { d: 0.05, bed: 0.4, feed: 0.4 }, { d: 0.2, bed: 0.3, feed: 0.3 }];
   return P;
@@ -21,6 +21,7 @@ function run(name, P) {
   const eb = st * Cst + sw + s.sedOut - s.sedIn;
   const ew = P.gw.on ? (hs - sw + s.groundWater()) - (s.Vw0 + s.W0 + (s.Vwin - s.sedIn) - (s.Vwout - s.sedOut) - s.gwOut) : (hs + st - s.voidAir) - (s.Vw0 + s.Vwin - s.Vwout);
   console.log(name.padEnd(14), 'Vwin', s.Vwin.toFixed(0).padStart(7), 'sedIn', s.sedIn.toFixed(0).padStart(5), '土砂の収支', eb.toExponential(1), '水の収支', ew.toExponential(1), s.slideLog.map(l => l.mode + ' ' + l.vol.toFixed(0)).join(' '));
+  return s;
 }
 const src = heads.slice(0, 3).map(c => { const p = dom.toXY(c), u = dom.dirXY(c); return { x: p[0], y: p[1], ux: u[0], uy: u[1], I: M.localSlope(D, A, c, 3), hydro: { mode: 'debris', Qbase: 0.5, Qpeak: 10, t0: 10, tRise: 30, tFall: 120, Cd: 0.3, Cs: 0 } }; });
 let P = base(); P.sources = src; run('谷頭の供給点', P);
@@ -46,4 +47,10 @@ run('天然ダム', P);
   let pond = 0; for (let c = 0; c < s0.N; c++) pond += s0.h[c] * s0.dx * s0.dx;
   console.log('堰堤', s0.dams.length, '基', s0.dams.map(d => 'crest ' + d.crest.toFixed(1) + ' cells ' + d.cells.length + (d.op ? ' 開口 ' + d.op.cells.length : '')).join(' / '), '範囲のセル数', cnt.join(','), '初期湛水', pond.toFixed(0), 'm³', s0.warn.join(' '));
   run('砂防堰堤', P);
+}
+// 出口：自由流出（既定）と水路を延ばす（以前）。どちらも収支が合い、自由流出の方が出口の先に水を残さない
+for (const mode of ['sink', 'channel']) {
+  P = base(); P.sources = src.map(q => Object.assign({}, q, { hydro: { mode: 'const', Qbase: 4, Qpeak: 4, Cs: 0, duration: 1e12, tPeak: 1 } })); P.dem.duration = 900; P.dem.outlet = mode;
+  const s = run('出口 ' + mode, P);
+  if (s) { let vc = 0; (s.sinkCells || []).forEach(c => { vc += s.h[c]; }); console.log('   出口の先の水路のセル', (s.sinkCells || []).length, '流出 Vwout', s.Vwout.toFixed(0), 'm³', '穴埋め', s.nPit || 0, '窪地埋め', s.nFill || 0); }
 }

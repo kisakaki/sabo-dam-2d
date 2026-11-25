@@ -1309,14 +1309,48 @@
     chart($('strip'), { series: ss, x0: 0, x1: L, xlabel: xlab, xname: PM ? 's' : 'x', xunit: ' m', height: 150, zoom: 'prof', zero: lv !== 'dz' && lv !== 'dm',
       under: function (ctx, X, Y) { ctx.strokeStyle = css('--line'); ctx.lineWidth = 1; ctx.setLineDash([2, 3]); damMarks.forEach(function (D) { ctx.beginPath(); ctx.moveTo(X(D.x), 0); ctx.lineTo(X(D.x), 400); ctx.stroke(); }); ctx.setLineDash([]); } });
   }
+  // ------------------------------------------------------------ 横断位置の流量・流砂量（いまの横断の線を通る量。計算の進みに合わせて記録）
+  var XH = null;
+  function xsKey() { return sim ? (pathMode() ? 'p' + PI + ':' + xsS : 'x' + xsX) : ''; }
+  function xsFlux() {
+    var dx = sim.dx, nx = sim.nx, K = sim.K, Q = 0, Qs = 0, st = dx / 2, px, py, tx, ty, ux, uy, u0, u1;
+    if (pathMode()) {
+      var S = pathSamples(), n = S.x.length, k = Math.max(0, Math.min(n - 1, Math.round(xsS / (S.L / n) - 0.5)));
+      px = S.px[k]; py = S.py[k]; tx = S.tx[k]; ty = S.ty[k]; ux = -ty; uy = tx; u0 = -400; u1 = 400;
+    } else { px = xsX; py = 0; tx = 1; ty = 0; ux = 0; uy = 1; u0 = 0; u1 = sim.Ly; }
+    var inside = false;
+    for (var u = u0 + st / 2; u < u1; u += st) {
+      var c = cellXY(px + ux * u, py + uy * u); if (c < 0) continue;
+      if (pathMode() && !inBasin(c)) { if (inside && u > 0) break; continue; } inside = true;
+      Q += (sim.qx[c] * tx + sim.qy[c] * ty) * st;
+      var i = c % nx, j = (c - i) / nx, fx = 0, fy = 0;
+      for (var kk = 0; kk < K; kk++) { fx += 0.5 * (sim.SFx[(j * (nx + 1) + i) * K + kk] + sim.SFx[(j * (nx + 1) + i + 1) * K + kk]); fy += 0.5 * (sim.SFy[(j * nx + i) * K + kk] + sim.SFy[((j + 1) * nx + i) * K + kk]); }
+      Qs += (fx * tx + fy * ty) * st;
+    }
+    return [Q, Qs];
+  }
+  function xsRecord() {
+    if (!sim || sim.phase === 'spinup') return;
+    var key = xsKey();
+    if (!XH || XH.key !== key || XH.sim !== sim) XH = { key: key, sim: sim, t: [], Q: [], Qs: [] };
+    if (XH.t.length && sim.t <= XH.t[XH.t.length - 1] + sim.duration() / 600) return;
+    var f = xsFlux(); XH.t.push(sim.t); XH.Q.push(f[0]); XH.Qs.push(f[1]);
+  }
+  function xsName() { return pathMode() ? DP[PI].name.replace(/（.*$/, '') + ' ' + xsS.toFixed(0) + ' m' : 'x = ' + (+xsX).toFixed(0) + ' m'; }
   function drawSeries() {
-    var S = sim.series, T = sim.duration() / 60, tm = S.t.map(function (t) { return t / 60; });
-    // 入力ハイドログラフ（全期間）
+    var S = sim.series, T = sim.duration() / 60, tm = S.t.map(function (t) { return t / 60; }), dem = !!sim.demMode && S.QinT;
     var px = [], pq = [], ps = [];
-    for (var i = 0; i <= 120; i++) { var t = sim.duration() * i / 120; px.push(t / 60); pq.push(sim.Qat(t)); ps.push(sim.QsAt(t)); }
-    chart($('tsq'), { series: [{ x: px, y: pq, color: css('--s1'), label: '流入', w: 2 }, { x: tm, y: S.Qout, color: css('--s2'), label: '流出', w: 2 }], x0: 0, x1: T, zero: true, xlabel: '時刻 [分]', xname: 't', xunit: ' 分', height: 200 });
-    $('tsq_key').innerHTML = keyHTML([{ color: css('--s1'), label: '上流端の流入' }, { color: css('--s2'), label: '下流端の流出' }]);
-    var ss = [{ x: px, y: ps, color: css('--s1'), label: '供給', w: 2 }, { x: tm, y: S.QsOut, color: css('--s2'), label: '流出', w: 2 }], key = [{ color: css('--s1'), label: '上流端の供給' }, { color: css('--s2'), label: '下流端の流出' }];
+    if (dem) { px = tm; pq = S.QinT; ps = S.QsInT; }   // DEM：供給点・雨などの流入の合計（記録した値）
+    else for (var i = 0; i <= 120; i++) { var t = sim.duration() * i / 120; px.push(t / 60); pq.push(sim.Qat(t)); ps.push(sim.QsAt(t)); }   // 入力ハイドログラフ（全期間）
+    var xh = XH && XH.sim === sim && XH.t.length > 1 ? XH : null, xt = xh ? xh.t.map(function (t) { return t / 60; }) : null;
+    var deb = sim.P.transport === 'debris', qlab = deb ? '（土石流は水と土砂の混合物）' : '';
+    var sq = [{ x: px, y: pq, color: css('--s1'), label: '流入', w: 2 }, { x: tm, y: S.Qout, color: css('--s2'), label: '流出', w: 2 }];
+    var kq = [{ color: css('--s1'), label: dem ? '流入（供給点・雨の合計）' : '上流端の流入' }, { color: css('--s2'), label: (dem ? '出口からの流出' : '下流端の流出') + qlab }];
+    if (xh) { sq.push({ x: xt, y: xh.Q, color: css('--s3'), label: '横断', w: 1.6 }); kq.push({ color: css('--s3'), label: '横断位置（' + xsName() + '）を通る流量' }); }
+    chart($('tsq'), { series: sq, x0: 0, x1: T, zero: true, xlabel: '時刻 [分]', xname: 't', xunit: ' 分', height: 200 });
+    $('tsq_key').innerHTML = keyHTML(kq);
+    var ss = [{ x: px, y: ps, color: css('--s1'), label: '供給', w: 2 }, { x: tm, y: S.QsOut, color: css('--s2'), label: '流出', w: 2 }], key = [{ color: css('--s1'), label: dem ? '供給（供給点の土砂）' : '上流端の供給' }, { color: css('--s2'), label: dem ? '出口からの流出' : '下流端の流出' }];
+    if (xh) { ss.push({ x: xt, y: xh.Qs, color: css('--s3'), label: '横断', w: 1.6 }); key.push({ color: css('--s3'), label: '横断位置（' + xsName() + '）を通る流砂量' }); }
     if (ref) { ss.push({ x: ref.t, y: ref.QsOut, color: css('--sref'), dash: true, label: '比較', w: 1.6 }); key.push({ color: css('--sref'), dash: true, label: '比較の流出（' + ref.label + '）' }); }
     chart($('tss'), { series: ss, x0: 0, x1: T, zero: true, xlabel: '時刻 [分]', xname: 't', xunit: ' 分', height: 200 });
     $('tss_key').innerHTML = keyHTML(key);
@@ -1327,11 +1361,12 @@
   function tile(k, v, u) { return '<div class="tile"><div class="k">' + k + '</div><div class="v">' + v + (u ? '<small>' + u + '</small>' : '') + '</div></div>'; }
   function drawStats() {
     var lam = sim.P.porosity, S = sim.series, pin = 0, pout = 0, i;
-    for (i = 0; i < 200; i++) { var q = sim.QsAt(sim.t * i / 199); if (q > pin) pin = q; }
+    if (sim.demMode && S.QsInT) { for (i = 0; i < S.QsInT.length; i++) if (S.QsInT[i] > pin) pin = S.QsInT[i]; }
+    else for (i = 0; i < 200; i++) { var q = sim.QsAt(sim.t * i / 199); if (q > pin) pin = q; }
     for (i = 0; i < S.QsOut.length; i++) if (S.QsOut[i] > pout) pout = S.QsOut[i];
     var stor = sim.storage(), sIn = sim.sedIn / (1 - lam), sOut = sim.sedOut / (1 - lam);
     var h = tile('出水の時刻', (sim.t / 60).toFixed(0), '/ ' + (sim.duration() / 60).toFixed(0) + ' 分') +
-      tile('流量（流入 → 流出）', sim.Qin.toFixed(1) + ' → ' + sim.Qout.toFixed(1), 'm³/s') +
+      tile('流量（流入 → 流出）', (sim.demMode ? (sim.QinT || 0) : sim.Qin).toFixed(1) + ' → ' + sim.Qout.toFixed(1), 'm³/s') +
       tile('供給土砂量', Math.round(sIn).toLocaleString(), 'm³') +
       tile('流出土砂量', Math.round(sOut).toLocaleString(), 'm³') +
       tile('区間内の堆積量', (stor >= 0 ? '+' : '') + Math.round(stor).toLocaleString(), 'm³') +
@@ -1800,6 +1835,7 @@
     if (running && sim.phase !== 'done') {
       var t0 = performance.now(), n = 0;
       while (performance.now() - t0 < 18 && sim.phase !== 'done') { sim.step(); n++; }
+      xsRecord();
       spd = spd * 0.9 + 0.1 * (n / ((performance.now() - t0) / 1000));
       dirty = true;
       if (sim.phase === 'done') { running = false; $('run').textContent = '計算終了'; refresh(true); }
