@@ -5,6 +5,8 @@
 
 **ブラウザで使う：** https://kisakaki.github.io/sabo-dam-2d/
 
+**取扱説明書（画面付き）：** https://kisakaki.github.io/sabo-dam-2d/docs/manual/ （GitHub 上では [docs/manual/README.md](docs/manual/README.md)）
+
 ![鳥瞰図](og.png)
 
 ## できること

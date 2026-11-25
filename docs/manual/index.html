@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>��������������� ������������ ������������������������������</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<h1 id="取扱説明書-連続堰堤-河床変動シミュレータ">取扱説明書　連続堰堤
+河床変動シミュレータ</h1>
+<p>ブラウザで動く平面 2
+次元の河床変動・土石流シミュレータの使い方を、画面と計算例で説明します。</p>
+<ul>
+<li><strong>シミュレータ（ブラウザで開くだけ）</strong>：<a
+href="https://kisakaki.github.io/sabo-dam-2d/">https://kisakaki.github.io/sabo-dam-2d/</a></li>
+<li><strong>ソース・Python 版</strong>：<a
+href="https://github.com/kisakaki/sabo-dam-2d">https://github.com/kisakaki/sabo-dam-2d</a></li>
+<li><strong>モデルの式と参考文献</strong>：<a
+href="https://github.com/kisakaki/sabo-dam-2d/blob/main/docs/model.md">docs/model.md</a></li>
+<li><strong>CSV の形式</strong>：<a
+href="https://github.com/kisakaki/sabo-dam-2d/blob/main/docs/csv-guide.md">docs/csv-guide.md</a></li>
+</ul>
+<p>インストールはいりません。Chrome・Edge・Safari・Firefox
+の新しい版で動きます。計算はすべて手元のブラウザの中で行い、データはどこにも送りません。</p>
+<hr />
+<h2 id="目次">目次</h2>
+<ol type="1">
+<li><a href="#1-できること">できること</a></li>
+<li><a href="#2-画面の見方と基本の流れ">画面の見方と基本の流れ</a></li>
+<li><a
+href="#3-地形を作る数値測量値csv">地形を作る（数値・測量値・CSV）</a></li>
+<li><a
+href="#4-水と土砂の供給ハイドロ">水と土砂の供給（ハイドロ）</a></li>
+<li><a
+href="#5-砂防堰堤不透過透過型">砂防堰堤（不透過・透過型）</a></li>
+<li><a
+href="#6-粒径と河床材料場所ごとの粒度分布">粒径と河床材料（場所ごとの粒度分布）</a></li>
+<li><a href="#7-流砂モデル側岸伏流">流砂モデル・側岸・伏流</a></li>
+<li><a href="#8-計算条件">計算条件</a></li>
+<li><a href="#9-結果の見方">結果の見方</a></li>
+<li><a href="#10-dem-から流域を選んで計算する">DEM
+から流域を選んで計算する</a></li>
+<li><a href="#11-雨一様xrain">雨（一様・XRAIN）</a></li>
+<li><a href="#12-斜面崩壊表層深層">斜面崩壊（表層・深層）</a></li>
+<li><a href="#13-天然ダム河道閉塞">天然ダム（河道閉塞）</a></li>
+<li><a href="#14-dem-の流域の砂防堰堤河床材料">DEM
+の流域の砂防堰堤・河床材料</a></li>
+<li><a href="#15-python-版">Python 版</a></li>
+<li><a href="#16-扱わないこと注意">扱わないこと・注意</a></li>
+</ol>
+<hr />
+<h2 id="1-できること">1. できること</h2>
+<table>
+<thead>
+<tr class="header">
+<th>分野</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>流れ</td>
+<td>平面 2 次元の浅水流（HLL 系の有限体積法、2
+次精度）。射流・跳水・乾湿の境界も扱う</td>
+</tr>
+<tr class="even">
+<td>流砂</td>
+<td>混合粒径の掃流砂（芦田・道上式、修正 Egiazaroff
+式の遮蔽効果）、非平衡の侵食・堆積速度式（高橋・里深）、土石流（高橋の式）</td>
+</tr>
+<tr class="odd">
+<td>河床材料</td>
+<td>粒径階 12 まで、河床材料 12
+種類まで。場所ごと（区間・左岸からの距離・平面図の多角形・DEM
+の多角形）に変えられる</td>
+</tr>
+<tr class="even">
+<td>構造物</td>
+<td>不透過型・透過型（スリット、複数スリット、鋼製格子型、鋼製スリット型）の砂防堰堤。閉塞も扱う</td>
+</tr>
+<tr class="odd">
+<td>地形</td>
+<td>数値で作る河道（川幅・勾配の変化、湾曲、支川、渓流の作り込み）、測量の横断・縦断、格子
+CSV、DEM（基盤地図情報・GeoTIFF・ASCII）</td>
+</tr>
+<tr class="even">
+<td>DEM の流域</td>
+<td>流域界・谷筋・谷頭の自動抽出、雨（一様・XRAIN）、斜面崩壊（表層・深層）、天然ダム（越流・進行性崩壊・すべり）、砂防堰堤</td>
+</tr>
+<tr class="odd">
+<td>結果</td>
+<td>鳥瞰（3D）、平面図、横断、縦断（谷に沿った線も）、流量・流砂量の時系列、堰堤ごとの堆砂量、CSV
+の書き出し</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="2-画面の見方と基本の流れ">2. 画面の見方と基本の流れ</h2>
+<p><img src="img/a00_overview.png" alt="画面の全体" /></p>
+<p>画面の左が<strong>条件の欄</strong>、右が<strong>結果の図</strong>です。左の欄の幅は、境目をドラッグして広げられます。</p>
+<p><strong>基本の流れ</strong></p>
+<ol type="1">
+<li>左の欄で条件を決める（地形・ハイドロ・堰堤・粒径など）。各項目は見出しをクリックすると開きます。</li>
+<li>下の <strong>「適用して最初から」</strong>
+を押す。地形と格子ができ、右の図が描き直されます。</li>
+<li><strong>「▶ 計算開始」</strong>
+を押す。もう一度押すと一時停止します。</li>
+<li>右の図で結果を見る。計算中でも見られます。</li>
+<li>必要なら CSV や画像を保存する（<a href="#9-結果の見方">9
+章</a>）。</li>
+</ol>
+<p>条件を変えたら、もう一度「適用して最初から」を押してください。押すまでは前の条件のままです。</p>
+<hr />
+<h2 id="3-地形を作る数値測量値csv">3.
+地形を作る（数値・測量値・CSV）</h2>
+<p><img src="img/a02_terrain.png" alt="河道地形の欄" /></p>
+<p>「河道地形」の <strong>地形の作り方</strong> で選びます。</p>
+<table>
+<thead>
+<tr class="header">
+<th>作り方</th>
+<th>使う場面</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>数値で指定</td>
+<td>区間長・川幅・勾配などの数値から、理想化した渓流を作る。まず試すとき</td>
+</tr>
+<tr class="even">
+<td>横断・縦断の測量値</td>
+<td>測量の横断（x, s, z）と縦断（x, z）の CSV から作る</td>
+</tr>
+<tr class="odd">
+<td>格子の CSV を読み込む</td>
+<td>格子状の標高（行列か x, y,
+z）を読む。計算後の河床を保存したものも読める</td>
+</tr>
+<tr class="even">
+<td>DEM から流域を選ぶ</td>
+<td>DEM を読み、流域を選んで切り出す（<a
+href="#10-dem-から流域を選んで計算する">10 章</a>）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>数値で指定</strong>のときに使える追加の設定：</p>
+<ul>
+<li><strong>川幅を途中で変える</strong>：位置と川幅の表。狭窄部や拡幅部を作る。</li>
+<li><strong>勾配を途中で変える（屈折）</strong>：位置と勾配 1/n
+の表。急勾配から緩勾配への屈折点は土砂がたまりやすい。</li>
+<li><strong>支川の合流</strong>：位置・左右・幅・勾配・流量比・土砂量比・遅れ・合流角度。</li>
+<li><strong>渓流の作り込み</strong>：澪筋（初期の低水路の蛇行）、砂州・淵の起伏、谷壁、支渓。</li>
+<li><strong>湾曲</strong>：正弦の蛇行か、表で中心線を与える。</li>
+</ul>
+<hr />
+<h2 id="4-水と土砂の供給ハイドロ">4. 水と土砂の供給（ハイドロ）</h2>
+<p><img src="img/a01_hydro.png" alt="ハイドロの欄" /></p>
+<p>上流端から流す水と土砂です。<strong>波形</strong>を選びます。</p>
+<table>
+<thead>
+<tr class="header">
+<th>波形</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>三角形</td>
+<td>基底流量からピーク流量まで直線で上がり、下がる</td>
+</tr>
+<tr class="even">
+<td>一定</td>
+<td>一定の流量</td>
+</tr>
+<tr class="odd">
+<td>表で入力</td>
+<td>時刻・流量・供給土砂量の表</td>
+</tr>
+<tr class="even">
+<td>土石流の一波</td>
+<td>基底流量（清水）に、三角形の土石流の波（ピークは混合物の流量、土砂濃度
+C）を重ねる。流砂モデルは自動で「土石流」になる</td>
+</tr>
+</tbody>
+</table>
+<p><img src="img/a20_hydro_debris.png" alt="土石流の一波" /></p>
+<p>供給土砂の粒度は、<a href="#6-粒径と河床材料場所ごとの粒度分布">6
+章</a>の表の「供給」の列です。</p>
+<p><strong>計算例（土石流の一波）</strong>：既定の河道に土石流の一波を流した
+10 分後。堰堤の上流に堆積していく様子が分かります。</p>
+<p><img src="img/a21_debris_3d.png" alt="土石流の鳥瞰" /> <img
+src="img/a22_debris_prof.png" alt="土石流の縦断" /> <img
+src="img/a23_debris_tss.png" alt="土石流の流砂量" /></p>
+<hr />
+<h2 id="5-砂防堰堤不透過透過型">5. 砂防堰堤（不透過・透過型）</h2>
+<p><img src="img/a03_dams.png" alt="堰堤の諸元" /></p>
+<p>「堰堤の諸元」の表で、位置
+x・堤高・水通し幅・形式を決めます。「等間隔でまとめて配置」で低ダム群を一度に置けます。「向き・中心・天端標高・堤長も指定」をオンにすると、堰堤の向き（回転）・中心・天端標高・堤長も指定できます。</p>
+<table>
+<thead>
+<tr class="header">
+<th>形式</th>
+<th>開口</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>不透過</td>
+<td>なし</td>
+</tr>
+<tr class="even">
+<td>スリット</td>
+<td>水通しの中央に 1 本（開口幅 l）</td>
+</tr>
+<tr class="odd">
+<td>複数スリット</td>
+<td>n 本（開口幅 l、柱の幅 wp）</td>
+</tr>
+<tr class="even">
+<td>鋼製格子型</td>
+<td>鋼管の格子（純間隔 l、部材の幅 w）</td>
+</tr>
+<tr class="odd">
+<td>鋼製スリット型</td>
+<td>鋼製の縦部材（純間隔 l、部材の幅 w）</td>
+</tr>
+</tbody>
+</table>
+<p><img src="img/a04_open.png" alt="透過型の設定" /></p>
+<p>透過型は、開口を多孔板の損失（Idelchik）で水が通り、粒径 d ≥ l/α
+の礫は通れません。流れの土砂濃度と l ≤ β d95（既定 β =
+1.5）で閉塞を判定し、閉塞後は不透過型として働きます。<strong>鋼製の部材の幅</strong>と<strong>スリット間の柱の幅</strong>は別々に指定します。</p>
+<p>「はじめから満砂」で、計算の最初から堰堤の上流を埋めておけます（堆砂勾配と元の勾配の比で指定）。</p>
+<hr />
+<h2 id="6-粒径と河床材料場所ごとの粒度分布">6.
+粒径と河床材料（場所ごとの粒度分布）</h2>
+<p><img src="img/a05_grain.png" alt="粒径と河床材料" /></p>
+<p><strong>粒度分布の作り方</strong>は 3 通りです。</p>
+<ol type="1">
+<li><strong>代表的な河床材料</strong>：砂・砂礫・礫床・渓床の土石流堆積物・一様粒径のひな形から選ぶ。</li>
+<li><strong>平均粒径と幅から作る</strong>：平均粒径
+dm（算術平均）、分布の幅 σg = √(d84/d16)、粒径階の数（12
+まで）を入れて「平均粒径と幅から作る」を押す。対数正規分布を粒径階に分けて表を作ります。</li>
+<li><strong>表に直接入れる</strong>：粒径 [mm] と各列の割合
+[%]。割合の合計は 100 でなくても比として使います。</li>
+</ol>
+<p>表の下に、河床・供給・各材料の dm・d16・d50・d84・d90
+と粒径加積曲線が出ます。</p>
+<h3 id="場所ごとの粒度分布河床材料-al">場所ごとの粒度分布（河床材料
+A〜L）</h3>
+<p>粒径階は共通で、<strong>河床材料</strong>を 12 種類まで持てます。</p>
+<ol type="1">
+<li>「＋ 河床材料を追加」で、表に「河床 B」「河床 C」…の列を足す。</li>
+<li>各列に割合を入れる（「作る先」で B
+などを選んで「平均粒径と幅から作る」でもよい）。</li>
+<li>材料を置く場所を決める。どこにも入らないところは河床 A
+です。後の行が優先します。
+<ul>
+<li><strong>区間</strong>：「＋ 区間を追加」で、x
+の始点・終点（上流端からの距離）と、左岸からの距離の範囲（空欄は全幅）。</li>
+<li><strong>平面図に範囲を描く</strong>：ボタンを押して平面図で頂点をクリックし、ダブルクリックで確定（Esc
+でやめる）。先に「適用して最初から」で地形を作っておいてください。</li>
+<li><strong>DEM
+の流域</strong>：地図の「河床材料の範囲を描く」で多角形を描く（<a
+href="#14-dem-の流域の砂防堰堤河床材料">14 章</a>）。</li>
+</ul></li>
+<li>「適用して最初から」を押す。</li>
+</ol>
+<p><strong>計算例</strong>：x = 120〜220 m を粗い材料 B（dm 60
+mm）にした場合の表層の平均粒径。</p>
+<p><img src="img/a12_3d_dm.png" alt="表層の平均粒径の鳥瞰" /> <img
+src="img/a16_prof.png" alt="縦断と表層の平均粒径" /></p>
+<hr />
+<h2 id="7-流砂モデル側岸伏流">7. 流砂モデル・側岸・伏流</h2>
+<p><img src="img/a06_sedmodel.png" alt="流砂モデルの欄" /></p>
+<p><strong>流砂量の求め方</strong></p>
+<table>
+<thead>
+<tr class="header">
+<th>モデル</th>
+<th>式</th>
+<th>使う場面</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>平衡流砂量</td>
+<td>芦田・道上式（粒径別）。限界掃流力は芦田・高橋・水山式・岩垣式・一定値。粒径別は修正
+Egiazaroff 式（遮蔽効果）か、全粒径で平均粒径の値</td>
+<td>掃流砂が主の河道</td>
+</tr>
+<tr class="even">
+<td>侵食・堆積速度式</td>
+<td>高橋・里深（1999）の非平衡の掃流砂</td>
+<td>水際や急変部で非平衡が強いとき</td>
+</tr>
+<tr class="odd">
+<td>土石流</td>
+<td>高橋の侵食・堆積速度式と抵抗則（石礫型・乱流型）</td>
+<td>土石流</td>
+</tr>
+</tbody>
+</table>
+<p><strong>修正 Egiazaroff
+式</strong>は、粒径別の限界掃流力を平均粒径との比で変える式で、細かい粒子は大きな粒子の陰に隠れて動きにくく、大きな粒子は突き出して動きやすくなる効果（遮蔽効果）を表します（d/dm
+&lt; 0.4
+は芦田・道上の修正で一定値）。これにより、細粒の選択的な流出や粗粒化（アーマー化）が起きます。</p>
+<p><strong>側岸</strong>：安息角を超えた斜面を崩す（水中・陸上の安息角を分ける）。長谷川の崩落モデルも選べます。水際の乾いた側岸を削る割合、侵食される側岸の高さも指定できます。</p>
+<p><strong>伏流</strong>：河床への浸透と堆積層の中の地下水の流れを計算します（透水係数は
+Kozeny–Carman 式か指定値）。</p>
+<p><strong>2
+次流</strong>：湾曲部のらせん流で流砂の向きを内岸へ曲げる（長田ら
+1996）、運動量の分散項（Kalkwijk・de Vriend 1980）。</p>
+<p><strong>巨礫</strong>：岸に動かない巨礫を並べる（高橋・里深・奥村
+1996）。</p>
+<p>それぞれの式と適用条件は、欄の中の説明と <a
+href="https://github.com/kisakaki/sabo-dam-2d/blob/main/docs/model.md">docs/model.md</a> にあります。</p>
+<hr />
+<h2 id="8-計算条件">8. 計算条件</h2>
+<p><img src="img/a07_calc.png" alt="計算条件" /></p>
+<ul>
+<li><strong>格子幅</strong>：細かいほど正確ですが遅くなります。DEM
+の流域では、セル数が上限（約 6 万）を超えないよう自動で粗くします。</li>
+<li><strong>河床変動の加速係数</strong>：河床変動を何倍速で進めるか（土石流では使いません）。</li>
+<li><strong>空間精度</strong>：2 次（推奨）か 1 次。</li>
+</ul>
+<hr />
+<h2 id="9-結果の見方">9. 結果の見方</h2>
+<p>既定の条件（低ダム群 9 基、三角形のハイドロ）で 20
+分計算した結果です。</p>
+<h3 id="鳥瞰3d">鳥瞰（3D）</h3>
+<p><img src="img/a10_3d.png" alt="鳥瞰（写実）" /></p>
+<p><strong>表示</strong>で色を切り替えます：写実、陰影＋段彩、赤色立体風（尾根が明るく谷が暗い・急なほど赤い）、傾斜、河床位、水深、流速、河床変動量、表層の平均粒径、無次元掃流力、フルード数、流れの土砂濃度、伏流の飽和度など。</p>
+<p><img src="img/a11_3d_dz.png" alt="河床変動量" /> <img
+src="img/a13_3d_red.png" alt="赤色立体風" /></p>
+<p><strong>操作</strong>：左ドラッグで回転、右ドラッグ（Shift＋ドラッグ）で移動、ホイールで拡大・縮小、ダブルクリックでその点を中心に。高さ強調・等高線・礫の表示・濁水・樹木も切り替えられます。</p>
+<h3 id="平面図">平面図</h3>
+<p><img src="img/a14_plan.png" alt="平面図" /></p>
+<p>真上から見た図です。白い線は堰堤の水通し、白波は射流（Fr &gt;
+1.2）、流心線は単位幅流量の極大を結んだ線です。<strong>平面図をクリックすると、その位置の横断を表示します。</strong></p>
+<h3 id="横断縦断">横断・縦断</h3>
+<p><img src="img/a15_xsec.png" alt="横断" /></p>
+<p>下流を向いて見た横断で、左が左岸です。下の色の帯は表層の平均粒径です。</p>
+<p>縦断（<a href="#6-粒径と河床材料場所ごとの粒度分布">6
+章</a>の図）は、河床（横断平均か最深）・初期河床・水面・堰堤を描きます。「初期勾配を差し引く」で変化が見やすくなります。下の「縦断分布」で平均粒径・流砂量・水面幅・変動量を選べます。ホイールで拡大、ドラッグで移動、ダブルクリックで全体に戻ります。</p>
+<h3 id="時系列と数値のまとめ">時系列と数値のまとめ</h3>
+<p><img src="img/a17_tsq.png" alt="流量" /> <img src="img/a18_tss.png"
+alt="流砂量" /> <img src="img/a19_stats.png" alt="数値のまとめ" /></p>
+<p>緑の線は、いまの横断の位置を通る流量・流砂量です（横断の位置を変えると、その時刻から記録し直します）。表は堰堤ごとの区間の堆砂量と満砂時の目安です。</p>
+<h3 id="保存と比較">保存と比較</h3>
+<ul>
+<li><strong>比較用に保存</strong>：いまの結果を残し、次の計算の縦断・流砂量に破線で重ねます。</li>
+<li><strong>記録の間隔</strong>（分）：時刻ごとの河床・水深などを残します。縦長の
+CSV や zip（時刻ごとの行列・縦断・集計）で書き出せます。</li>
+<li><strong>計算後の河床を保存</strong>：格子の CSV
+として保存し、「格子の CSV
+を読み込む」でそこから計算を続けられます。</li>
+</ul>
+<hr />
+<h2 id="10-dem-から流域を選んで計算する">10. DEM
+から流域を選んで計算する</h2>
+<p>ここからは、国土地理院の <strong>基盤地図情報 数値標高モデル 5m
+メッシュ（DEM5A）</strong> の 2 次メッシュ
+<strong>553706</strong>（<code>FG-GML-553706-DEM5A-20251113.zip</code>）を使って説明します。</p>
+<h3 id="101-データの入手">10.1 データの入手</h3>
+<p>基盤地図情報ダウンロードサービス（<a
+href="https://fgd.gsi.go.jp/download/">https://fgd.gsi.go.jp/download/</a>）で「数値標高モデル」→「5m
+メッシュ」を選び、範囲を指定してダウンロードします（ZIP）。<strong>ZIP
+のまま読み込めます</strong>（ZIP の中の ZIP
+も開きます）。複数のメッシュの ZIP
+を一度に選ぶと、つないで読みます。</p>
+<blockquote>
+<p>出典：国土地理院 基盤地図情報
+数値標高モデル。データの利用は国土地理院の利用規約に従ってください。このリポジトリには
+DEM のファイルを入れていません。</p>
+</blockquote>
+<h3 id="102-読み込みと地図">10.2 読み込みと地図</h3>
+<p><img src="img/b00_dem_panel.png" alt="DEM の欄" /></p>
+<ol type="1">
+<li>「地形の作り方」で <strong>DEM から流域を選ぶ</strong> を選ぶ。</li>
+<li>「DEM のファイル」で ZIP（または
+XML・GeoTIFF・ASCII・XYZ）を選ぶ。</li>
+</ol>
+<p>読み込むときに次を自動で行います。</p>
+<ul>
+<li><strong>欠測の穴埋め</strong>：DEM の縁につながらない欠測（5m
+メッシュの測量のない所）を、周りの値で埋めます（553706 では 19,749
+セル）。</li>
+<li><strong>平滑化</strong>：「平滑化の幅」（既定 10 m、0
+でしない）で細かな凹凸をならします。</li>
+<li><strong>谷筋と流域</strong>：窪地を埋め（Priority-Flood）、D8
+の流向・集水面積・次数を求め、「谷筋とみなす集水面積」以上を谷筋、上流に谷筋のない谷筋のセルを谷頭とします。</li>
+</ul>
+<p><img src="img/b01_dem_all.png" alt="DEM の全体（陰影＋段彩）" /></p>
+<p><strong>地図の表示</strong>は、陰影＋段彩・赤色立体風・傾斜・段彩のみと、等高線を選べます。ホイールで拡大・縮小、ドラッグで移動、「流域」「全体」で表示範囲を戻せます。</p>
+<p><img src="img/b02_dem_red.png" alt="赤色立体風" /> <img
+src="img/b03_dem_slope.png" alt="傾斜" /></p>
+<h3 id="103-流域と出口を選ぶ">10.3 流域と出口を選ぶ</h3>
+<p>地図の上の <strong>「クリックで」</strong> で操作を選びます。</p>
+<table>
+<thead>
+<tr class="header">
+<th>操作</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>流域を選ぶ</td>
+<td>DEM の縁へ出る流域から選ぶ</td>
+</tr>
+<tr class="even">
+<td>出口を指定（小流域）</td>
+<td>谷筋のセルをクリックすると、その上流を流域にする</td>
+</tr>
+<tr class="odd">
+<td>供給点を選ぶ</td>
+<td>谷頭をクリックして水と土砂を流す点にする（もう一度で外す）</td>
+</tr>
+<tr class="even">
+<td>崩壊を置く / 天然ダムを置く / 砂防堰堤を置く /
+河床材料の範囲を描く</td>
+<td>各章を参照</td>
+</tr>
+<tr class="odd">
+<td>消す</td>
+<td>クリックした物を外す</td>
+</tr>
+</tbody>
+</table>
+<p>ここでは、出口を指定して 1.64 km²
+の小流域を選びました（赤い丸が出口、橙の丸が供給点）。</p>
+<p><img src="img/b04_dem_basin.png" alt="流域を選んだところ" /></p>
+<p>置いた物は
+<strong>「元に戻す」（Ctrl＋Z）</strong>、<strong>右クリック</strong>、または「消す」で取り消せます。</p>
+<p><strong>出口の扱い</strong>：既定は「自由流出」です。出口の先に緩衝の水路（計算格子
+3
+セル）をとり、その先で水と土砂を抜いて流出として数えます。「流域界から外へ流れる水を抜く」をオンにすると、流域界（分水界）を越えて外へ流れる水も抜きます。</p>
+<h3 id="104-土石流渓床侵食型">10.4 土石流（渓床侵食型）</h3>
+<p>「土石流の発生形態・雨・斜面崩壊（DEM）」→「谷頭の供給点とハイドロ」で、供給点ごとの波形を決めます。ここでは
+2 点とも <strong>土石流の一波</strong>（ピーク 20 m³/s、濃度
+0.3、立ち上がり 60 秒、減衰 300 秒）にしました。</p>
+<p><img src="img/b05_sources.png" alt="供給点とハイドロ" /></p>
+<p>「適用して最初から」を押すと、流域を切り出して出口が右端に来るよう回し、計算領域を作ります。流域の外は高い壁、谷筋（幅は「侵食できる谷筋の幅」）は侵食できる河床、斜面は侵食しない土層になります。</p>
+<p><strong>計算例（15 分後）</strong></p>
+<p>DEM の流域は広いので、鳥瞰は「高さ強調 1
+倍」にし、「－」で少し縮小すると全体が見えます（下の図はこの見え方です）。</p>
+<p><img src="img/b10_debris_3d.png" alt="鳥瞰" /> <img
+src="img/b11_debris_depth.png" alt="水深" /> <img
+src="img/b12_debris_plan.png" alt="平面図（黄色が縦断の線）" /></p>
+<p><strong>縦断は谷に沿った線</strong>で描きます。「線」で本川・支川を切り替えられます。横断はその線に直角です。平面図をクリックすると、いちばん近い線のその点の横断になります。</p>
+<p><img src="img/b13_debris_prof.png" alt="縦断（本川）" /> <img
+src="img/b17_prof_trib.png" alt="縦断（支川）" /> <img
+src="img/b14_debris_xsec.png" alt="横断" /></p>
+<p>流量の図の青は供給点・雨の合計の流入、橙は出口からの流出（土石流は水と土砂の混合物）、緑は横断の位置を通る量です。</p>
+<p><img src="img/b15_debris_tsq.png" alt="流量" /> <img
+src="img/b16_debris_tss.png" alt="流砂量" /></p>
+<hr />
+<h2 id="11-雨一様xrain">11. 雨（一様・XRAIN）</h2>
+<p>「雨（谷へ集まる水）」で <strong>雨を降らせる</strong>
+をオンにします。</p>
+<p><img src="img/b20_rain_panel.png" alt="雨の欄" /></p>
+<table>
+<thead>
+<tr class="header">
+<th>項目</th>
+<th>選び方</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>雨のデータ</td>
+<td>流域に一様（ハイエトグラフ：時刻 [分], 強度 [mm/h]
+の表）／格子の雨（XRAIN などを変換した CSV）</td>
+</tr>
+<tr class="even">
+<td>谷への集め方</td>
+<td>斜面で流出計算して谷筋へ入れる（集中化）／格子に直接降らせる（表面流で計算）</td>
+</tr>
+<tr class="odd">
+<td>損失</td>
+<td>流出係数 f（合理式）、一次流出率 f1・飽和雨量
+Rsa（貯留関数法）、飽和透水係数 ks と土層（浸透）</td>
+</tr>
+<tr class="even">
+<td>斜面の流出</td>
+<td>合理式（到達時間は土研式か指定）／貯留関数法 s = K q^P</td>
+</tr>
+</tbody>
+</table>
+<p>「流出を計算して図に出す」で、谷へ入る流量の時系列を確かめられます。</p>
+<p><img src="img/b21_rain_chart.png" alt="一様な雨の流出" /></p>
+<h3 id="疑似-xrain">疑似 XRAIN</h3>
+<p>本物の XRAIN（X バンド MP レーダ雨量計、250 m メッシュ・1
+分）の代わりに、形をまねた<strong>架空の雨</strong>を作るスクリプト
+<code>tools/make_pseudo_xrain.py</code>
+を用意しました。背景の雨に、北東へ動く対流セル（最大 80
+mm/h）を重ねます。</p>
+<pre><code>python tools/make_pseudo_xrain.py                      # 553706 の範囲、120 分、5 分おき
+python tools/make_pseudo_xrain.py --minutes 180 --step 1 --peak 100 --out rain.csv</code></pre>
+<p>できたファイル（<code>examples/pseudo_xrain_553706.csv</code>）は、1
+行に「時刻 [分], 経度, 緯度, 雨量強度 [mm/h]」です。本物の XRAIN
+も、この形に変換すれば読めます。「雨のデータ」を
+<strong>格子の雨</strong> にして読み込みます。</p>
+<p><img src="img/b22_xrain_panel.png"
+alt="疑似 XRAIN を読み込んだところ" /> <img
+src="img/b23_xrain_chart.png" alt="疑似 XRAIN の流出" /></p>
+<p><strong>計算例</strong>：疑似 XRAIN を「格子に直接降らせる」で 60
+分計算した結果です（対流セルが流域を通る 50
+分ごろに流量が増えます）。</p>
+<p><img src="img/b24_xrain_map.png"
+alt="疑似 XRAIN の雨量の分布（地図）" /> <img
+src="img/b25_xrain_plan.png" alt="疑似 XRAIN の平面図" /> <img
+src="img/b26_xrain_tsq.png" alt="疑似 XRAIN の流量" /> <img
+src="img/b27_xrain_3d.png" alt="疑似 XRAIN の水深（鳥瞰）" /></p>
+<hr />
+<h2 id="12-斜面崩壊表層深層">12. 斜面崩壊（表層・深層）</h2>
+<p>「土石流の発生形態」を <strong>崩壊型</strong>
+にし、地図の「崩壊を置く」で置きます。<strong>崩壊の形</strong>は、円（中心をクリック）か
+<strong>多角形</strong>（頂点をクリック、ダブルクリックか「多角形を閉じる」で確定）です。</p>
+<p><img src="img/b30_slide_map.png" alt="多角形の崩壊" /> <img
+src="img/b31_slide_panel.png" alt="斜面崩壊の欄" /></p>
+<table>
+<thead>
+<tr class="header">
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>種類</td>
+<td>表層（無限長斜面、一様な深さ D）／深層（Hovland の 3
+次元簡便法、さじ形のすべり面）</td>
+</tr>
+<tr class="even">
+<td>崩れる条件</td>
+<td>安全率（雨と地下水位から計算した Fs &lt;
+1）／時刻（指定の時刻に崩す）</td>
+</tr>
+<tr class="odd">
+<td>動き方</td>
+<td>自動／土石流化（水と混ざって流れる）／土塊（エネルギー線で止まるまで一体で動き、円錐状に堆積）</td>
+</tr>
+<tr class="even">
+<td>φ・c・初期の飽和度</td>
+<td>土の内部摩擦角・粘着力・地下水</td>
+</tr>
+</tbody>
+</table>
+<p><strong>計算例 1（表層・土石流化）</strong>：60
+秒に崩れ、土石流として谷を下る。</p>
+<p><img src="img/b32_slide_3d.png" alt="崩壊後の鳥瞰" /> <img
+src="img/b33_slide_dz.png" alt="河床変動量" /> <img
+src="img/b34_slide_plan.png" alt="平面図" /></p>
+<p><strong>計算例 2（深層・土塊）</strong>：同じ範囲を深さ 8 m
+の深層崩壊・土塊にした場合。土塊は谷へ移り、谷をふさぐと天然ダムとして扱います。</p>
+<p><img src="img/b35_deep_dz.png" alt="深層崩壊（河床変動量）" /></p>
+<hr />
+<h2 id="13-天然ダム河道閉塞">13. 天然ダム（河道閉塞）</h2>
+<p>「土石流の発生形態」を <strong>天然ダム決壊型</strong>
+にし、地図の「天然ダムを置く」で谷筋をクリックします。「例：本川に天然ダムと上流の供給点を置く」で、谷の深い所に例のダムと上流の供給点（40
+m³/s）を置けます。</p>
+<p><img src="img/b40_ldam_map.png"
+alt="天然ダムの地図（濃いほど厚い）" /> <img
+src="img/b41_ldam_panel.png" alt="天然ダムの欄" /></p>
+<p><strong>形</strong>：高さ
+H、天端幅、上流・下流の法の角度、谷を横切る幅（0
+で自動）。<strong>体積</strong>を入れると、その体積になる高さにします。</p>
+<p><strong>決壊の形</strong>は堤体の透水係数で分かれます。</p>
+<table>
+<thead>
+<tr class="header">
+<th>透水係数</th>
+<th>決壊の形</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>小さい</td>
+<td>越流決壊：湛水が天端を越え、越流で侵食（不飽和の侵食速度式も選べる）</td>
+</tr>
+<tr class="even">
+<td>大きい</td>
+<td>進行性崩壊：浸透で下流面が飽和し、安全率 &lt; 1
+の所から崩れていく</td>
+</tr>
+<tr class="odd">
+<td>「すべり」を選ぶ</td>
+<td>湛水位が設定の高さに達すると、下流のり先から上流の天端へすべる</td>
+</tr>
+</tbody>
+</table>
+<p><strong>計算例 1（越流決壊、透水係数 0）</strong></p>
+<p><img src="img/b42_ldam_3d.png" alt="天然ダム（越流）の鳥瞰" /> <img
+src="img/b43_ldam_prof.png" alt="縦断" /> <img
+src="img/b44_ldam_tsq.png" alt="流量" /></p>
+<p><strong>計算例 2（進行性崩壊、透水係数 0.03 m/s）</strong></p>
+<p><img src="img/b45_ldam_prog_prof.png" alt="縦断（進行性）" /> <img
+src="img/b46_ldam_prog_tsq.png" alt="流量（進行性）" /></p>
+<hr />
+<h2 id="14-dem-の流域の砂防堰堤河床材料">14. DEM
+の流域の砂防堰堤・河床材料</h2>
+<h3 id="砂防堰堤">砂防堰堤</h3>
+<p>地図の「砂防堰堤を置く」で谷筋をクリックすると、流れの向き（前後 3
+セルの谷筋から）に直角な堰堤を置きます。表で型・高さ・水通し幅・堤長（0
+で袖が地盤に届く長さを自動）・開口を決めます。ここでは下流に不透過型、上流にスリット型を置きました。</p>
+<p><img src="img/b50_dam_map.png" alt="堰堤の地図" /> <img
+src="img/b51_dam_panel.png" alt="堰堤の欄" /></p>
+<p><img src="img/b52_dam_prof.png" alt="堰堤の縦断" /> <img
+src="img/b53_dam_3d.png" alt="堰堤の鳥瞰" /> <img
+src="img/b54_dam_table.png" alt="堰堤ごとの堆砂量" /></p>
+<p>堰堤ごとの堆砂量は、堰堤の上流面から上りに谷をたどった範囲で数えます。</p>
+<h3 id="河床材料の範囲">河床材料の範囲</h3>
+<p>「粒径と河床材料」で材料 B などを作り（<a
+href="#6-粒径と河床材料場所ごとの粒度分布">6
+章</a>）、地図の「河床材料の範囲を描く」で多角形を描きます。</p>
+<p><img src="img/b55_mat_map.png" alt="河床材料の範囲" /> <img
+src="img/b56_mat_3d.png" alt="表層の平均粒径" /></p>
+<hr />
+<h2 id="15-python-版">15. Python 版</h2>
+<p><code>python/sabo2d.py</code> はブラウザ版と同じ計算をする Python
+版です（結果は丸め誤差の範囲で一致）。大きな格子や長い計算、まとめての計算に使えます。</p>
+<pre><code>pip install numpy matplotlib
+python python/sabo2d.py --preset A --minutes 60 --out result            # 既定の河道
+python python/sabo2d.py --debris --debris-peak 30 --out result_debris    # 土石流の一波
+python python/sabo2d.py --params sabo2d_params.json                      # ブラウザ版で保存した条件をそのまま
+python python/sabo2d.py --dem FG-GML-553706-DEM5A-20251113.zip --dem-outlet &quot;X,Y&quot; --dx 10 --debris \
+    --rain &quot;0:30,30:60,60:0&quot; --dem-dam &quot;X,Y,8&quot; --slide-poly &quot;X1,Y1;X2,Y2;X3,Y3@2,shallow,time,60,fluid&quot;</code></pre>
+<p>DEM の座標（X, Y）は、DEM
+の座標系（基盤地図情報は経緯度を平面に直した m）です。ブラウザ版の DEM
+の欄の「計算条件を JSON で保存（Python
+版用）」で保存し、<code>--params</code>
+で読むのが確実です。<code>python python/sabo2d.py --help</code>
+ですべてのオプションを表示します。Jupyter（Google
+Colab）用のノートブック <code>python/sabo2d.ipynb</code>
+もあります。</p>
+<hr />
+<h2 id="16-扱わないこと注意">16. 扱わないこと・注意</h2>
+<ul>
+<li><strong>浮遊砂・ウォッシュロード</strong>は扱いません（掃流砂と土石流のみ）。</li>
+<li><strong>遮蔽効果</strong>は、粒径別の限界掃流力（修正 Egiazaroff
+式）だけで表します。露出した動かない礫による遮蔽や空隙率の変化（岩見・藤田
+2023 など）は扱いません。</li>
+<li>土石流では、代表粒径は流れている土砂の平均粒径で、土石流の中の粒径別の分級は扱いません。</li>
+<li>斜面崩壊・天然ダム・雨の流出は、簡便なモデルです（式と仮定は <a
+href="https://github.com/kisakaki/sabo-dam-2d/blob/main/docs/model.md">docs/model.md</a>）。現地への適用では、パラメータを実測や既往事例で確かめてください。</li>
+<li>疑似 XRAIN は架空の雨で、観測値ではありません。</li>
+</ul>
+<hr />
+<p>画面の画像は
+<code>tools/manual_shots.js</code>（Playwright）で撮りました。<code>node tools/manual_shots.js dist/sabo2d.html &lt;DEM の ZIP&gt;</code>
+で撮り直せます。</p>
+</body>
+</html>
