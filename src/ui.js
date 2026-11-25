@@ -608,6 +608,7 @@
   var divTB = ramp(['#0d4f63', '#2f8a9a', '#9fcfd3', '#efeee8', '#e4c896', '#c18e4c', '#7d521f']);
   var VARS = {
     real: { name: '写実' },
+    hs: { name: '陰影＋段彩', terr: true }, red: { name: '赤色立体風', terr: true }, slp: { name: '傾斜', terr: true },
     bed: { name: '河床位（標高）', unit: 'm', ramp: seqEarth },
     bedrel: { name: '河床位（初期勾配を除く）', unit: 'm', ramp: divTB, div: true },
     depth: { name: '水深', unit: 'm', water: true, ramp: seqBlue },
@@ -665,7 +666,7 @@
   }
   var vrange = { lo: 0, hi: 1 };
   function computeRange(mode) {
-    var V = VARS[mode]; if (!V.ramp) return;
+    var V = VARS[mode]; if (!V || !V.ramp) return;
     if (mode === 'dm') {   // 実際の分布に合わせる（谷底のセルの 2〜98 % 点、対数目盛）
       var vals = [];
       for (var c3 = 0; c3 < sim.N; c3++) if (sim.fl[c3] && sim.kind[c3] === 0) { var dv = value('dm', c3); if (dv === dv) vals.push(dv); }
@@ -755,6 +756,45 @@
     var cv = $('plan'), Wp = cv.parentNode.clientWidth, Wd = Math.min(Wp, 640 * sim.Lx / sim.Ly), Hh = Math.max(70, Math.round(Wd * sim.Ly / sim.Lx));
     cv.style.width = Wd + 'px'; return { W: Wd, H: Hh };
   }
+  // 地形の色（陰影＋段彩・赤色立体風・傾斜）。いまの地形（DEM の流域の外は元の標高）から、セルごとに RGB を作る
+  // 陰影：Horn の 3×3 勾配と 4 方向の光源（北西が主）。尾根・谷：まわり約 75 m の平均標高との差（TPI）
+  var TC = null;
+  function terrColors(mode) {
+    var nx = sim.nx, ny = sim.ny, N = sim.N, dx = sim.dx, kind = sim.kind, i, j, c;
+    if (!TC || TC.length !== N * 3) TC = new Float32Array(N * 3);
+    var Z = new Float64Array(N), zmin = 1e30, zmax = -1e30;
+    for (c = 0; c < N; c++) { var zz = kind[c] === 2 ? damGround(c) : (sim.zOut && !sim.basin[c] ? sim.zOut[c] : sim.z[c]); Z[c] = zz; if (zz < zmin) zmin = zz; if (zz > zmax) zmax = zz; }
+    var zr = Math.max(1e-6, zmax - zmin), R = Math.max(2, Math.min(30, Math.round(75 / dx)));
+    var W1 = nx + 1, I = new Float64Array(W1 * (ny + 1));
+    for (j = 0; j < ny; j++) { var rs = 0; for (i = 0; i < nx; i++) { rs += Z[j * nx + i]; I[(j + 1) * W1 + i + 1] = I[j * W1 + i + 1] + rs; } }
+    var L = Math.SQRT1_2, AZ = [[315, 0.55], [270, 0.2], [0, 0.15], [225, 0.1]].map(function (q) { var t = q[0] * Math.PI / 180; return [q[1] * L * Math.sin(t), q[1] * L * Math.cos(t), q[1] * L]; });
+    var TT = [[0, 110, 165, 100], [0.25, 175, 200, 125], [0.5, 220, 200, 140], [0.75, 190, 150, 110], [1, 240, 236, 230]];
+    function zc(ii, jj) { ii = ii < 0 ? 0 : ii >= nx ? nx - 1 : ii; jj = jj < 0 ? 0 : jj >= ny ? ny - 1 : jj; return Z[jj * nx + ii]; }
+    for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {
+      c = j * nx + i; var z0 = Z[c];
+      // j が増える向きが北（平面図の上）
+      var a1 = zc(i - 1, j + 1), a2 = zc(i, j + 1), a3 = zc(i + 1, j + 1), a4 = zc(i - 1, j), a6 = zc(i + 1, j), a7 = zc(i - 1, j - 1), a8 = zc(i, j - 1), a9 = zc(i + 1, j - 1);
+      var gx = ((a3 + 2 * a6 + a9) - (a1 + 2 * a4 + a7)) / (8 * dx), gy = ((a1 + 2 * a2 + a3) - (a7 + 2 * a8 + a9)) / (8 * dx);
+      var g2 = gx * gx + gy * gy, nr = 1 / Math.sqrt(1 + g2), hs = 0, k;
+      for (k = 0; k < 4; k++) { var h1 = (-gx * AZ[k][0] - gy * AZ[k][1] + AZ[k][2]) * nr; if (h1 > 0) hs += h1; }
+      hs = hs > 0.72 ? 1 : hs / 0.72;
+      var i0 = Math.max(0, i - R), i1 = Math.min(nx, i + R + 1), j0 = Math.max(0, j - R), j1 = Math.min(ny, j + R + 1);
+      var sm = I[j1 * W1 + i1] - I[j0 * W1 + i1] - I[j1 * W1 + i0] + I[j0 * W1 + i0], sn = (i1 - i0) * (j1 - j0);
+      var tpi = Math.tanh((z0 - sm / sn) / (0.12 * R * dx)), slp = Math.atan(Math.sqrt(g2)) * 57.3, r, g, b;
+      if (mode === 'red') { var br = 0.5 + 0.5 * tpi, sat = slp > 50 ? 1 : slp / 50; r = 255 * br; g = 255 * br * (1 - 0.8 * sat); b = 255 * br * (1 - 0.9 * sat); }
+      else if (mode === 'slp') { r = g = b = 255 * (1 - (slp > 55 ? 1 : slp / 55)) * (0.8 + 0.2 * hs); }
+      else {
+        var t = (z0 - zmin) / zr, q = 1; while (q < 4 && t > TT[q][0]) q++;
+        var A0 = TT[q - 1], B0 = TT[q], u = Math.max(0, Math.min(1, (t - A0[0]) / (B0[0] - A0[0]))), sh = (0.12 + hs) * (1 + 0.22 * tpi), w = 0.55;
+        r = (w * (A0[1] + u * (B0[1] - A0[1])) + (1 - w) * 225) * sh; g = (w * (A0[2] + u * (B0[2] - A0[2])) + (1 - w) * 225) * sh; b = (w * (A0[3] + u * (B0[3] - A0[3])) + (1 - w) * 225) * sh;
+      }
+      if (kind[c] === 2) { r = g = b = 150; }
+      // DEM の流域の外は薄く
+      if (sim.zOut && !sim.basin[c]) { r = 0.55 * r + 110; g = 0.55 * g + 110; b = 0.55 * b + 110; }
+      TC[c * 3] = r > 255 ? 255 : r; TC[c * 3 + 1] = g > 255 ? 255 : g; TC[c * 3 + 2] = b > 255 ? 255 : b;
+    }
+    return TC;
+  }
   function drawPlan() {
     var cv = $('plan'), mode = $('v_mode').value, nx = sim.nx, ny = sim.ny, N = sim.N;
     var sz = planSize(), W = sz.W, Hh = sz.H, dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -782,15 +822,16 @@
       }
     }
     var z = sim.z, h = sim.h, dx = sim.dx, wc = waterCol(), col = [0, 0, 0], V = VARS[mode], gs = [0, 0];
-    var ci = contourInfo(mode), real = mode === 'real', i, j, c;
+    var ci = contourInfo(mode), real = mode === 'real', terr = !!(V && V.terr), i, j, c, tcol = terr ? terrColors(mode) : null;
     // セルごとの色・水・粗さ・等高線の値
     for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {
       c = j * nx + i;
       var zw = z[i > 0 ? c - 1 : c], ze = z[i < nx - 1 ? c + 1 : c], zs = z[j > 0 ? c - nx : c], zn = z[j < ny - 1 ? c + nx : c];
       var sh = 1 + 0.9 * ((zw - ze) / (2 * dx) - (sim.Ix ? sim.Ix[i] : -sim.trB)) + 0.9 * (zn - zs) / (2 * dx); sh = sh < 0.55 ? 0.55 : sh > 1.35 ? 1.35 : sh;
       var r, g, b, wa = 0;
-      if (real) {
-        ground(c, gcol); r = gcol[0] * sh; g = gcol[1] * sh; b = gcol[2] * sh;
+      if (real || terr) {
+        if (terr) { r = tcol[c * 3]; g = tcol[c * 3 + 1]; b = tcol[c * 3 + 2]; }
+        else { ground(c, gcol); r = gcol[0] * sh; g = gcol[1] * sh; b = gcol[2] * sh; }
         var hh = h[c];
         if (hh > 0.01) {
           wa = Math.min(0.88, 1 - Math.exp(-hh * 3.2)); var t = 1 - Math.exp(-hh * 1.4);
@@ -799,8 +840,8 @@
           var fo = Math.max(0, Math.min(0.75, (fr - 1.15) * 0.8)) * (0.5 + hash(c + sim.nstep % 7));
           PB.wr[c * 3] = wr + (245 - wr) * fo; PB.wr[c * 3 + 1] = wg + (247 - wg) * fo; PB.wr[c * 3 + 2] = wb + (246 - wb) * fo;
         }
-        PB.k[c] = sim.kind[c] !== 2 && gstat(c, gs) ? coarse(gs[0]) : 0;
-        PB.vg[c] = (sim.kind[c] === 1 && !(sim.bare && sim.bare[c]) && sim.z[c] - sim.z0[c] < 0.02) || (sim.bankC && sim.bankC[c] && Math.abs(sim.z[c] - sim.z0[c]) < 0.05) ? 1 : 0;
+        PB.k[c] = !terr && sim.kind[c] !== 2 && gstat(c, gs) ? coarse(gs[0]) : 0;
+        PB.vg[c] = !terr && ((sim.kind[c] === 1 && !(sim.bare && sim.bare[c]) && sim.z[c] - sim.z0[c] < 0.02) || (sim.bankC && sim.bankC[c] && Math.abs(sim.z[c] - sim.z0[c]) < 0.05)) ? 1 : 0;
       } else {
         PB.vg[c] = 0;
         var base = sim.kind[c] === 2 ? 150 : sim.kind[c] === 1 ? 108 : 128, v = value(mode, c);
@@ -825,11 +866,11 @@
         var Gc = gr[c00 * 3 + 1] * w00 + gr[c10 * 3 + 1] * w10 + gr[c01 * 3 + 1] * w01 + gr[c11 * 3 + 1] * w11;
         var B = gr[c00 * 3 + 2] * w00 + gr[c10 * 3 + 2] * w10 + gr[c01 * 3 + 2] * w01 + gr[c11 * 3 + 2] * w11;
         var q = py * pw + px, o = q * 4;
-        if (real) {
+        if (real || terr) {
           var K = kk[c00] * w00 + kk[c10] * w10 + kk[c01] * w01 + kk[c11] * w11;
           // 細粒：細かく弱いざらつき　粗粒：大きなまだらと礫間の陰
           var nv = (1 - K) * n1[q] * 0.10 + K * (n3[q] * 0.55 + n1[q] * 0.22);
-          var f = 1 + nv; if (K > 0.25 && crv[q] < 0.14 * K) f *= 0.62;
+          var f = terr ? 1 : 1 + nv; if (!terr && K > 0.25 && crv[q] < 0.14 * K) f *= 0.62;
           var Vg = vg[c00] * w00 + vg[c10] * w10 + vg[c01] * w01 + vg[c11] * w11;
           if (Vg > 0.01) f = f * (1 - Vg) + cn[q] * Vg;
           R *= f; Gc *= f; B *= f;
@@ -881,7 +922,8 @@
     // 凡例
     var lg = $('legend'), ctxt = ci ? '　等高線 ' + fmt(ci.ci) + ' m 間隔' + (ci.rel ? '（初期勾配を除いた高さ）' : '') : '';
     var coreTxt = $('p_core').checked ? '　流心線：各横断の単位幅流量の極大を結んだ線（太さは流量）' : '';
-    if (real) lg.innerHTML = '<span>白い線：堰堤の水通し　濃い線：袖部　白波：射流（Fr &gt; 1.2）　まだらの粗さ：表層の粒径' + coreTxt + ctxt + '</span>';
+    if (terr) lg.innerHTML = '<span>' + V.name + (mode === 'red' ? '（明るい：尾根　暗い：谷　赤い：急な斜面）' : mode === 'slp' ? '（濃いほど急：55° 以上で黒）' : '（北西から光を当てた陰影と標高の色）') + '　水色：水' + coreTxt + ctxt + '</span>';
+    else if (real) lg.innerHTML = '<span>白い線：堰堤の水通し　濃い線：袖部　白波：射流（Fr &gt; 1.2）　まだらの粗さ：表層の粒径' + coreTxt + ctxt + '</span>';
     else {
       lg.innerHTML = '<span>' + V.name + '</span><span id="lg0"></span><canvas width="180" height="10"></canvas><span id="lg1"></span><span>' + coreTxt + ctxt + '</span>';
       var lc = lg.querySelector('canvas'), lx = lc.getContext('2d');
@@ -1224,10 +1266,10 @@
     });
     // 河床の質感：表層の粒径で「さらさら（砂）」と「ごつごつ（礫）」を描き分ける
     var tmat = new THREE.ShaderMaterial({
-      uniforms: { uSun: { value: new THREE.Vector3(-0.45, 0.8, 0.4).normalize() }, uReal: { value: 1 }, uCI: { value: 0 } },
+      uniforms: { uSun: { value: new THREE.Vector3(-0.45, 0.8, 0.4).normalize() }, uReal: { value: 1 }, uCI: { value: 0 }, uFlat: { value: 0 } },
       vertexShader: 'attribute vec3 aCol; attribute vec4 aG; varying vec3 vCol; varying vec4 vG; varying vec3 vN; varying vec3 vW;' +
         'void main(){ vCol=aCol; vG=aG; vN=normal; vW=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
-      fragmentShader: 'precision highp float; uniform vec3 uSun; uniform float uReal,uCI; varying vec3 vCol; varying vec4 vG; varying vec3 vN; varying vec3 vW;' +
+      fragmentShader: 'precision highp float; uniform vec3 uSun; uniform float uReal,uCI,uFlat; varying vec3 vCol; varying vec4 vG; varying vec3 vN; varying vec3 vW;' +
         'float h21(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }' +
         'vec2 h22(vec2 p){ float n=h21(p); return vec2(n,h21(p+n+17.0)); }' +
         'void main(){ vec3 N=normalize(vN); vec3 base=vCol; float k=vG.x;' +
@@ -1242,7 +1284,7 @@
         '  vec2 ps=vW.xz/0.04; vec2 fs=fwidth(ps); float vs=1.0-smoothstep(0.4,1.0,max(fs.x,fs.y)); vec3 sand=base*(1.0+0.09*(h21(floor(ps))-0.5)*vs);' +
         '  float kk=smoothstep(0.1,0.9,k); base=mix(sand,cob,kk);' +
         '  vec2 b=-dv*(0.6+1.8*f1)*vis*kk; N=normalize(N+vec3(b.x,0.0,b.y)*0.9); }' +
-        ' float dif=max(dot(N,uSun),0.0); float hemi=0.5+0.5*N.y; vec3 col=base*(0.50*hemi+0.70*dif+0.06);' +
+        ' float dif=max(dot(N,uSun),0.0); float hemi=0.5+0.5*N.y; vec3 col=base*mix(0.50*hemi+0.70*dif+0.06,0.55+0.45*(0.5*hemi+0.7*dif),uFlat);' +
         ' if(uCI>0.0){ float v=vG.z/uCI; float w=max(fwidth(v),1e-4); float f=abs(fract(v-0.5)-0.5)/w; col=mix(col,col*0.35,(1.0-min(f,1.0))*0.9); }' +
         ' gl_FragColor=vec4(col,1.0); }'
     });
@@ -1398,6 +1440,7 @@
   function update3D() {
     if (!T3 || !T3.terr) return;
     var nx = sim.nx, ny = sim.ny, N = sim.N, dx = sim.dx, z = sim.z, h = sim.h, kind = sim.kind, vex = +$('v_vex').value, mode = $('v_mode').value, V = VARS[mode];
+    var terr = !!V.terr, tcol = terr ? terrColors(mode) : null;
     var zmid = sim.zmid, X0 = sim.Lx / 2, Z0 = sim.Ly / 2;
     var tp = T3.terr.geometry.attributes.position.array, tcn = T3.terr.geometry.attributes.aCol.array, tgA = T3.terr.geometry.attributes.aG.array;
     var S = +$('v_rock').value, Stex = S > 0 ? S : 5, ci = contourInfo(mode), gs = [0, 0];
@@ -1408,6 +1451,7 @@
       var zz = kind[c] === 2 ? damGround(c) : (sim.zOut && !sim.basin[c] ? sim.zOut[c] : z[c]);   // DEM の流域の外は元の標高で見せる
       tp[p] = (i + 0.5) * dx - X0; tp[p + 1] = (zz - zmid) * vex; tp[p + 2] = Z0 - (j + 0.5) * dx;
       if (mode === 'real') { ground(kind[c] === 2 ? nonDam(c) : c, c3); }
+      else if (terr) { c3[0] = tcol[p]; c3[1] = tcol[p + 1]; c3[2] = tcol[p + 2]; }
       else { var v = V.water ? NaN : value(mode, c); if (v === v) V.ramp(norm(mode, v), c3); else { c3[0] = c3[1] = kind[c] === 1 ? 120 : 150; c3[2] = c3[0] + 3; } }
       tcn[p] = c3[0] / 255; tcn[p + 1] = c3[1] / 255; tcn[p + 2] = c3[2] / 255;
       var g4 = c * 4;
@@ -1425,7 +1469,7 @@
       wp[p] = tp[p]; wp[p + 1] = (eta - zmid) * vex + 0.01; wp[p + 2] = tp[p + 2];
       var uu = hh > 0.01 ? sim.qx[c] / hh : 0, vv = hh > 0.01 ? sim.qy[c] / hh : 0, fr = hh > 0.01 ? Math.hypot(uu, vv) / Math.sqrt(G * hh) : 0;
       wd[c * 4] = hh; wd[c * 4 + 1] = kind[c] === 2 ? 0 : Math.max(0, Math.min(1, (fr - 0.95) * 0.9)); wd[c * 4 + 2] = uu; wd[c * 4 + 3] = -vv;
-      if (mode !== 'real' && V.water) { var wv = value(mode, c); if (wv === wv) V.ramp(norm(mode, wv), c3); else { c3[0] = c3[1] = c3[2] = 200; } wcl[p] = c3[0] / 255; wcl[p + 1] = c3[1] / 255; wcl[p + 2] = c3[2] / 255; }
+      if (mode !== 'real' && !terr && V.water) { var wv = value(mode, c); if (wv === wv) V.ramp(norm(mode, wv), c3); else { c3[0] = c3[1] = c3[2] = 200; } wcl[p] = c3[0] / 255; wcl[p + 1] = c3[1] / 255; wcl[p + 2] = c3[2] / 255; }
       else { wcl[p] = 0.35; wcl[p + 1] = 0.6; wcl[p + 2] = 0.85; }
     }
     for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {
@@ -1437,11 +1481,11 @@
     T3.terr.geometry.computeBoundingSphere(); T3.terr.geometry.computeBoundingBox();
     T3.terr.geometry.computeVertexNormals();
     ['position', 'normal', 'aD', 'aC'].forEach(function (a) { T3.water.geometry.attributes[a].needsUpdate = true; });
-    T3.tmat.uniforms.uReal.value = mode === 'real' ? 1 : 0; T3.tmat.uniforms.uCI.value = ci ? ci.ci : 0;
+    T3.tmat.uniforms.uReal.value = mode === 'real' ? 1 : 0; T3.tmat.uniforms.uCI.value = ci ? ci.ci : 0; T3.tmat.uniforms.uFlat.value = terr ? 0.7 : 0;
     placeRocks(mode === 'real' ? S : 0, tp, zmid, vex);
     placeTrees(mode === 'real' && $('v_tree').checked, tp, vex);
     var wc = waterCol(); T3.wmat.uniforms.uSh.value.setRGB(wc.sh[0] / 255, wc.sh[1] / 255, wc.sh[2] / 255); T3.wmat.uniforms.uDp.value.setRGB(wc.dp[0] / 255, wc.dp[1] / 255, wc.dp[2] / 255);
-    T3.wmat.uniforms.uSci.value = mode === 'real' ? 0 : (V.water ? 1 : 2);
+    T3.wmat.uniforms.uSci.value = mode === 'real' || terr ? 0 : (V.water ? 1 : 2);
     if (T3.vexBuilt !== vex) {
       T3.vexBuilt = vex;
       var base = (sim.zlo - zmid - Math.max(1.5, sim.P.erodDepth + 1.5)) * vex, sp = T3.skirt.geometry.attributes.position.array;
