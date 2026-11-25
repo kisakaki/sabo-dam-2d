@@ -108,6 +108,7 @@ table.res th,table.res td{white-space:nowrap}
 .doc p,.doc ul{margin:4px 0}
 .doc code{font-family:var(--mono);font-size:12px}
 .doc li{margin:2px 0}
+#grtab input{min-width:64px}#grtab th{white-space:nowrap}#bztab select{min-width:52px}#bztab input{min-width:70px}
 </style>
 
 <div class="top">
@@ -365,19 +366,19 @@ table.res th,table.res td{white-space:nowrap}
     </div></details>
 
     <details><summary>粒径と河床材料</summary><div class="body">
-      <p class="note">粒度分布は、下の表に直接入れるか、「平均粒径と幅から作る」で作ります。DEM の流域でも同じ表を使います（粒径階は 6 つまで）。</p>
+      <p class="note">粒度分布は、下の表に直接入れるか、「平均粒径と幅から作る」で作ります。DEM の流域でも同じ表を使います（粒径階は 12 まで）。</p>
       <div class="row"><label for="gr_pre">代表的な河床材料</label><select id="gr_pre"><option value="">（選ぶと下の値が入ります）</option><option value="sand">砂（実験水路の砂、dm 0.5 mm）</option><option value="sg">砂礫（扇状地の河川、dm 5 mm）</option><option value="gravel">礫床（山地の河川、dm 30 mm）</option><option value="debris">渓床の土石流堆積物（dm 50 mm、σg 5）</option><option value="uni">一様粒径（粒径階 1 つ）</option></select></div>
       <div class="row"><label for="gr_dm" title="算術平均 Σ p_k d_k（このプログラムの平均粒径の定義）">河床の平均粒径 dm<span class="u">mm</span></label><input type="number" id="gr_dm" value="5" step="any" min="0.05"></div>
       <div class="row"><label for="gr_sg" title="対数正規分布の幾何標準偏差 σg = √(d84/d16)。1 で一様、大きいほど幅が広い">分布の幅 σg = √(d84/d16)</label><input type="number" id="gr_sg" value="4" step="0.5" min="1"></div>
-      <div class="row"><label for="gr_k">粒径階の数</label><select id="gr_k"><option>1</option><option>2</option><option>3</option><option>4</option><option selected>5</option><option>6</option></select></div>
+      <div class="row"><label for="gr_k">粒径階の数</label><select id="gr_k"><option>1</option><option>2</option><option>3</option><option>4</option><option selected>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option></select></div>
       <div class="row"><label for="gr_fr" title="供給土砂の平均粒径を河床の何倍にするか（分布を ln d でずらす。粒径階は河床と共通なので、できる平均粒径は目安）。1 で河床と同じ分布">供給の平均粒径 ÷ 河床の平均粒径</label><input type="number" id="gr_fr" value="1" step="0.1" min="0.05"></div>
       <div class="btns"><button class="sm" id="gr_gen">平均粒径と幅から作る（表を書き換え）</button></div>
-      <div class="row"><label for="gr_to">作る先</label><select id="gr_to"><option value="A">河床 A と供給（粒径階も作り直す）</option><option value="B">河床 B（いまの粒径階のまま割合だけ）</option><option value="C">河床 C（いまの粒径階のまま割合だけ）</option></select></div>
-      <div style="overflow-x:auto"><table class="ed" id="grtab"><thead><tr><th>粒径 [mm]</th><th>河床 A [%]</th><th>供給 [%]</th><th>河床 B [%]</th><th>河床 C [%]</th><th></th></tr></thead><tbody></tbody></table></div>
-      <div class="btns"><button class="sm" id="gr_add">＋ 粒径階を追加</button></div>
+      <div class="row"><label for="gr_to">作る先</label><select id="gr_to"><option value="A">河床 A と供給（粒径階も作り直す）</option></select></div>
+      <div style="overflow-x:auto"><table class="ed" id="grtab"><thead></thead><tbody></tbody></table></div>
+      <div class="btns"><button class="sm" id="gr_add">＋ 粒径階を追加（12 まで）</button><button class="sm" id="gr_madd">＋ 河床材料を追加（12 まで）</button><button class="sm" id="gr_mdel">− 最後の河床材料を消す</button></div>
       <p class="note" id="gr_sum"></p>
       <canvas id="gr_cv" style="width:100%;height:150px;display:block"></canvas>
-      <p class="note"><b>場所ごとの河床材料</b>：河床 A がふつうの河床です。河床 B・C に割合を入れると、別の材料として使えます（粒径階は共通）。DEM 以外は下の表で x の区間（上流端からの距離 [m]、空欄は端まで）に、DEM の流域は地図の「河床材料の範囲を描く」で多角形の範囲に置きます。後の行・範囲が優先です。</p>
+      <p class="note"><b>場所ごとの河床材料</b>：河床 A がふつうの河床です。「＋ 河床材料を追加」で B〜L（A を含めて 12 まで）の列を足し、割合を入れると別の材料として使えます（粒径階は共通）。DEM 以外は下の表で x の区間（上流端からの距離 [m]、空欄は端まで）に、DEM の流域は地図の「河床材料の範囲を描く」で多角形の範囲に置きます。後の行・範囲が優先です。</p>
       <table class="ed" id="bztab"><thead><tr><th>材料</th><th>x 始点 [m]</th><th>x 終点 [m]</th><th></th></tr></thead><tbody></tbody></table>
       <div class="btns"><button class="sm" id="bz_add">＋ 区間を追加</button></div>
       <div class="row"><label for="s_n">Manning の粗度係数 n</label><input type="number" id="s_n" step="0.005" min="0.01"></div>
@@ -457,7 +458,7 @@ table.res th,table.res td{white-space:nowrap}
         <div class="opts">
           <label>クリックで <select id="dm_mode"><option value="basin">流域を選ぶ</option><option value="outlet">出口を指定（小流域）</option><option value="src">供給点を選ぶ</option><option value="slide">崩壊を置く</option><option value="ldam">天然ダムを置く</option><option value="dam">砂防堰堤を置く</option><option value="mat">河床材料の範囲を描く（多角形）</option><option value="del">消す（クリックした物を外す）</option></select></label>
           <label id="dm_shapew" hidden>崩壊の形 <select id="dm_shape"><option value="circle">円（中心をクリック）</option><option value="poly">多角形（頂点をクリック）</option></select></label>
-          <label id="dm_matw" hidden>材料 <select id="dm_matsel"><option value="1">河床 B</option><option value="2">河床 C</option></select></label>
+          <label id="dm_matw" hidden>材料 <select id="dm_matsel"><option value="1">（先に材料を追加）</option></select></label>
           <button type="button" id="dm_back" disabled title="直前の追加・削除・変更を取り消す（Ctrl+Z）">元に戻す</button>
           <button type="button" id="dm_close" hidden>多角形を閉じる</button><button type="button" id="dm_undo" hidden>1 点戻す</button>
           <label><input type="checkbox" id="dm_fit" checked> 選んだ流域に寄せる</label>
