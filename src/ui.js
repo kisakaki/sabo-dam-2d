@@ -292,7 +292,7 @@
     for (m = 1; m < GM; m++) oh += '<option value="' + m + '">河床 ' + MAT[m] + '（いまの粒径階のまま割合だけ）</option>';
     $('gr_to').innerHTML = oh; if (+to < GM || to === 'A') $('gr_to').value = to;
     var mo = function (sel) { var v = sel.value, o = ''; for (var k = 1; k < GM; k++) o += '<option value="' + k + '">' + MAT[k] + '</option>'; sel.innerHTML = o; if (+v < GM) sel.value = v; };
-    Array.prototype.forEach.call($('bztab').querySelectorAll('select'), mo);
+    Array.prototype.forEach.call($('bztab').querySelectorAll('select'), mo); mo($('bz_mat'));
     if ($('dm_matsel')) { var dv = $('dm_matsel').value, o2 = ''; for (var k2 = 1; k2 < GM; k2++) o2 += '<option value="' + k2 + '">河床 ' + MAT[k2] + '</option>'; $('dm_matsel').innerHTML = o2 || '<option value="1">（先に材料を追加）</option>'; if (+dv < GM) $('dm_matsel').value = dv; }
     $('gr_madd').disabled = GM >= 12; $('gr_mdel').disabled = GM <= 1;
     $('bz_add').disabled = GM <= 1;
@@ -315,15 +315,43 @@
     cur.forEach(function (q) { tb.appendChild(grRow({ d: q.d, bed: q.bed / 100, feed: q.feed / 100, beds: q.beds.map(function (x) { return x / 100; }) })); });
     grSummary();
   }
-  // 場所ごとの河床材料（DEM 以外）：材料 B・C を x の区間に
+  // 場所ごとの河床材料（DEM 以外）：x の区間と左岸からの距離の範囲、または平面図に描いた多角形
   function bzRow(z) {
-    var tr = document.createElement('tr');
-    var o = ''; for (var m = 1; m < Math.max(2, GM); m++) o += '<option value="' + m + '"' + (z.mat === m ? ' selected' : '') + '>' + MAT[m] + '</option>';
-    tr.innerHTML = '<td><select aria-label="材料">' + o + '</select></td>' +
-      '<td><input type="number" step="10" value="' + (z.x0 != null ? z.x0 : '') + '" aria-label="始点 x"></td><td><input type="number" step="10" value="' + (z.x1 != null ? z.x1 : '') + '" aria-label="終点 x"></td>' +
+    var tr = document.createElement('tr'), o = '';
+    for (var m = 1; m < Math.max(2, GM); m++) o += '<option value="' + m + '"' + (z.mat === m ? ' selected' : '') + '>' + MAT[m] + '</option>';
+    var v = function (x) { return x != null && isFinite(x) ? x : ''; };
+    if (z.poly) {
+      tr.dataset.poly = JSON.stringify(z.poly);
+      tr.innerHTML = '<td><select aria-label="材料">' + o + '</select></td><td colspan="4" class="note" style="margin:0">平面図に描いた多角形（頂点 ' + z.poly.length + '）</td><td><button class="x" aria-label="削除">×</button></td>';
+    } else tr.innerHTML = '<td><select aria-label="材料">' + o + '</select></td>' +
+      '<td><input type="number" step="10" value="' + v(z.x0) + '" aria-label="x 始点"></td><td><input type="number" step="10" value="' + v(z.x1) + '" aria-label="x 終点"></td>' +
+      '<td><input type="number" step="5" value="' + v(z.yl0) + '" placeholder="全幅" aria-label="左岸からの距離 始点"></td><td><input type="number" step="5" value="' + v(z.yl1) + '" placeholder="全幅" aria-label="左岸からの距離 終点"></td>' +
       '<td><button class="x" aria-label="削除">×</button></td>';
-    tr.querySelector('button').onclick = function () { tr.remove(); };
+    tr.querySelector('button').onclick = function () { tr.remove(); if (sim) drawPlan(); };
+    tr.querySelector('select').onchange = function () { if (sim) drawPlan(); };
     return tr;
+  }
+  // 平面図に多角形を描く（材料の範囲）。PD：描いている頂点（計算領域の座標）
+  var PD = null;
+  function bzZones() {
+    var out = [];
+    Array.prototype.forEach.call($('bztab').tBodies[0].rows, function (tr) {
+      var m = +tr.querySelector('select').value; if (!(m >= 1 && m < GM)) return;
+      if (tr.dataset.poly) { out.push({ mat: m, poly: JSON.parse(tr.dataset.poly) }); return; }
+      var a = tr.querySelectorAll('input'), f = function (i) { var x = parseFloat(a[i].value); return isFinite(x) ? x : null; };
+      out.push({ mat: m, x0: f(0), x1: f(1), yl0: f(2), yl1: f(3) });
+    });
+    return out;
+  }
+  function planDrawMsg() {
+    var n = PD ? PD.length : 0;
+    $('bz_msg').textContent = PD ? (n < 3 ? '平面図で頂点をクリックしてください（いま ' + n + ' 点）。' : '頂点 ' + n + ' 点。ダブルクリックか「多角形を閉じる」で確定します。Esc でやめます。') : '';
+    $('bz_close').hidden = !PD; $('bz_draw').textContent = PD ? 'やめる' : '平面図に範囲を描く';
+  }
+  function planDrawClose() {
+    if (!PD || PD.length < 3) return;
+    $('bztab').tBodies[0].appendChild(bzRow({ mat: +$('bz_mat').value || 1, poly: PD.map(function (p) { return [+p[0].toFixed(1), +p[1].toFixed(1)]; }) }));
+    PD = null; planDrawMsg(); drawPlan();
   }
   function wRow(w) {
     var tr = document.createElement('tr');
@@ -422,7 +450,7 @@
     GM = Math.min(12, 1 + Math.max(0, (P.bedMats || []).length, Math.max.apply(null, P.grains.map(function (g) { return g.beds ? g.beds.length : 0; }))));
     grHeader();
     var tb = $('grtab').tBodies[0]; tb.innerHTML = ''; P.grains.forEach(function (g) { tb.appendChild(grRow(g)); }); setTimeout(grSummary, 0);
-    var tz = $('bztab').tBodies[0]; tz.innerHTML = ''; (P.bedZones || []).forEach(function (z) { if (!z.poly) tz.appendChild(bzRow(z)); });
+    var tz = $('bztab').tBodies[0]; tz.innerHTML = ''; if (!(window.SaboDEMUI && window.SaboDEMUI.active())) (P.bedZones || []).forEach(function (z) { tz.appendChild(bzRow(z)); });
     $('s_n').value = P.manning; $('s_tc').value = P.tauCm; $('s_tcm').value = P.tcMethod || 'atm'; $('s_hid').value = P.hiding || 'egiazaroff'; tcSwitch(); $('s_por').value = P.porosity; $('s_rep').value = P.reposeDeg;
     var BK = P.bank || {}, NE = P.noneq || {}, BO = P.boulders || {};
     $('s_tr').value = P.transport || 'eq'; $('ne_de').value = NE.de; $('ne_dd').value = NE.dd; $('ne_he').value = NE.hEdge; $('ne_fe').value = NE.fe; $('ne_fd').value = NE.fd;
@@ -537,11 +565,7 @@
       var sm = 0; p.grains.forEach(function (g) { sm += (g.beds && g.beds[mi - 1]) || 0; });
       p.bedMats.push(p.grains.map(function (g) { return sm > 0 ? (g.beds && g.beds[mi - 1]) || 0 : g.bed; }));
     }
-    p.bedZones = [];
-    Array.prototype.forEach.call($('bztab').tBodies[0].rows, function (tr) {
-      var m = +tr.querySelector('select').value, a = tr.querySelectorAll('input'), x0 = parseFloat(a[0].value), x1 = parseFloat(a[1].value);
-      if (m >= 1 && m < GM) p.bedZones.push({ mat: m, x0: isFinite(x0) ? x0 : null, x1: isFinite(x1) ? x1 : null });
-    });
+    p.bedZones = bzZones();
     p.manning = num('s_n', 0.05, 0.01, 0.3); p.tauCm = num('s_tc', 0.05, 0.01, 0.2); p.tcMethod = $('s_tcm').value; p.hiding = $('s_hid').value; p.porosity = num('s_por', 0.4, 0.1, 0.7); p.reposeDeg = num('s_rep', 35, 15, 60);
     p.transport = $('s_tr').value === 'noneq' ? 'noneq' : $('s_tr').value === 'debris' ? 'debris' : 'eq';
     if (H.mode === 'debris') p.transport = 'debris';
@@ -1039,6 +1063,23 @@
     });
     ctx.restore();
     if ($('p_core').checked) drawCores(ctx, sx, sy, cv.height, dpr, real);
+    // 河床材料の範囲（DEM 以外）と、描いている多角形
+    if (!sim.demMode) {
+      var HcZ = cv.height; ctx.save();
+      bzZones().forEach(function (Zn) {
+        var col = MATC[Zn.mat] || '#1baf7a'; ctx.strokeStyle = col; ctx.lineWidth = 2 * dpr; ctx.setLineDash([6 * dpr, 3 * dpr]);
+        ctx.beginPath();
+        if (Zn.poly) Zn.poly.forEach(function (p, k) { var X1 = p[0] * sx, Y1 = HcZ - p[1] * sy; if (k) ctx.lineTo(X1, Y1); else ctx.moveTo(X1, Y1); });
+        else { var x0 = (Zn.x0 != null ? Zn.x0 : 0) * sx, x1 = (Zn.x1 != null ? Zn.x1 : sim.Lx) * sx, ya = Zn.yl0 != null ? Zn.yl0 * sy : 0, yb = Zn.yl1 != null ? Zn.yl1 * sy : HcZ; ctx.rect(x0, ya, x1 - x0, yb - ya); }
+        ctx.closePath(); ctx.stroke(); ctx.globalAlpha = 0.18; ctx.fillStyle = col; ctx.fill(); ctx.globalAlpha = 1;
+      });
+      if (PD && PD.length) {
+        ctx.setLineDash([5 * dpr, 4 * dpr]); ctx.strokeStyle = '#d84315'; ctx.lineWidth = 2 * dpr; ctx.beginPath();
+        PD.forEach(function (p, k) { var X1 = p[0] * sx, Y1 = HcZ - p[1] * sy; if (k) ctx.lineTo(X1, Y1); else ctx.moveTo(X1, Y1); }); if (PD.length > 2) ctx.closePath(); ctx.stroke();
+        ctx.setLineDash([]); ctx.fillStyle = '#d84315'; PD.forEach(function (p) { ctx.beginPath(); ctx.arc(p[0] * sx, HcZ - p[1] * sy, 3.5 * dpr, 0, 7); ctx.fill(); });
+      }
+      ctx.restore();
+    }
     // 縦断の線と横断の位置（DEM）
     if (pathMode()) {
       var PSm = pathSamples(), Hc = cv.height;
@@ -1238,7 +1279,9 @@
       tip.hidden = false; var tx = e.clientX - r.left + 12; if (tx > r.width - 230) tx = r.width - 230; tip.style.left = Math.max(0, tx) + 'px'; tip.style.top = (e.clientY - r.top + 14) + 'px';
     });
     cv.addEventListener('pointerleave', function () { tip.hidden = true; });
-    cv.addEventListener('click', function (e) { if (!sim) return; var r = cv.getBoundingClientRect(); if (pathMode()) { setXsFromPlan((e.clientX - r.left) / r.width * sim.Lx, (1 - (e.clientY - r.top) / r.height) * sim.Ly); drawXsec(); drawPlan(); drawProfile(); return; } xsX = Math.max(0, Math.min(sim.Lx - 1e-6, (e.clientX - r.left) / r.width * sim.Lx)); $('xs_x').value = xsX; drawXsec(); drawPlan(); drawProfile(); });
+    cv.addEventListener('click', function (e) { if (!sim) return; var r = cv.getBoundingClientRect();
+      if (PD) { var px = (e.clientX - r.left) / r.width * sim.Lx, py = (1 - (e.clientY - r.top) / r.height) * sim.Ly, lp = PD[PD.length - 1]; if (!lp || Math.hypot(lp[0] - px, lp[1] - py) > 0.5 * sim.dx) PD.push([px, py]); planDrawMsg(); drawPlan(); return; }
+      if (pathMode()) { setXsFromPlan((e.clientX - r.left) / r.width * sim.Lx, (1 - (e.clientY - r.top) / r.height) * sim.Ly); drawXsec(); drawPlan(); drawProfile(); return; } xsX = Math.max(0, Math.min(sim.Lx - 1e-6, (e.clientX - r.left) / r.width * sim.Lx)); $('xs_x').value = xsX; drawXsec(); drawPlan(); drawProfile(); });
   })();
 
   // ------------------------------------------------------------ 折れ線グラフ
@@ -2080,6 +2123,15 @@
   $('gr_madd').onclick = function () { setGM(GM + 1); };
   $('gr_mdel').onclick = function () { setGM(GM - 1); };
   $('bz_add').onclick = function () { if (GM > 1) $('bztab').tBodies[0].appendChild(bzRow({ mat: 1, x0: 0, x1: 100 })); };
+  $('bz_draw').onclick = function () {
+    if (PD) { PD = null; planDrawMsg(); if (sim) drawPlan(); return; }
+    if (GM < 2) { $('bz_msg').textContent = '先に「＋ 河床材料を追加」で材料 B などを作ってください。'; return; }
+    if (!sim) { $('bz_msg').textContent = '先に「適用して最初から」で地形を作ってください。'; return; }
+    PD = []; planDrawMsg(); var pc = $('plan').closest('.card'); if (pc && pc.scrollIntoView) pc.scrollIntoView({ block: 'center' });
+  };
+  $('bz_close').onclick = planDrawClose;
+  $('plan').addEventListener('dblclick', function (e) { if (PD) { e.preventDefault(); planDrawClose(); } });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && PD) { PD = null; planDrawMsg(); if (sim) drawPlan(); } });
   $('gr_pre').onchange = function () { var v = GR_PRE[this.value]; if (!v) return; $('gr_dm').value = v[0]; $('gr_sg').value = v[1]; $('gr_k').value = v[2]; $('gr_fr').value = v[3]; $('gr_gen').onclick(); };
   $('gr_gen').onclick = function () {
     var to = $('gr_to').value;

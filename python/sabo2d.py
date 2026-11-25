@@ -933,6 +933,11 @@ class Sim:
                     inside &= YC >= Zn['y0']
                 if Zn.get('y1') is not None:
                     inside &= YC <= Zn['y1']
+                YL = self.Ly - YC   # 左岸からの距離（平面図の上が左岸）
+                if Zn.get('yl0') is not None:
+                    inside &= YL >= Zn['yl0']
+                if Zn.get('yl1') is not None:
+                    inside &= YL <= Zn['yl1']
             matI[inside] = mi
         self.matIdx = matI
         Fm = self.mats[matI]

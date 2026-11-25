@@ -719,12 +719,18 @@
     // 後の範囲が前の範囲より優先。どこにも入らないセルは表の「河床」（材料 A）
     var mats = [f0], matI = this.matIdx = new Uint8Array(N);
     (P.bedMats || []).forEach(function (m) { var sm = 0, f = new Float64Array(K); for (k = 0; k < K; k++) sm += Math.max(0, m[k] || 0); for (k = 0; k < K; k++) f[k] = sm > 0 ? Math.max(0, m[k] || 0) / sm : f0[k]; mats.push(f); });
+    var LyZ = this.Ly;
     (P.bedZones || []).forEach(function (Zn) {
       var mi = Zn.mat | 0; if (mi < 1 || mi >= mats.length) return;
       for (c = 0; c < N; c++) {
         var xc = ((c % nx) + 0.5) * dx, yc = (((c - c % nx) / nx) + 0.5) * dx;
         if (Zn.poly && Zn.poly.length >= 3) { if (!inPoly(Zn.poly, xc, yc)) continue; }
-        else { if (xc < (Zn.x0 != null ? Zn.x0 : -1e30) || xc > (Zn.x1 != null ? Zn.x1 : 1e30)) continue; if (Zn.y0 != null && yc < Zn.y0) continue; if (Zn.y1 != null && yc > Zn.y1) continue; }
+        else {
+          if (xc < (Zn.x0 != null ? Zn.x0 : -1e30) || xc > (Zn.x1 != null ? Zn.x1 : 1e30)) continue;
+          if (Zn.y0 != null && yc < Zn.y0) continue; if (Zn.y1 != null && yc > Zn.y1) continue;
+          var yl = LyZ - yc;   // 左岸からの距離（平面図の上が左岸）
+          if (Zn.yl0 != null && yl < Zn.yl0) continue; if (Zn.yl1 != null && yl > Zn.yl1) continue;
+        }
         matI[c] = mi;
       }
     });

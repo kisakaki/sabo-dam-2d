@@ -378,9 +378,10 @@ table.res th,table.res td{white-space:nowrap}
       <div class="btns"><button class="sm" id="gr_add">＋ 粒径階を追加（12 まで）</button><button class="sm" id="gr_madd">＋ 河床材料を追加（12 まで）</button><button class="sm" id="gr_mdel">− 最後の河床材料を消す</button></div>
       <p class="note" id="gr_sum"></p>
       <canvas id="gr_cv" style="width:100%;height:150px;display:block"></canvas>
-      <p class="note"><b>場所ごとの河床材料</b>：河床 A がふつうの河床です。「＋ 河床材料を追加」で B〜L（A を含めて 12 まで）の列を足し、割合を入れると別の材料として使えます（粒径階は共通）。DEM 以外は下の表で x の区間（上流端からの距離 [m]、空欄は端まで）に、DEM の流域は地図の「河床材料の範囲を描く」で多角形の範囲に置きます。後の行・範囲が優先です。</p>
-      <table class="ed" id="bztab"><thead><tr><th>材料</th><th>x 始点 [m]</th><th>x 終点 [m]</th><th></th></tr></thead><tbody></tbody></table>
-      <div class="btns"><button class="sm" id="bz_add">＋ 区間を追加</button></div>
+      <p class="note"><b>場所ごとの河床材料</b>：河床 A がふつうの河床です。「＋ 河床材料を追加」で B〜L（A を含めて 12 まで）の列を足し、割合を入れると別の材料として使えます（粒径階は共通）。DEM 以外は下の表で x の区間（上流端からの距離 [m]、空欄は端まで）と左岸からの距離の範囲（空欄は全幅）に置くか、「平面図に範囲を描く」で平面図に多角形を描きます（頂点をクリック、ダブルクリックで確定）。DEM の流域は地図の「河床材料の範囲を描く」で多角形の範囲に置きます。後の行・範囲が優先です。</p>
+      <div style="overflow-x:auto"><table class="ed" id="bztab"><thead><tr><th>材料</th><th>x 始点 [m]</th><th>x 終点 [m]</th><th>左岸から [m]</th><th>まで [m]</th><th></th></tr></thead><tbody></tbody></table></div>
+      <div class="btns"><button class="sm" id="bz_add">＋ 区間を追加</button><label class="note" style="margin:0">材料 <select id="bz_mat"><option value="1">B</option></select></label><button class="sm" id="bz_draw">平面図に範囲を描く</button><button class="sm" id="bz_close" hidden>多角形を閉じる</button></div>
+      <p class="note" id="bz_msg"></p>
       <div class="row"><label for="s_n">Manning の粗度係数 n</label><input type="number" id="s_n" step="0.005" min="0.01"></div>
       <div class="row"><label for="s_tcm">限界掃流力の式（平均粒径）</label><select id="s_tcm"><option value="atm">芦田・高橋・水山</option><option value="iwagaki">岩垣式</option><option value="const">一定値</option></select></div>
       <div class="row" id="s_tc_row" hidden><label for="s_tc">τ*c（一定値）</label><input type="number" id="s_tc" step="0.005" min="0.01"></div>
