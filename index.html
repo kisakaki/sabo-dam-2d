@@ -82,6 +82,13 @@ button.sm{padding:3px 8px;font-size:12px}
 button.x{padding:2px 6px;color:var(--ink3)}
 .btns{display:flex;flex-wrap:wrap;gap:6px}
 .note{font-size:12px;color:var(--ink3);margin:0}
+.tabs{position:sticky;top:0;z-index:5;display:grid;grid-template-columns:repeat(5,1fr);gap:2px;background:var(--panel);padding:6px 6px 0;border-bottom:1px solid var(--line);margin:-1px -1px 8px}
+.tabs button{border:1px solid var(--line);border-bottom:0;border-radius:6px 6px 0 0;background:#f3f4f2;padding:6px 2px 7px;font-size:12.5px;line-height:1.25;color:#555;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px}
+.tabs button b{font-size:15px;font-weight:700}
+.tabs button.on{background:var(--panel);color:var(--ink,#1c1c1c);font-weight:700;border-color:var(--accent,#1a6b5c);border-top-width:3px;margin-bottom:-1px}
+.tabnext{display:flex;justify-content:flex-end;padding:4px 12px 12px}.tabnext button{font-size:13px}
+.dirtynote{margin:0;padding:6px 8px;border-radius:5px;background:#fff4d6;color:#6b4a00;font-size:12.5px;line-height:1.5}
+.runnote{font-size:12.5px;color:#6b4a00;background:#fff4d6;border-radius:5px;padding:4px 8px}
 .apply{position:sticky;bottom:0;background:var(--panel);padding:10px 12px;border-top:1px solid var(--line);border-radius:0 0 6px 6px;display:grid;gap:6px}
 .main{display:grid;gap:12px;min-width:0}
 .bar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 12px}
@@ -129,49 +136,33 @@ table.res th,table.res td{white-space:nowrap}
 
 <div class="top">
   <h1>河床変動シミュレータ</h1>
-  <p>平面2次元浅水流 × 混合粒径の掃流砂。条件を変えて「適用して最初から」を押すと再計算します。</p>
+  <p>平面2次元の河床変動・土石流の計算。左の①〜⑤で条件を決めて「▶ 計算開始」を押します。</p>
 </div>
 
 <div class="app">
   <aside class="side" id="side">
     <div class="grip" id="side_grip" tabindex="0" role="separator" aria-orientation="vertical" aria-label="条件設定欄の幅（ドラッグか左右キーで変更、ダブルクリックで元に戻す）" title="ドラッグで幅を変える（ダブルクリックで元に戻す）"></div>
-    <details open><summary>ハイドロ（水と土砂の供給）</summary><div class="body">
-      <div class="row"><label for="h_mode">波形</label><select id="h_mode"><option value="tri">三角形</option><option value="const">一定</option><option value="table">表で入力</option><option value="debris">土石流の一波</option></select></div>
-      <div id="h_par" class="body" style="padding:0">
-        <div class="row"><label for="h_qb">基底流量<span class="u">m³/s</span></label><input type="number" id="h_qb" step="1" min="0"></div>
-        <div class="row"><label for="h_qp">ピーク流量<span class="u">m³/s</span></label><input type="number" id="h_qp" step="1" min="0"></div>
-        <div class="row"><label for="h_tp">ピーク時刻<span class="u">分</span></label><input type="number" id="h_tp" step="5" min="1"></div>
-        <div class="row"><label for="h_td">継続時間<span class="u">分</span></label><input type="number" id="h_td" step="10" min="5"></div>
-        <div class="row"><label for="h_cs">供給土砂濃度 Qs/Q<span class="u">%</span></label><input type="number" id="h_cs" step="0.1" min="0"></div>
-      </div>
-      <div id="h_deb" class="body" style="padding:0" hidden>
-        <div class="row"><label for="hd_t0">波の到達時刻<span class="u">秒</span></label><input type="number" id="hd_t0" step="10" min="0"></div>
-        <div class="row"><label for="hd_tr">立ち上がり時間<span class="u">秒</span></label><input type="number" id="hd_tr" step="5" min="1"></div>
-        <div class="row"><label for="hd_tf">減衰時間<span class="u">秒</span></label><input type="number" id="hd_tf" step="10" min="1"></div>
-        <div class="row"><label for="hd_c">土砂濃度（容積）<span class="u">–</span></label><input type="number" id="hd_c" step="0.05" min="0" max="0.55"></div>
-        <div class="row"><label for="hd_iu">流入点より上流の勾配 1/<span class="u">0=自動</span></label><input type="number" id="hd_iu" step="1" min="0"></div>
-        <div class="row"><label for="hd_td">計算時間<span class="u">分</span></label><input type="number" id="hd_td" step="1" min="1"></div>
-        <p class="note">基底流量（清水）に、三角形の土石流の波（ピーク流量は混合物の流量）を重ねて上流端から流します。流入する土石流の流速と水深は、「流入点より上流の勾配」での等流（高橋の抵抗則）から決めます。流砂モデルは自動で「土石流」になり、河床変動は加速しません。供給土砂の粒度は「粒径と河床材料」の「供給」の割合です。</p>
-      </div>
-      <div id="h_tab" hidden>
-        <p class="note">1行に「時刻[分], 流量[m³/s], 土砂量[m³/s]」。土砂量は実質体積。3列目を省くと濃度から計算します。</p>
-        <textarea id="h_table" spellcheck="false"></textarea>
-        <div class="row" style="margin-top:8px"><label for="h_cs2">供給土砂濃度（3列目なしの場合）<span class="u">%</span></label><input type="number" id="h_cs2" step="0.1" min="0"></div>
-      </div>
-    </div></details>
-
+    <nav class="tabs" id="side_tabs" role="tablist">
+      <button type="button" role="tab" data-t="1" class="on" aria-selected="true"><b>①</b>地形</button>
+      <button type="button" role="tab" data-t="2"><b>②</b>水と土砂</button>
+      <button type="button" role="tab" data-t="3"><b>③</b>堰堤</button>
+      <button type="button" role="tab" data-t="4"><b>④</b>河床材料</button>
+      <button type="button" role="tab" data-t="5"><b>⑤</b>計算条件</button>
+    </nav>
+    <section class="tabp" data-t="1">
     <details open><summary>河道地形</summary><div class="body">
       <div class="row"><label for="g_src">地形の作り方</label><select id="g_src"><option value="param">数値で指定</option><option value="survey">横断・縦断の測量値</option><option value="csv">格子の CSV を読み込む</option><option value="dem">DEM から流域を選ぶ</option></select></div>
+      <div id="g_intro">
       <p class="note" style="margin:0">モデル渓流（写真の河道を参考にした架空の地形。押すと「数値で指定」に切り替わり、地形と堰堤の配置が入れ替わります）</p>
       <div class="btns" style="margin-top:4px"><button class="sm" id="pre_A">床固工群の渓流</button><button class="sm" id="pre_B">狭窄部と広い堆砂域</button><button class="sm" id="pre_S">単純な直線水路</button></div>
       <ol class="note" style="margin:6px 0 0;padding-left:1.3em">
         <li>「地形の作り方」を選ぶ（モデル渓流のボタンなら ②③ は不要）</li>
         <li>ファイルを選ぶ。横断 CSV は「横断のファイル」、縦断 CSV は「縦断のファイル」、格子 CSV は「格子の CSV を読み込む」の「ファイル」。欄を間違えても、中身から見分けて正しい欄に入れます</li>
-        <li>「堰堤の諸元」に堰堤を入れる（位置は地形の最上流を 0 とした距離）</li>
-        <li>いちばん下の「適用して最初から」を押す → 地形が切り替わる</li>
+        <li>「③ 堰堤」のタブで堰堤を入れる（位置は地形の最上流を 0 とした距離）</li>
         <li>上の「▶ 計算開始」を押す</li>
       </ol>
       <p class="note" style="margin:4px 0 0">「CSV 欄へ」「書き出す」「コピー」のボタンは、地形を保存したいときだけ使います。押さなくても計算できます。</p>
+      </div>
       <p class="note" id="file_note" hidden style="color:var(--acc,#0b6e64);font-weight:600"></p>
       <div id="g_param" class="body" style="padding:0">
       <div class="row"><label for="g_L">区間長<span class="u">m</span></label><input type="number" id="g_L" step="20" min="60"></div>
@@ -276,6 +267,34 @@ table.res th,table.res td{white-space:nowrap}
       <div class="row"><label for="g_seed">乱数の種<span class="u">–</span></label><input type="number" id="g_seed" step="1" min="1"></div>
     </div></details>
 
+      <div class="tabnext"><button type="button" data-goto="2">次へ：② 水と土砂 →</button></div>
+    </section>
+    <section class="tabp" data-t="2" hidden>
+    <details open id="hyd_sec"><summary>ハイドロ（水と土砂の供給）</summary><div class="body">
+      <div class="row"><label for="h_mode">波形</label><select id="h_mode"><option value="tri">三角形</option><option value="const">一定</option><option value="table">表で入力</option><option value="debris">土石流の一波</option></select></div>
+      <div id="h_par" class="body" style="padding:0">
+        <div class="row"><label for="h_qb">基底流量<span class="u">m³/s</span></label><input type="number" id="h_qb" step="1" min="0"></div>
+        <div class="row"><label for="h_qp">ピーク流量<span class="u">m³/s</span></label><input type="number" id="h_qp" step="1" min="0"></div>
+        <div class="row"><label for="h_tp">ピーク時刻<span class="u">分</span></label><input type="number" id="h_tp" step="5" min="1"></div>
+        <div class="row"><label for="h_td">継続時間<span class="u">分</span></label><input type="number" id="h_td" step="10" min="5"></div>
+        <div class="row"><label for="h_cs">供給土砂濃度 Qs/Q<span class="u">%</span></label><input type="number" id="h_cs" step="0.1" min="0"></div>
+      </div>
+      <div id="h_deb" class="body" style="padding:0" hidden>
+        <div class="row"><label for="hd_t0">波の到達時刻<span class="u">秒</span></label><input type="number" id="hd_t0" step="10" min="0"></div>
+        <div class="row"><label for="hd_tr">立ち上がり時間<span class="u">秒</span></label><input type="number" id="hd_tr" step="5" min="1"></div>
+        <div class="row"><label for="hd_tf">減衰時間<span class="u">秒</span></label><input type="number" id="hd_tf" step="10" min="1"></div>
+        <div class="row"><label for="hd_c">土砂濃度（容積）<span class="u">–</span></label><input type="number" id="hd_c" step="0.05" min="0" max="0.55"></div>
+        <div class="row"><label for="hd_iu">流入点より上流の勾配 1/<span class="u">0=自動</span></label><input type="number" id="hd_iu" step="1" min="0"></div>
+        <div class="row"><label for="hd_td">計算時間<span class="u">分</span></label><input type="number" id="hd_td" step="1" min="1"></div>
+        <p class="note">基底流量（清水）に、三角形の土石流の波（ピーク流量は混合物の流量）を重ねて上流端から流します。流入する土石流の流速と水深は、「流入点より上流の勾配」での等流（高橋の抵抗則）から決めます。流砂モデルは自動で「土石流」になり、河床変動は加速しません。供給土砂の粒度は「粒径と河床材料」の「供給」の割合です。</p>
+      </div>
+      <div id="h_tab" hidden>
+        <p class="note">1行に「時刻[分], 流量[m³/s], 土砂量[m³/s]」。土砂量は実質体積。3列目を省くと濃度から計算します。</p>
+        <textarea id="h_table" spellcheck="false"></textarea>
+        <div class="row" style="margin-top:8px"><label for="h_cs2">供給土砂濃度（3列目なしの場合）<span class="u">%</span></label><input type="number" id="h_cs2" step="0.1" min="0"></div>
+      </div>
+    </div></details>
+
     <details id="dem_more" hidden open><summary>土石流の発生形態・雨・斜面崩壊（DEM）</summary><div class="body">
       <div class="row"><label for="gen_type">土石流の発生形態</label><select id="gen_type"><option value="bed">渓床侵食型（谷頭から水を流す）</option><option value="slide">崩壊型（斜面崩壊が流動化）</option><option value="ldam">天然ダム決壊型</option></select></div>
       <p class="note" id="gen_note"></p>
@@ -341,14 +360,16 @@ table.res th,table.res td{white-space:nowrap}
         <div class="btns"><button class="sm" id="ld_ex">例：本川に天然ダムと上流の供給点を置く</button><button class="sm" id="ld_clr">すべて消す</button></div>
         <p class="note">堤体の中の浸透は伏流の計算（Darcy、Dupuit 近似）で、天然ダムがあると伏流を自動で有効にします。透水係数が大きいと、越流の前に浸潤面が下流の法尻に達し、湧水の出る法面で無限長斜面（浸透流が斜面に平行）の安全率 Fs = c'/(γsat T sinβ cosβ) + (γ'/γsat)tanφ/tanβ が 1 を下回った所から順に崩れて、崩壊が上流へ遡ります（進行性崩壊。高山ら 2020 の観察）。透水係数が小さいと、満水になって越流し、越流水がダムを侵食します（越流侵食）。すべり破壊は、湛水位が指定の高さに達したとき、下流の法尻と上流側の天端の端を結ぶ面より上の土を、法尻から下流へ堆積勾配（斜面崩壊の欄）の斜面になるように瞬時に動かします（Awal ら 2008、高山ら 2020 の簡易モデル）。</p>
       </div></details>
-      <details style="border:0;padding:0"><summary style="font-weight:500">砂防堰堤（DEM）</summary><div class="body">
-        <p class="note">地図の「砂防堰堤を置く」で谷筋をクリックすると、流れの向き（前後 3 セルの谷筋から）に直角な堰堤を置きます。基礎は中心のまわりの最も低い地盤、天端は基礎＋高さ H。水通しは中心に幅 b、その外は袖（天端＋袖部の高さ）。堤長 0 は、袖が地盤に届くまでの長さを自動で決めます。透過型は開口の幅・数・底の高さを指定します。堰堤ごとの堆砂量は、堰堤の上流面から上りに谷をたどった範囲で数えます。</p>
-        <div style="overflow-x:auto"><table class="ed" id="dmtab"><thead><tr><th>点</th><th>型</th><th>高さ H [m]</th><th>水通し幅 b [m]</th><th>堤長 [m]<br>（0＝自動）</th><th>開口幅 [m]</th><th>開口数</th><th>開口の底 [m]</th><th>使う堤長 [m]</th><th></th></tr></thead><tbody></tbody></table></div>
-        <div class="btns"><button class="sm" id="dmt_clr">すべて消す</button></div>
-      </div></details>
     </div></details>
-
-    <details open><summary>堰堤の諸元</summary><div class="body">
+      <div class="tabnext"><button type="button" data-goto="3">次へ：③ 堰堤 →</button></div>
+    </section>
+    <section class="tabp" data-t="3" hidden>
+    <details id="dem_dams" hidden open><summary >砂防堰堤（DEM）</summary><div class="body">
+      <p class="note">地図の「砂防堰堤を置く」で谷筋をクリックすると、流れの向き（前後 3 セルの谷筋から）に直角な堰堤を置きます。基礎は中心のまわりの最も低い地盤、天端は基礎＋高さ H。水通しは中心に幅 b、その外は袖（天端＋袖部の高さ）。堤長 0 は、袖が地盤に届くまでの長さを自動で決めます。透過型は開口の幅・数・底の高さを指定します。堰堤ごとの堆砂量は、堰堤の上流面から上りに谷をたどった範囲で数えます。</p>
+      <div style="overflow-x:auto"><table class="ed" id="dmtab"><thead><tr><th>点</th><th>型</th><th>高さ H [m]</th><th>水通し幅 b [m]</th><th>堤長 [m]<br>（0＝自動）</th><th>開口幅 [m]</th><th>開口数</th><th>開口の底 [m]</th><th>使う堤長 [m]</th><th></th></tr></thead><tbody></tbody></table></div>
+      <div class="btns"><button class="sm" id="dmt_clr">すべて消す</button></div>
+    </div></details>
+    <details open id="dam_sec"><summary>堰堤の諸元</summary><div class="body">
       <div class="btns"><button class="sm" id="pre_low">低ダム群</button><button class="sm" id="pre_high">高ダム1基</button><button class="sm" id="pre_none">堰堤なし</button></div>
       <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="d_adv">向き・中心・天端標高・堤長も指定する</label>
       <div style="overflow-x:auto"><table class="ed simple" id="damtab"><thead><tr><th>位置 x [m]</th><th>堤高 [m]</th><th>水通し幅 [m]</th><th>形式</th><th>開口幅 l [m]</th><th>開口数</th><th class="adv">回転角 [°]</th><th class="adv">中心 y [m]</th><th class="adv">天端標高 [m]</th><th class="adv">堤長 [m]</th><th></th></tr></thead><tbody></tbody></table></div>
@@ -381,7 +402,10 @@ table.res th,table.res td{white-space:nowrap}
       </div></details>
     </div></details>
 
-    <details><summary>粒径と河床材料</summary><div class="body">
+      <div class="tabnext"><button type="button" data-goto="4">次へ：④ 河床材料 →</button></div>
+    </section>
+    <section class="tabp" data-t="4" hidden>
+    <details open><summary>粒径と河床材料</summary><div class="body">
       <p class="note">粒度分布は、下の表に直接入れるか、「平均粒径と幅から作る」で作ります。DEM の流域でも同じ表を使います（粒径階は 12 まで）。</p>
       <div class="row"><label for="gr_pre">代表的な河床材料</label><select id="gr_pre"><option value="">（選ぶと下の値が入ります）</option><option value="sand">砂（実験水路の砂、dm 0.5 mm）</option><option value="sg">砂礫（扇状地の河川、dm 5 mm）</option><option value="gravel">礫床（山地の河川、dm 30 mm）</option><option value="debris">渓床の土石流堆積物（dm 50 mm、σg 5）</option><option value="uni">一様粒径（粒径階 1 つ）</option></select></div>
       <div class="row"><label for="gr_dm" title="算術平均 Σ p_k d_k（このプログラムの平均粒径の定義）">河床の平均粒径 dm<span class="u">mm</span></label><input type="number" id="gr_dm" value="5" step="any" min="0.05"></div>
@@ -407,7 +431,10 @@ table.res th,table.res td{white-space:nowrap}
       <div class="row"><label for="s_rep">流砂の勾配項の上限角<span class="u">°</span></label><input type="number" id="s_rep" step="1" min="15" max="60"></div>
     </div></details>
 
-    <details><summary>流砂モデル・側岸侵食</summary><div class="body">
+      <div class="tabnext"><button type="button" data-goto="5">次へ：⑤ 計算条件 →</button></div>
+    </section>
+    <section class="tabp" data-t="5" hidden>
+    <details open><summary>流砂モデル・側岸侵食</summary><div class="body">
       <div class="row"><label for="s_tr">流砂量の求め方</label><select id="s_tr"><option value="eq">平衡流砂量（芦田・道上）</option><option value="noneq">侵食・堆積速度式（高橋・里深）</option><option value="debris">土石流（高橋の式）</option></select></div>
       <div id="db_box" class="body" style="padding:0" hidden>
         <div class="row"><label for="db_de">侵食速度係数 δe</label><input type="number" id="db_de" step="0.0001" min="0"></div>
@@ -454,8 +481,10 @@ table.res th,table.res td{white-space:nowrap}
       <div class="row"><label for="c_ord">空間精度</label><select id="c_ord"><option value="2">2次（推奨）</option><option value="1">1次</option></select></div>
       <p class="note">加速係数を大きくすると速く終わりますが、出水の立ち上がりが区間の通過時間より短くなると流量の遅れが出ます。精度を優先するなら 1〜2。</p>
     </div></details>
+    </section>
     <div class="apply">
-      <button class="pri" id="apply">適用して最初から</button>
+      <button class="pri" id="apply" hidden>適用して最初から</button>
+      <p class="dirtynote" id="side_dirty" hidden>条件を変えました。上の「▶ 計算開始」を押すと、この条件で最初から計算します。</p>
       <p class="note" id="gridinfo"></p>
     </div>
   </aside>
@@ -464,6 +493,7 @@ table.res th,table.res td{white-space:nowrap}
     <div class="bar">
       <button class="pri" id="run">▶ 計算開始</button>
       <button id="reset">最初に戻す</button>
+      <span class="runnote" id="run_dirty" hidden>条件が変わりました。▶ で最初から計算します</span>
       <button id="saveref" title="いまの結果を保存し、次の計算に破線で重ねます">比較用に保存</button>
       <div class="grow"><div class="prog"><i id="prog"></i></div><div class="status" id="status"></div></div>
     </div>
@@ -5133,7 +5163,7 @@ table.res th,table.res td{white-space:nowrap}
     if (k === 'grid') { $('csv_msg').hidden = true; csvInfo(); matchDx(); if (msg) $('csv_info').textContent = msg + '　' + $('csv_info').textContent; }
     else { surveyInfo(); if (msg) $('sv_info').textContent = msg + '　' + $('sv_info').textContent; }
     damRangeNote();
-    $('file_note').hidden = false; $('file_note').textContent = '読み込んだファイル：' + name + '。' + damMsg + '「適用して最初から」を押すと、この地形で計算をやり直します。';
+    $('file_note').hidden = false; $('file_note').textContent = '読み込んだファイル：' + name + '。' + damMsg + '「▶ 計算開始」を押すと、この地形で計算をやり直します。';
   }
   // 格子 CSV の間隔が計算の格子幅の選択肢にあれば、そろえる（補間で地形がなまらないように）
   function matchDx() {
@@ -6414,7 +6444,7 @@ table.res th,table.res td{white-space:nowrap}
     apply.tkey = tkey; $('file_note').hidden = true;
     var dimKey = sim.Lx + 'x' + sim.Ly;
     build3D(); if (!apply.done || apply.dim !== dimKey) { home3D(true); apply.done = true; } apply.dim = dimKey;
-    refresh(true);
+    refresh(true); if (typeof setDirty === 'function') setDirty(false);
   }
   function loop(now) {
     requestAnimationFrame(loop);
@@ -6425,15 +6455,59 @@ table.res th,table.res td{white-space:nowrap}
       xsRecord();
       spd = spd * 0.9 + 0.1 * (n / ((performance.now() - t0) / 1000));
       dirty = true;
-      if (sim.phase === 'done') { running = false; $('run').textContent = '計算終了'; refresh(true); }
+      if (sim.phase === 'done') { running = false; runLabel(); refresh(true); }
     }
     if (dirty && now - lastViz > 140) { lastViz = now; computeRange($('v_mode').value); update3D(); drawPlan(); }
     if (dirty && now - lastCh > 450) { lastCh = now; redrawCharts(); drawStats(); snapInfo(); dirty = running; }
     render3D();
   }
+  // ---- 条件が変わったかどうか（「計算開始」ひとつで、変わっていれば適用してから計算する）
+  var condDirty = false;
+  function runLabel() {
+    var b = $('run');
+    if (running) b.textContent = '⏸ 一時停止';
+    else if (condDirty || !sim) b.textContent = '▶ 計算開始';
+    else if (sim.phase === 'done') b.textContent = '▶ もう一度計算';
+    else b.textContent = sim.nstep > 0 ? '▶ 再開' : '▶ 計算開始';
+    $('run_dirty').hidden = !condDirty; $('side_dirty').hidden = !condDirty;
+  }
+  function setDirty(v) { condDirty = v; runLabel(); }
+  var NOT_COND = /^(dm_mode|dm_shade|dm_cont|dm_fit|dm_zin|dm_zout|dm_zbas|dm_zall|dm_matsel|bz_mat|sv_grid|dem_json|csv_save|csv_copy|side_grip)$/;
+  function condEvent(e) {
+    var t = e.target; if (!t || !t.closest) return;
+    if (t.closest('.tabs,.tabnext,summary,#dem_tip')) return;
+    var c = t.closest('input,select,textarea,button'); if (!c) return;
+    if (c.id && NOT_COND.test(c.id)) return;
+    if (e.type === 'click' && c.tagName !== 'BUTTON') return;   // 入力欄は input/change で拾う
+    setDirty(true);
+  }
+  ['input', 'change', 'click'].forEach(function (ev) { $('side').addEventListener(ev, condEvent); $('demcard').addEventListener(ev, condEvent); });
+  (function () {   // DEM の地図：ドラッグ（移動）ではなくクリックで何かを置いたときだけ
+    var dm = $('demmap'), d0 = null; if (!dm) return;
+    dm.addEventListener('pointerdown', function (e) { d0 = [e.clientX, e.clientY]; });
+    dm.addEventListener('pointerup', function (e) { if (d0 && Math.abs(e.clientX - d0[0]) + Math.abs(e.clientY - d0[1]) < 5) setDirty(true); d0 = null; });
+    dm.addEventListener('dblclick', function () { setDirty(true); });
+  })();
   $('run').onclick = function () {
-    if (!sim || sim.phase === 'done') return;
-    running = !running; this.textContent = running ? '⏸ 一時停止' : '▶ 再開'; dirty = true;
+    if (condDirty || !sim || sim.phase === 'done') {
+      var before = sim; apply(); if (!sim || (sim === before && condDirty)) return;   // 読み込めなかったときは止める
+    }
+    running = !running; dirty = true; runLabel();
+  };
+  // ---- 設定欄のタブ
+  function showTab(n) {
+    n = +n; var bs = document.querySelectorAll('#side_tabs button');
+    Array.prototype.forEach.call(bs, function (b) { var on = +b.dataset.t === n; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
+    Array.prototype.forEach.call(document.querySelectorAll('#side .tabp'), function (p) { p.hidden = +p.dataset.t !== n; });
+    if (window.SaboDEMUI && window.SaboDEMUI.draw && n === 1) try { window.SaboDEMUI.draw(); } catch (e) {}
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('#side_tabs button'), function (b) { b.onclick = function () { showTab(b.dataset.t); }; });
+  Array.prototype.forEach.call(document.querySelectorAll('#side .tabnext button'), function (b) { b.onclick = function () { showTab(b.dataset.goto); $('side').scrollTop = 0; }; });
+  // 中の要素（id か summary の文字）を含むタブを開く。説明書の撮影スクリプトや他の画面から使う
+  window.SaboTab = function (what) {
+    var el = typeof what === 'string' ? (document.getElementById(what) || Array.prototype.find.call(document.querySelectorAll('#side summary'), function (s) { return s.textContent.trim().indexOf(what) === 0; })) : what;
+    if (typeof what === 'number') return showTab(what);
+    var p = el && el.closest && el.closest('.tabp'); if (p) showTab(p.dataset.t); return !!p;
   };
   $('reset').onclick = apply; $('apply').onclick = apply; $('saveref').onclick = saveRef;
   $('dem_json').onclick = function () {
@@ -6507,14 +6581,14 @@ table.res th,table.res td{white-space:nowrap}
   };
   $('csv_now').onclick = function () {
     var r = bedToCSV(); if (!r) return;
-    var msg = 'いまの河床を「格子の CSV」欄に入れ、堰堤 ' + r.nd + ' 基を同じ位置・向き・天端標高で表に固定しました。「地形の作り方」を「格子の CSV を読み込む」にして「適用して最初から」を押すと、この河床から計算できます。粒度は初期の河床材料に戻ります。';
+    var msg = 'いまの河床を「格子の CSV」欄に入れ、堰堤 ' + r.nd + ' 基を同じ位置・向き・天端標高で表に固定しました。「地形の作り方」を「格子の CSV を読み込む」にして「▶ 計算開始」を押すと、この河床から計算できます。粒度は初期の河床材料に戻ります。';
     $('csv_info').textContent = msg; $('csv_msg').textContent = msg; $('csv_msg').hidden = false;
   };
   $('csv_save').onclick = function () {
     if (!sim) return;
     saveText('河床_' + Math.round(sim.t / 60) + '分.csv', bedCSV().text);
   };
-  $('dam_fix').onclick = function () { var n = fixDams(); $('dam_note').hidden = false; $('dam_note').style.color = ''; $('dam_note').textContent = n ? 'いまの堰堤 ' + n + ' 基の位置・向き・天端標高・堤長を表に書き込みました。値を変えて「適用して最初から」で動かせます。' : '堰堤がありません。'; };
+  $('dam_fix').onclick = function () { var n = fixDams(); $('dam_note').hidden = false; $('dam_note').style.color = ''; $('dam_note').textContent = n ? 'いまの堰堤 ' + n + ' 基の位置・向き・天端標高・堤長を表に書き込みました。値を変えて「▶ 計算開始」で動かせます。' : '堰堤がありません。'; };
   $('d_adv').onchange = advSwitch;
   $('csv_copy').onclick = function () {
     var t = $('csv_text'); if (!t.value) { $('csv_now').click(); }
@@ -6555,7 +6629,7 @@ table.res th,table.res td{white-space:nowrap}
   $('bz_draw').onclick = function () {
     if (PD) { PD = null; planDrawMsg(); if (sim) drawPlan(); return; }
     if (GM < 2) { $('bz_msg').textContent = '先に「＋ 河床材料を追加」で材料 B などを作ってください。'; return; }
-    if (!sim) { $('bz_msg').textContent = '先に「適用して最初から」で地形を作ってください。'; return; }
+    if (!sim) { $('bz_msg').textContent = '先に「▶ 計算開始」で地形を作ってください。'; return; }
     PD = []; planDrawMsg(); var pc = $('plan').closest('.card'); if (pc && pc.scrollIntoView) pc.scrollIntoView({ block: 'center' });
   };
   $('bz_close').onclick = planDrawClose;
@@ -6739,7 +6813,7 @@ table.res th,table.res td{white-space:nowrap}
     if (!ST.mask) { $('dem_sel').textContent = ''; return; }
     var n = 0; for (var c = 0; c < ST.mask.length; c++) n += ST.mask[c];
     var a = n * ST.D.cs * ST.D.cs / 1e6;
-    $('dem_sel').textContent = '選んだ流域：面積 ' + fmt(a, a < 1 ? 3 : 2) + ' km²、谷頭 ' + ST.heads.length + ' 点、供給点 ' + ST.src.length + ' 点、斜面崩壊 ' + ST.slides.length + ' か所、天然ダム ' + ST.ldams.length + ' か所。「適用して最初から」で計算領域に切り出します。';
+    $('dem_sel').textContent = '選んだ流域：面積 ' + fmt(a, a < 1 ? 3 : 2) + ' km²、谷頭 ' + ST.heads.length + ' 点、供給点 ' + ST.src.length + ' 点、斜面崩壊 ' + ST.slides.length + ' か所、天然ダム ' + ST.ldams.length + ' か所。「▶ 計算開始」で計算領域に切り出します。';
   }
   function topHeads(n) {
     var A = ST.A, hs = ST.heads.slice().sort(function (a, b) { return A.acc[b] - A.acc[a]; }).slice(0, n);
@@ -7477,7 +7551,7 @@ table.res th,table.res td{white-space:nowrap}
     $('rn_uni').hidden = $('rn_mode').value !== 'uniform'; $('rn_grd').hidden = $('rn_mode').value !== 'grid';
   }
   function show(on) {
-    $('g_dem').hidden = !on; $('demcard').hidden = !on; $('dem_more').hidden = !on;
+    $('g_dem').hidden = !on; $('demcard').hidden = !on; $('dem_more').hidden = !on; ['dem_dams'].forEach(function (k) { if ($(k)) $(k).hidden = !on; }); ['hyd_sec', 'dam_sec', 'g_intro'].forEach(function (k) { if ($(k)) $(k).hidden = on; });
     if (on) { draw(); genNote(); }
   }
 

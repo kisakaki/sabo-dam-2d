@@ -704,7 +704,7 @@
     if (k === 'grid') { $('csv_msg').hidden = true; csvInfo(); matchDx(); if (msg) $('csv_info').textContent = msg + '　' + $('csv_info').textContent; }
     else { surveyInfo(); if (msg) $('sv_info').textContent = msg + '　' + $('sv_info').textContent; }
     damRangeNote();
-    $('file_note').hidden = false; $('file_note').textContent = '読み込んだファイル：' + name + '。' + damMsg + '「適用して最初から」を押すと、この地形で計算をやり直します。';
+    $('file_note').hidden = false; $('file_note').textContent = '読み込んだファイル：' + name + '。' + damMsg + '「▶ 計算開始」を押すと、この地形で計算をやり直します。';
   }
   // 格子 CSV の間隔が計算の格子幅の選択肢にあれば、そろえる（補間で地形がなまらないように）
   function matchDx() {
@@ -1985,7 +1985,7 @@
     apply.tkey = tkey; $('file_note').hidden = true;
     var dimKey = sim.Lx + 'x' + sim.Ly;
     build3D(); if (!apply.done || apply.dim !== dimKey) { home3D(true); apply.done = true; } apply.dim = dimKey;
-    refresh(true);
+    refresh(true); if (typeof setDirty === 'function') setDirty(false);
   }
   function loop(now) {
     requestAnimationFrame(loop);
@@ -1996,15 +1996,59 @@
       xsRecord();
       spd = spd * 0.9 + 0.1 * (n / ((performance.now() - t0) / 1000));
       dirty = true;
-      if (sim.phase === 'done') { running = false; $('run').textContent = '計算終了'; refresh(true); }
+      if (sim.phase === 'done') { running = false; runLabel(); refresh(true); }
     }
     if (dirty && now - lastViz > 140) { lastViz = now; computeRange($('v_mode').value); update3D(); drawPlan(); }
     if (dirty && now - lastCh > 450) { lastCh = now; redrawCharts(); drawStats(); snapInfo(); dirty = running; }
     render3D();
   }
+  // ---- 条件が変わったかどうか（「計算開始」ひとつで、変わっていれば適用してから計算する）
+  var condDirty = false;
+  function runLabel() {
+    var b = $('run');
+    if (running) b.textContent = '⏸ 一時停止';
+    else if (condDirty || !sim) b.textContent = '▶ 計算開始';
+    else if (sim.phase === 'done') b.textContent = '▶ もう一度計算';
+    else b.textContent = sim.nstep > 0 ? '▶ 再開' : '▶ 計算開始';
+    $('run_dirty').hidden = !condDirty; $('side_dirty').hidden = !condDirty;
+  }
+  function setDirty(v) { condDirty = v; runLabel(); }
+  var NOT_COND = /^(dm_mode|dm_shade|dm_cont|dm_fit|dm_zin|dm_zout|dm_zbas|dm_zall|dm_matsel|bz_mat|sv_grid|dem_json|csv_save|csv_copy|side_grip)$/;
+  function condEvent(e) {
+    var t = e.target; if (!t || !t.closest) return;
+    if (t.closest('.tabs,.tabnext,summary,#dem_tip')) return;
+    var c = t.closest('input,select,textarea,button'); if (!c) return;
+    if (c.id && NOT_COND.test(c.id)) return;
+    if (e.type === 'click' && c.tagName !== 'BUTTON') return;   // 入力欄は input/change で拾う
+    setDirty(true);
+  }
+  ['input', 'change', 'click'].forEach(function (ev) { $('side').addEventListener(ev, condEvent); $('demcard').addEventListener(ev, condEvent); });
+  (function () {   // DEM の地図：ドラッグ（移動）ではなくクリックで何かを置いたときだけ
+    var dm = $('demmap'), d0 = null; if (!dm) return;
+    dm.addEventListener('pointerdown', function (e) { d0 = [e.clientX, e.clientY]; });
+    dm.addEventListener('pointerup', function (e) { if (d0 && Math.abs(e.clientX - d0[0]) + Math.abs(e.clientY - d0[1]) < 5) setDirty(true); d0 = null; });
+    dm.addEventListener('dblclick', function () { setDirty(true); });
+  })();
   $('run').onclick = function () {
-    if (!sim || sim.phase === 'done') return;
-    running = !running; this.textContent = running ? '⏸ 一時停止' : '▶ 再開'; dirty = true;
+    if (condDirty || !sim || sim.phase === 'done') {
+      var before = sim; apply(); if (!sim || (sim === before && condDirty)) return;   // 読み込めなかったときは止める
+    }
+    running = !running; dirty = true; runLabel();
+  };
+  // ---- 設定欄のタブ
+  function showTab(n) {
+    n = +n; var bs = document.querySelectorAll('#side_tabs button');
+    Array.prototype.forEach.call(bs, function (b) { var on = +b.dataset.t === n; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
+    Array.prototype.forEach.call(document.querySelectorAll('#side .tabp'), function (p) { p.hidden = +p.dataset.t !== n; });
+    if (window.SaboDEMUI && window.SaboDEMUI.draw && n === 1) try { window.SaboDEMUI.draw(); } catch (e) {}
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('#side_tabs button'), function (b) { b.onclick = function () { showTab(b.dataset.t); }; });
+  Array.prototype.forEach.call(document.querySelectorAll('#side .tabnext button'), function (b) { b.onclick = function () { showTab(b.dataset.goto); $('side').scrollTop = 0; }; });
+  // 中の要素（id か summary の文字）を含むタブを開く。説明書の撮影スクリプトや他の画面から使う
+  window.SaboTab = function (what) {
+    var el = typeof what === 'string' ? (document.getElementById(what) || Array.prototype.find.call(document.querySelectorAll('#side summary'), function (s) { return s.textContent.trim().indexOf(what) === 0; })) : what;
+    if (typeof what === 'number') return showTab(what);
+    var p = el && el.closest && el.closest('.tabp'); if (p) showTab(p.dataset.t); return !!p;
   };
   $('reset').onclick = apply; $('apply').onclick = apply; $('saveref').onclick = saveRef;
   $('dem_json').onclick = function () {
@@ -2078,14 +2122,14 @@
   };
   $('csv_now').onclick = function () {
     var r = bedToCSV(); if (!r) return;
-    var msg = 'いまの河床を「格子の CSV」欄に入れ、堰堤 ' + r.nd + ' 基を同じ位置・向き・天端標高で表に固定しました。「地形の作り方」を「格子の CSV を読み込む」にして「適用して最初から」を押すと、この河床から計算できます。粒度は初期の河床材料に戻ります。';
+    var msg = 'いまの河床を「格子の CSV」欄に入れ、堰堤 ' + r.nd + ' 基を同じ位置・向き・天端標高で表に固定しました。「地形の作り方」を「格子の CSV を読み込む」にして「▶ 計算開始」を押すと、この河床から計算できます。粒度は初期の河床材料に戻ります。';
     $('csv_info').textContent = msg; $('csv_msg').textContent = msg; $('csv_msg').hidden = false;
   };
   $('csv_save').onclick = function () {
     if (!sim) return;
     saveText('河床_' + Math.round(sim.t / 60) + '分.csv', bedCSV().text);
   };
-  $('dam_fix').onclick = function () { var n = fixDams(); $('dam_note').hidden = false; $('dam_note').style.color = ''; $('dam_note').textContent = n ? 'いまの堰堤 ' + n + ' 基の位置・向き・天端標高・堤長を表に書き込みました。値を変えて「適用して最初から」で動かせます。' : '堰堤がありません。'; };
+  $('dam_fix').onclick = function () { var n = fixDams(); $('dam_note').hidden = false; $('dam_note').style.color = ''; $('dam_note').textContent = n ? 'いまの堰堤 ' + n + ' 基の位置・向き・天端標高・堤長を表に書き込みました。値を変えて「▶ 計算開始」で動かせます。' : '堰堤がありません。'; };
   $('d_adv').onchange = advSwitch;
   $('csv_copy').onclick = function () {
     var t = $('csv_text'); if (!t.value) { $('csv_now').click(); }
@@ -2126,7 +2170,7 @@
   $('bz_draw').onclick = function () {
     if (PD) { PD = null; planDrawMsg(); if (sim) drawPlan(); return; }
     if (GM < 2) { $('bz_msg').textContent = '先に「＋ 河床材料を追加」で材料 B などを作ってください。'; return; }
-    if (!sim) { $('bz_msg').textContent = '先に「適用して最初から」で地形を作ってください。'; return; }
+    if (!sim) { $('bz_msg').textContent = '先に「▶ 計算開始」で地形を作ってください。'; return; }
     PD = []; planDrawMsg(); var pc = $('plan').closest('.card'); if (pc && pc.scrollIntoView) pc.scrollIntoView({ block: 'center' });
   };
   $('bz_close').onclick = planDrawClose;

@@ -1,6 +1,15 @@
 const { chromium } = require('playwright');
 (async () => {
   const b = await chromium.launch(); const pg = await b.newPage({ viewport: { width: 1500, height: 1100 } });
+  // 設定欄はタブに分かれているので、操作する前にその要素のタブを開く。「適用して最初から」は隠しボタン
+  for (const m of ['fill', 'click', 'selectOption', 'check', 'uncheck', 'setInputFiles', 'dispatchEvent']) {
+    const f = pg[m].bind(pg);
+    pg[m] = async (s, ...a) => {
+      if (typeof s === 'string') await pg.evaluate((q) => { try { const e = document.querySelector(q); if (e && window.SaboTab) window.SaboTab(e); } catch (er) {} }, s).catch(() => {});
+      if (m === 'click' && s === '#apply') return pg.evaluate(() => document.getElementById('apply').click());
+      return f(s, ...a);
+    };
+  }
   const errs = []; pg.on('pageerror', e => errs.push(e.message + ' ' + (e.stack || '').split('\n')[1]));
   await pg.addInitScript(() => { window.__sims = []; const iv = setInterval(() => { const S = window.Sabo2D; if (S && S.Sim && !S.Sim.__w) { const O = S.Sim; const W = function (P) { const s = new O(P); window.__sims.push(s); return s; }; W.prototype = O.prototype; W.__w = 1; S.Sim = W; clearInterval(iv); } }, 5); });
   await pg.goto('file://' + require('path').resolve(__dirname, '../dist/' + (require('fs').existsSync(require('path').resolve(__dirname, '../dist/sabo2d.html')) ? 'sabo2d.html' : 'sabo2d-cdn.html')) + ''); await pg.waitForTimeout(1500);

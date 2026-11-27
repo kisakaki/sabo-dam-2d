@@ -126,7 +126,7 @@
     if (!ST.mask) { $('dem_sel').textContent = ''; return; }
     var n = 0; for (var c = 0; c < ST.mask.length; c++) n += ST.mask[c];
     var a = n * ST.D.cs * ST.D.cs / 1e6;
-    $('dem_sel').textContent = '選んだ流域：面積 ' + fmt(a, a < 1 ? 3 : 2) + ' km²、谷頭 ' + ST.heads.length + ' 点、供給点 ' + ST.src.length + ' 点、斜面崩壊 ' + ST.slides.length + ' か所、天然ダム ' + ST.ldams.length + ' か所。「適用して最初から」で計算領域に切り出します。';
+    $('dem_sel').textContent = '選んだ流域：面積 ' + fmt(a, a < 1 ? 3 : 2) + ' km²、谷頭 ' + ST.heads.length + ' 点、供給点 ' + ST.src.length + ' 点、斜面崩壊 ' + ST.slides.length + ' か所、天然ダム ' + ST.ldams.length + ' か所。「▶ 計算開始」で計算領域に切り出します。';
   }
   function topHeads(n) {
     var A = ST.A, hs = ST.heads.slice().sort(function (a, b) { return A.acc[b] - A.acc[a]; }).slice(0, n);
@@ -864,7 +864,7 @@
     $('rn_uni').hidden = $('rn_mode').value !== 'uniform'; $('rn_grd').hidden = $('rn_mode').value !== 'grid';
   }
   function show(on) {
-    $('g_dem').hidden = !on; $('demcard').hidden = !on; $('dem_more').hidden = !on;
+    $('g_dem').hidden = !on; $('demcard').hidden = !on; $('dem_more').hidden = !on; ['dem_dams'].forEach(function (k) { if ($(k)) $(k).hidden = !on; }); ['hyd_sec', 'dam_sec', 'g_intro'].forEach(function (k) { if ($(k)) $(k).hidden = on; });
     if (on) { draw(); genNote(); }
   }
 

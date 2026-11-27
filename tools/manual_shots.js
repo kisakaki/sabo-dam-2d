@@ -9,6 +9,15 @@ const META = { slidePoly: [[538.6, 1215.4], [544.2, 1217.5], [550.4, 1214.6], [5
 (async () => {
   const b = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
   const pg = await b.newPage({ viewport: { width: 1600, height: 1000 } });
+  // 設定欄はタブに分かれているので、操作する前にその要素のタブを開く。「適用して最初から」は隠しボタン
+  for (const m of ['fill', 'click', 'selectOption', 'check', 'uncheck', 'setInputFiles', 'dispatchEvent']) {
+    const f = pg[m].bind(pg);
+    pg[m] = async (s, ...a) => {
+      if (typeof s === 'string') await pg.evaluate((q) => { try { const e = document.querySelector(q); if (e && window.SaboTab) window.SaboTab(e); } catch (er) {} }, s).catch(() => {});
+      if (m === 'click' && s === '#apply') return pg.evaluate(() => document.getElementById('apply').click());
+      return f(s, ...a);
+    };
+  }
   const errs = []; pg.on('pageerror', e => errs.push(e.message));
   await pg.addInitScript(() => { window.__sims = []; const iv = setInterval(() => { const S = window.Sabo2D; if (S && S.Sim && !S.Sim.__w) { const O = S.Sim; const W = function (P) { const s = new O(P); window.__sims.push(s); return s; }; W.prototype = O.prototype; W.__w = 1; S.Sim = W; clearInterval(iv); } }, 5); });
   const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
@@ -16,7 +25,7 @@ const META = { slidePoly: [[538.6, 1215.4], [544.2, 1217.5], [550.4, 1214.6], [5
   const shot = async (sel, name) => { const e = typeof sel === 'string' ? await pg.$(sel) : sel; if (!e) { log('見つからない', sel); return; } await e.scrollIntoViewIfNeeded(); await W(250); await e.screenshot({ path: path.join(OUT, name) }); log('撮影', name); };
   const ZO = +(process.env.ZO || 3); const shot3d = async (name) => { const dem = await pg.evaluate(() => !!(window.SaboDEMUI && window.SaboDEMUI.state.A && document.getElementById('g_src').value === 'dem')); if (dem) { if (process.env.VEX) await sel('v_vex', process.env.VEX); await pg.click('#v_home'); await W(300); if (process.env.V) { await sel('v_view', process.env.V); await W(600); } for (let k = 0; k < ZO; k++) { await pg.click('#v_zo'); await W(150); } await W(500); } await shot(await card('c3d'), name); };
   const card = async (id) => (await pg.evaluateHandle((id) => document.getElementById(id).closest('.card') || document.getElementById(id), id)).asElement();
-  const det = async (title, open = true) => pg.evaluate(([t, o]) => { for (const d of document.querySelectorAll('details')) { const s = d.querySelector('summary'); if (s && s.textContent.trim().startsWith(t)) { d.open = o; if (o) { let p = d.parentElement; while (p) { if (p.tagName === 'DETAILS') p.open = true; p = p.parentElement; } } return true; } } return false; }, [title, open]);
+  const det = async (title, open = true) => pg.evaluate(([t, o]) => { for (const d of document.querySelectorAll('details')) { const s = d.querySelector('summary'); if (s && s.textContent.trim().startsWith(t)) { d.open = o; if (o && window.SaboTab) window.SaboTab(d); if (o) { let p = d.parentElement; while (p) { if (p.tagName === 'DETAILS') p.open = true; p = p.parentElement; } } return true; } } return false; }, [title, open]);
   const detEl = async (title) => (await pg.evaluateHandle((t) => { for (const d of document.querySelectorAll('details')) { const s = d.querySelector('summary'); if (s && s.textContent.trim().startsWith(t)) return d; } return null; }, title)).asElement();
   const closeAll = () => pg.evaluate(() => { for (const d of document.querySelectorAll('#side details')) d.open = false; });
   const sel = (id, v) => pg.evaluate(([id, v]) => { const e = document.getElementById(id); e.value = v; e.dispatchEvent(new Event('change')); e.dispatchEvent(new Event('input')); }, [id, v]);
