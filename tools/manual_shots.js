@@ -22,7 +22,7 @@ const META = { slidePoly: [[538.6, 1215.4], [544.2, 1217.5], [550.4, 1214.6], [5
   await pg.addInitScript(() => { window.__sims = []; const iv = setInterval(() => { const S = window.Sabo2D; if (S && S.Sim && !S.Sim.__w) { const O = S.Sim; const W = function (P) { const s = new O(P); window.__sims.push(s); return s; }; W.prototype = O.prototype; W.__w = 1; S.Sim = W; clearInterval(iv); } }, 5); });
   const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
   const W = (ms) => pg.waitForTimeout(ms);
-  const shot = async (sel, name) => { const e = typeof sel === 'string' ? await pg.$(sel) : sel; if (!e) { log('見つからない', sel); return; } await e.scrollIntoViewIfNeeded(); await W(250); await e.screenshot({ path: path.join(OUT, name) }); log('撮影', name); };
+  const shot = async (sel, name) => { const e = typeof sel === 'string' ? await pg.$(sel) : sel; if (!e) { log('見つからない', sel); return; } const inSide = await e.evaluate((x) => !!x.closest('#side') && x.id !== 'side' && x.id !== 'side_tabs'); if (inSide) await pg.evaluate(() => { const t = document.querySelector('#side_tabs'); if (t) t.style.position = 'static'; }); await e.scrollIntoViewIfNeeded(); await W(250); await e.screenshot({ path: path.join(OUT, name) }); if (inSide) await pg.evaluate(() => { const t = document.querySelector('#side_tabs'); if (t) t.style.position = ''; }); log('撮影', name); };
   const ZO = +(process.env.ZO || 3); const shot3d = async (name) => { const dem = await pg.evaluate(() => !!(window.SaboDEMUI && window.SaboDEMUI.state.A && document.getElementById('g_src').value === 'dem')); if (dem) { if (process.env.VEX) await sel('v_vex', process.env.VEX); await pg.click('#v_home'); await W(300); if (process.env.V) { await sel('v_view', process.env.V); await W(600); } for (let k = 0; k < ZO; k++) { await pg.click('#v_zo'); await W(150); } await W(500); } await shot(await card('c3d'), name); };
   const card = async (id) => (await pg.evaluateHandle((id) => document.getElementById(id).closest('.card') || document.getElementById(id), id)).asElement();
   const det = async (title, open = true) => pg.evaluate(([t, o]) => { for (const d of document.querySelectorAll('details')) { const s = d.querySelector('summary'); if (s && s.textContent.trim().startsWith(t)) { d.open = o; if (o && window.SaboTab) window.SaboTab(d); if (o) { let p = d.parentElement; while (p) { if (p.tagName === 'DETAILS') p.open = true; p = p.parentElement; } } return true; } } return false; }, [title, open]);
@@ -52,6 +52,7 @@ const META = { slidePoly: [[538.6, 1215.4], [544.2, 1217.5], [550.4, 1214.6], [5
   // ================================================================ A. 標準の画面（数値で作る河道）
   if (want('A')) try {
     await shot('body', 'a00_overview.png');
+    await pg.evaluate(() => document.getElementById('side').scrollTop = 0); await shot('#side_tabs', 'a00_tabs.png');
     await closeAll();
     for (const [t, f] of [['ハイドロ', 'a01_hydro.png'], ['河道地形', 'a02_terrain.png'], ['堰堤の諸元', 'a03_dams.png'], ['透過型', 'a04_open.png'], ['流砂モデル', 'a06_sedmodel.png'], ['計算条件', 'a07_calc.png']]) { await det(t); await shot(await detEl(t), f); await det(t, false); }
     // 粒径：ひな形・材料 B・区間

@@ -35,7 +35,7 @@ h1{font-size:20px;font-weight:700;margin:0;letter-spacing:.02em;text-wrap:balanc
 h2{font-size:13px;font-weight:700;margin:0;letter-spacing:.06em;color:var(--ink2)}
 .top{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px;margin-bottom:12px}
 .top p{margin:0;color:var(--ink2);font-size:13px}
-.app{display:grid;grid-template-columns:var(--sw,330px) minmax(0,1fr);gap:14px;align-items:start}
+.app{display:grid;grid-template-columns:var(--sw,370px) minmax(0,1fr);gap:14px;align-items:start}
 .side{position:relative}
 .grip{position:absolute;top:0;right:-11px;width:8px;height:100%;cursor:col-resize;z-index:5;border-radius:4px;touch-action:none}
 .grip::after{content:"";position:sticky;top:45vh;display:block;margin:0 auto;width:3px;height:44px;border-radius:2px;background:var(--line)}
@@ -59,6 +59,8 @@ table.ed{width:100%;border-collapse:collapse}
 table.ed th{font-size:11px;font-weight:500;color:var(--ink3);text-align:left;padding:0 3px 3px}
 table.ed td{padding:2px 2px}
 table.ed td:last-child{width:26px}
+table.ed input:not([type=checkbox]){min-width:3.9em}table.ed select{min-width:3.4em}#damtab select{min-width:5.2em}table.ed input[type=number]{-moz-appearance:textfield;appearance:textfield}table.ed input[type=number]::-webkit-inner-spin-button,table.ed input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+#side .tabp > details > .body{overflow-x:auto}
 button{font:500 13px var(--sans);border:1px solid var(--line);background:var(--field);color:var(--ink);border-radius:4px;padding:6px 11px;cursor:pointer}
 button:hover{border-color:var(--ink3)}
 button.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700}
