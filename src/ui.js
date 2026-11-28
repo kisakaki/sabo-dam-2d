@@ -457,7 +457,7 @@
     $('bk_h').value = BK.erodH; $('bk_w').value = BK.reposeWet; $('bk_d').value = BK.reposeDry; $('bk_e').value = BK.dryEro; $('bk_cm').value = BK.collapse || 'repose';
     var SC = P.sec || {}; $('sc_bed').checked = !!SC.bed; $('sc_mom').checked = !!SC.mom; $('sc_N').value = SC.Nstar || 11.5; $('sc_hr').value = SC.hrMax || 0.05;
     $('bo_L').value = BO.L; $('bo_m').value = BO.mode || 'parallel'; $('bo_s').value = BO.size || 1; trSwitch();
-    $('c_dx').value = String(P.dx); $('c_mf').value = P.morfac; $('c_ord').value = String(P.order);
+    $('c_dx').value = String(P.dx); $('c_tend').value = P.tEnd > 0 ? +(P.tEnd / 60).toFixed(2) : ''; $('c_mf').value = P.morfac; $('c_ord').value = String(P.order);
     $('o_ev').value = P.snapEvery == null ? 10 : +(P.snapEvery / 60).toFixed(2);
     $('hd_t0').value = H.t0 == null ? 60 : H.t0; $('hd_tr').value = H.tRise || 30; $('hd_tf').value = H.tFall || 120; $('hd_c').value = H.Cd == null ? 0.4 : H.Cd; $('hd_iu').value = H.Iup || 0;
     $('hd_td').value = H.mode === 'debris' ? H.duration / 60 : 10;
@@ -582,6 +582,7 @@
     p.bank = { erodH: num('bk_h', 0, 0, 100), reposeWet: num('bk_w', 30, 15, 60), reposeDry: num('bk_d', 50, 15, 80), dryEro: num('bk_e', 0, 0, 1), collapse: $('bk_cm').value };
     p.sec = { bed: $('sc_bed').checked, mom: $('sc_mom').checked, Nstar: num('sc_N', 11.5, 0, 50), hrMax: num('sc_hr', 0.05, 0.005, 0.2) };
     p.boulders = { L: num('bo_L', 0, 0, 10000), mode: $('bo_m').value, size: num('bo_s', 1, 1, 4) };
+    p.tEnd = +$('c_tend').value > 0 ? +$('c_tend').value * 60 : 0;
     p.morfac = num('c_mf', 4, 1, 50); p.order = +$('c_ord').value || 2;
     p.snapEvery = num('o_ev', 10, 0, 100000) * 60;
     if ($('g_src').value === 'dem') { var dr = window.SaboDEMUI.params(p); Bmax = dr.Bmax; }

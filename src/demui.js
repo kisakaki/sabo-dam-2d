@@ -864,7 +864,7 @@
     $('rn_uni').hidden = $('rn_mode').value !== 'uniform'; $('rn_grd').hidden = $('rn_mode').value !== 'grid';
   }
   function show(on) {
-    $('g_dem').hidden = !on; $('demcard').hidden = !on; $('dem_more').hidden = !on; ['dem_dams'].forEach(function (k) { if ($(k)) $(k).hidden = !on; }); ['hyd_sec', 'dam_sec', 'g_intro'].forEach(function (k) { if ($(k)) $(k).hidden = on; });
+    $('g_dem').hidden = !on; $('demcard').hidden = !on; $('dem_more').hidden = !on; ['dem_dams'].forEach(function (k) { if ($(k)) $(k).hidden = !on; }); ['hyd_sec', 'dam_sec', 'g_intro', 'c_tend_row'].forEach(function (k) { if ($(k)) $(k).hidden = on; }); if ($('c_demdur_row')) $('c_demdur_row').hidden = !on;
     if (on) { draw(); genNote(); }
   }
 

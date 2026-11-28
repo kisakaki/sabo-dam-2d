@@ -247,7 +247,6 @@ table.res th,table.res td{white-space:nowrap}
         <div class="row"><label for="dem_chw">侵食できる谷筋の幅<span class="u">m</span></label><input type="number" id="dem_chw" step="1" min="1" value="10"></div>
         <div class="row"><label for="dem_soil">斜面の土層の厚さ<span class="u">m</span></label><input type="number" id="dem_soil" step="0.1" min="0.1" value="1"></div>
         <div class="row"><label for="dem_ks">土層の飽和透水係数<span class="u">m/s</span></label><input type="number" id="dem_ks" step="0.00001" min="0" value="0.00001"></div>
-        <div class="row"><label for="dem_dur">計算時間<span class="u">分</span></label><input type="number" id="dem_dur" step="5" min="1" value="30"></div>
         <div class="row"><label for="dem_pit" title="河床が 4 方向の隣のどれよりもこの深さ以上低い 1 セルの穴を、隣の土砂で埋める（土砂の量は変えない数値処理）。0 で埋めない">1 セルの穴を埋める深さ<span class="u">m（0＝しない）</span></label><input type="number" id="dem_pit" step="0.1" min="0" value="0.5"></div>
         <label class="note" style="display:flex;gap:6px;align-items:center" title="流域界のすぐ外の 1 列を、元の地形（その格子の中の最高値）の高さにして、入った水と土砂を抜く。流域界（分水界）を越えて外へ流れる水だけが出ていく"><input type="checkbox" id="dem_edge" checked>流域界から外へ流れる水を抜く</label>
         <div class="row"><label for="dem_out" title="自由流出：出口の先の水路に入った水と土砂をその場で抜く（出口で水がたまらない）。水路を延ばす：出口の勾配の水路を右端まで延ばして流す（以前の方法。水路の上の流れも計算する）">出口の扱い</label><select id="dem_out"><option value="sink">自由流出（出口の先で抜く）</option><option value="channel">出口の先に水路を延ばす</option></select></div>
@@ -477,7 +476,10 @@ table.res th,table.res td{white-space:nowrap}
       <p class="note">動かない巨礫を、水みち（初期の澪筋。なければ谷底）の両岸に間隔ごとに置きます。そのセルは侵食も堆積もしません。高橋・里深・奥村（1996）の水路実験では、間隔 L が水みち幅 B の 9/4 倍より狭いと水みちの拡幅・分裂が抑えられ、流路が固定されました。<b>適用条件</b>：水路実験から得た目安で、巨礫が流れで動かないことが前提です。巨礫の大きさは格子幅で決まり、実際の礫の大きさは表せません。</p>
     </div></details>
 
-    <details><summary>計算条件</summary><div class="body">
+    <details open><summary>計算条件</summary><div class="body">
+      <div class="row" id="c_tend_row"><label for="c_tend" title="空欄ならハイドロの終わり（継続時間、表なら最後の時刻）まで計算します。ハイドロより長くすると、その後は基底流量（三角形・土石流の一波）や表の最後の値が続きます。">計算時間<span class="u">分</span></label><input type="number" id="c_tend" step="10" min="1" placeholder="ハイドロまで"></div>
+      <div class="row" id="c_demdur_row" hidden><label for="dem_dur" title="DEM の流域の計算時間。雨や供給点のハイドロとは別に決めます。">計算時間<span class="u">分</span></label><input type="number" id="dem_dur" step="5" min="1" value="30"></div>
+      <p class="note" id="c_tend_note">ハイドロの時間とは別に決められます。空欄ならハイドロの終わりまで。長くすると、出水後の河床の変化も見られます。</p>
       <div class="row"><label for="c_dx">格子幅<span class="u">m</span></label><select id="c_dx"><option>1.5</option><option>2</option><option>2.5</option><option>3</option><option>4</option></select></div>
       <div class="row"><label for="c_mf">河床変動の加速係数</label><input type="number" id="c_mf" step="1" min="1" max="50"></div>
       <div class="row"><label for="c_ord">空間精度</label><select id="c_ord"><option value="2">2次（推奨）</option><option value="1">1次</option></select></div>
@@ -1570,6 +1572,7 @@ table.res th,table.res td{white-space:nowrap}
       boulders: { L: 0, mode: 'parallel', size: 1 },   // L：配置間隔 [m]（0 で置かない）、mode：'parallel' つがい｜'zigzag' 千鳥、size：セル数
       activeLayer: 0,    // 交換層厚 [m]（0 のとき自動：最大粒径）
       layerTh: 0.25,     // 堆積層 1 層の厚さ [m]
+      tEnd: 0,           // 計算時間 [s]（0 ならハイドロの終わりまで）
       morfac: 4,         // 河床変動の加速係数（1 = 加速なし）
       snapEvery: 600,    // 時間ごとの結果を記録する間隔 [s]（出水の時刻）。0 で記録しない
       // ---- 透過型堰堤（スリット・鋼製）の共通設定
@@ -2252,6 +2255,7 @@ table.res th,table.res td{white-space:nowrap}
   // ------------------------------------------------------------ ハイドログラフ
   Sim.prototype.duration = function () {
     if (this.demMode && this.P.dem && this.P.dem.duration > 0) return this.P.dem.duration;
+    if (this.P.tEnd > 0) return this.P.tEnd;   // 計算時間（ハイドロとは別に決めたとき）
     var H = this.P.hydro;
     if (H.mode === 'table' && H.table && H.table.length > 1) return H.table[H.table.length - 1][0];
     return H.duration;
@@ -4918,7 +4922,7 @@ table.res th,table.res td{white-space:nowrap}
     $('bk_h').value = BK.erodH; $('bk_w').value = BK.reposeWet; $('bk_d').value = BK.reposeDry; $('bk_e').value = BK.dryEro; $('bk_cm').value = BK.collapse || 'repose';
     var SC = P.sec || {}; $('sc_bed').checked = !!SC.bed; $('sc_mom').checked = !!SC.mom; $('sc_N').value = SC.Nstar || 11.5; $('sc_hr').value = SC.hrMax || 0.05;
     $('bo_L').value = BO.L; $('bo_m').value = BO.mode || 'parallel'; $('bo_s').value = BO.size || 1; trSwitch();
-    $('c_dx').value = String(P.dx); $('c_mf').value = P.morfac; $('c_ord').value = String(P.order);
+    $('c_dx').value = String(P.dx); $('c_tend').value = P.tEnd > 0 ? +(P.tEnd / 60).toFixed(2) : ''; $('c_mf').value = P.morfac; $('c_ord').value = String(P.order);
     $('o_ev').value = P.snapEvery == null ? 10 : +(P.snapEvery / 60).toFixed(2);
     $('hd_t0').value = H.t0 == null ? 60 : H.t0; $('hd_tr').value = H.tRise || 30; $('hd_tf').value = H.tFall || 120; $('hd_c').value = H.Cd == null ? 0.4 : H.Cd; $('hd_iu').value = H.Iup || 0;
     $('hd_td').value = H.mode === 'debris' ? H.duration / 60 : 10;
@@ -5043,6 +5047,7 @@ table.res th,table.res td{white-space:nowrap}
     p.bank = { erodH: num('bk_h', 0, 0, 100), reposeWet: num('bk_w', 30, 15, 60), reposeDry: num('bk_d', 50, 15, 80), dryEro: num('bk_e', 0, 0, 1), collapse: $('bk_cm').value };
     p.sec = { bed: $('sc_bed').checked, mom: $('sc_mom').checked, Nstar: num('sc_N', 11.5, 0, 50), hrMax: num('sc_hr', 0.05, 0.005, 0.2) };
     p.boulders = { L: num('bo_L', 0, 0, 10000), mode: $('bo_m').value, size: num('bo_s', 1, 1, 4) };
+    p.tEnd = +$('c_tend').value > 0 ? +$('c_tend').value * 60 : 0;
     p.morfac = num('c_mf', 4, 1, 50); p.order = +$('c_ord').value || 2;
     p.snapEvery = num('o_ev', 10, 0, 100000) * 60;
     if ($('g_src').value === 'dem') { var dr = window.SaboDEMUI.params(p); Bmax = dr.Bmax; }
@@ -7553,7 +7558,7 @@ table.res th,table.res td{white-space:nowrap}
     $('rn_uni').hidden = $('rn_mode').value !== 'uniform'; $('rn_grd').hidden = $('rn_mode').value !== 'grid';
   }
   function show(on) {
-    $('g_dem').hidden = !on; $('demcard').hidden = !on; $('dem_more').hidden = !on; ['dem_dams'].forEach(function (k) { if ($(k)) $(k).hidden = !on; }); ['hyd_sec', 'dam_sec', 'g_intro'].forEach(function (k) { if ($(k)) $(k).hidden = on; });
+    $('g_dem').hidden = !on; $('demcard').hidden = !on; $('dem_more').hidden = !on; ['dem_dams'].forEach(function (k) { if ($(k)) $(k).hidden = !on; }); ['hyd_sec', 'dam_sec', 'g_intro', 'c_tend_row'].forEach(function (k) { if ($(k)) $(k).hidden = on; }); if ($('c_demdur_row')) $('c_demdur_row').hidden = !on;
     if (on) { draw(); genNote(); }
   }
 

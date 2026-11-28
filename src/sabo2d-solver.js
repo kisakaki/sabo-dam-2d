@@ -123,6 +123,7 @@
       boulders: { L: 0, mode: 'parallel', size: 1 },   // L：配置間隔 [m]（0 で置かない）、mode：'parallel' つがい｜'zigzag' 千鳥、size：セル数
       activeLayer: 0,    // 交換層厚 [m]（0 のとき自動：最大粒径）
       layerTh: 0.25,     // 堆積層 1 層の厚さ [m]
+      tEnd: 0,           // 計算時間 [s]（0 ならハイドロの終わりまで）
       morfac: 4,         // 河床変動の加速係数（1 = 加速なし）
       snapEvery: 600,    // 時間ごとの結果を記録する間隔 [s]（出水の時刻）。0 で記録しない
       // ---- 透過型堰堤（スリット・鋼製）の共通設定
@@ -805,6 +806,7 @@
   // ------------------------------------------------------------ ハイドログラフ
   Sim.prototype.duration = function () {
     if (this.demMode && this.P.dem && this.P.dem.duration > 0) return this.P.dem.duration;
+    if (this.P.tEnd > 0) return this.P.tEnd;   // 計算時間（ハイドロとは別に決めたとき）
     var H = this.P.hydro;
     if (H.mode === 'table' && H.table && H.table.length > 1) return H.table[H.table.length - 1][0];
     return H.duration;

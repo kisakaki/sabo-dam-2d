@@ -143,6 +143,7 @@ def default_params():
         'boulders': {'L': 0.0, 'mode': 'parallel', 'size': 1},
         'activeLayer': 0.0,    # 交換層厚（0 のとき最大粒径）
         'layerTh': 0.25,
+        'tEnd': 0.0,           # 計算時間 [s]（0 ならハイドロの終わりまで）
         'morfac': 4.0,         # 河床変動の加速係数
         'snapEvery': 600.0,    # 時間ごとの結果を記録する間隔 [s]（出水の時刻）。0 で記録しない
         'gridDamp': 0.3,
@@ -1020,6 +1021,8 @@ class Sim:
     def duration(self):
         if getattr(self, 'demMode', False) and ((self.P.get('dem') or {}).get('duration') or 0) > 0:
             return float(self.P['dem']['duration'])
+        if (self.P.get('tEnd') or 0) > 0:   # 計算時間（ハイドロとは別に決めたとき）
+            return float(self.P['tEnd'])
         H = self.P['hydro']
         if H['mode'] == 'table' and len(H.get('table') or []) > 1:
             return H['table'][-1][0]
@@ -3792,6 +3795,7 @@ def main(argv=None):
     ap.add_argument('--qbase', type=float, help='基底流量 [m3/s]')
     ap.add_argument('--minutes', type=float, help='出水の継続時間 [分]（ピークは 1/3 の時刻）')
     ap.add_argument('--cs-feed', type=float, help='供給土砂濃度 Qs/Q [%%]')
+    ap.add_argument('--tend', type=float, help='計算時間 [分]（ハイドロとは別に決める。省略するとハイドロの終わりまで）')
     ap.add_argument('--morfac', type=float, help='河床変動の加速係数')
     ap.add_argument('--noneq', action='store_true', help='非平衡の流砂モデル（侵食・堆積速度式。高橋・里深 1999）を使う')
     ap.add_argument('--bank-h', type=float, help='侵食される側岸の高さ [m]（谷底より上の壁をこの高さまで掘れるようにする。0 で側岸は固定）')
@@ -3863,6 +3867,8 @@ def main(argv=None):
         P['transport'] = 'debris'
     if getattr(a, 'cs_feed', None) is not None:
         H['Cs'] = a.cs_feed / 100
+    if a.tend:
+        P['tEnd'] = a.tend * 60.0
     if a.morfac:
         P['morfac'] = a.morfac
     if a.noneq:
